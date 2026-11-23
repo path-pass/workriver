@@ -56,23 +56,8 @@ describe('watching the workspace', () => {
     }
   })
 
-  it('still tries the initial read if the stream fails, then reads again on reconnect', async () => {
-    const stop = watchWorkspace(() => {}, () => {}, () => false)
-    try {
-      stream.onerror?.()
-      await settle()
-      expect(read).toHaveBeenCalledTimes(1)
-      stream.onopen?.()
-      await settle()
-      expect(read).toHaveBeenCalledTimes(2)
-    } finally {
-      stop()
-    }
-  })
-
   it('reads nothing while neither the sound nor notifications is on, and once when shown', async () => {
     const stop = watchWorkspace(() => {}, () => {}, () => false)
-    stream.onopen?.()
     await settle()
     expect(read).toHaveBeenCalledTimes(1)
     hide(true)
@@ -88,7 +73,6 @@ describe('watching the workspace', () => {
   it('reads when told of a change while one is on, at most once every few seconds', async () => {
     const seen = vi.fn()
     const stop = watchWorkspace(seen, () => {}, () => true)
-    stream.onopen?.()
     await settle()
     hide(true)
     await vi.advanceTimersByTimeAsync(HIDDEN_READ)

@@ -600,7 +600,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
             }
         }
     };
-    let code = if cache.records_only { String::new() } else { code_of(&commits, &files, net.as_ref()) };
+    let code = code_of(&commits, &files, net.as_ref());
     // What it changes, for the files another open unit changes too: from the texts, which a
     // bare build leaves out of what it shows but has read (`Cache::nets`, `Cache::commits`;
     // another machine's as the background read them, in full).

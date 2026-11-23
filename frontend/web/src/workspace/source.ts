@@ -61,7 +61,7 @@ async function loadWorkspace(): Promise<Workspace> {
  */
 export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => void, awake: () => boolean): () => void {
   let stopped = false
-  let opened = false, interrupted = false
+  let opened = false
   // At most one read at a time: changes told meanwhile make one more read after it. A hidden
   // tab reads nothing unless `awake`, and then at most once every HIDDEN_READ; it reads once
   // when shown again, if anything changed meanwhile.
@@ -102,11 +102,11 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
   events.addEventListener('changed', get)
   // Reopening catches up after a disconnect; the first open does so if Git was pending.
   events.onopen = () => {
-    const refresh = opened || interrupted || shown?.gitPending
+    const refresh = opened || shown?.gitPending
     opened = true
     if (refresh) get()
   }
-  events.onerror = () => { if (!stopped) { interrupted = true; onDown() } }
+  events.onerror = () => { if (!stopped) onDown() }
   return () => { stopped = true; clearTimeout(later); events.close(); document.removeEventListener('visibilitychange', visible) }
 }
 

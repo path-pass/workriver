@@ -28,7 +28,7 @@ pub(in crate::server) enum BrowserGit {
     Ready,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::server) enum Snapshot {
     Full,
     Light,
@@ -262,9 +262,9 @@ impl App {
             views::hide(&mut ws, state);
         }
         let ms = started.elapsed().as_millis() as u64;
-        // A records-only snapshot runs no Git itself, even if another thread does.
-        let git = if cache.records_only { 0 } else { scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls };
-        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git, slow = ms >= crate::common::config::defaults::SLOW_MS);
+        // Concurrent warmup can change the global counter during a records-only snapshot.
+        let git = (!cache.records_only).then(|| scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls);
+        tracing::info!(target: "perf", kind = "snapshot", snapshot_kind = ?kind, trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git, slow = ms >= crate::common::config::defaults::SLOW_MS);
         ws
     }
 }
