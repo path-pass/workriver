@@ -115,58 +115,17 @@ impl App {
                 tracing::warn!("cannot record a pick-up: {e}");
             }
         }
-        // Held questions whose agent is free now are given to it; one whose agent is gone fails.
+        // Everything held is tried again against this read (`give`).
         if let Some(agents) = &now {
-            // As `hand` finds them (`App::by_session`), worked out before `held` is taken: one
-            // held meanwhile goes by its session.
-            let by_name: HashSet<(For, String)> = {
-                let held: Vec<(For, String)> = self.held.lock().unwrap().iter().map(|h| (h.kind, h.to.clone())).collect();
-                held.into_iter().filter(|(kind, to)| !self.by_session(*kind, to)).collect()
-            };
-            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (by_name.contains(&(h.kind, h.to.clone())) && a.name == h.to)).map(|a| a.state);
-            let ready: Vec<Held> = {
-                let mut held = self.held.lock().unwrap();
-                let at = std::time::Instant::now();
-                // A notice was never kept from an agent at work: only from a blind one, which
-                // `hand` checks again.
-                let free = |h: &Held| {
-                    h.not_ready.is_some_and(|end| end > at)
-                        || match h.kind {
-                            For::Notice => !matches!(state(h), Some(AgentState::Blocked | AgentState::Unknown)),
-                            // Only to an agent listed and free: whether it is gone is
-                            // `discussions_gone`'s to say, from a complete read.
-                            For::Discussion => matches!(state(h), Some(AgentState::Idle | AgentState::Done)),
-                            For::Duty => matches!(state(h), Some(s) if !matches!(s, AgentState::Blocked | AgentState::Unknown)),
-                            _ => !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown)),
-                        }
-                };
-                let (ready, wait): (Vec<Held>, Vec<Held>) = held.drain(..).partition(free);
-                *held = wait;
-                ready
-            };
-            for h in ready {
-                match state(&h) {
-                    None => match h.kind {
-                        For::Message | For::Broadcast => self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
-                        For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
-                        For::Review => self.review_failed(&h.question, &format!("{} closed before it could be given the command", h.name)),
-                        For::Notice => {
-                            let gone = RuntimeError::NoAgent(h.name.clone());
-                            self.told(h, Err(gone))
-                        }
-                        // Not listed is not gone: only `discussions_gone`, from a complete read, says
-                        // that; a duty waits for its manager. Both are held again.
-                        For::Discussion | For::Duty => self.held.lock().unwrap().push(Held { not_ready: None, ..h }),
-                    },
-                    Some(_) => self.hand(h),
-                }
+            let held = std::mem::take(&mut *self.held.lock().unwrap());
+            for h in held {
+                self.give(h, Ok(agents));
             }
             let gone = crate::server::conversations::gone_from(&mut self.seen_on.lock().unwrap(), agents, &self.readable(agents));
             *self.gone.lock().unwrap() = gone.clone();
             self.discussions_gone(&gone);
             self.discussions_over();
         }
-        self.give_notes();
         // Questions whose temporary agent has not answered in time.
         let now = std::time::Instant::now();
         let late: Vec<String> = self.deadlines.lock().unwrap().iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
@@ -272,7 +231,7 @@ impl App {
         // delivered, so the page says so and the user can send it again.
         let held = got(app.store.lock().unwrap().held_deliveries()).ok().flatten().unwrap_or_default();
         for d in held {
-            let delivery = Delivery { step: DeliveryStep::NotDelivered, reason_code: Some(ReasonCode::Restarted), reason: Some("the service restarted while it waited for its receiver's blind task".into()), ..d.delivery };
+            let delivery = Delivery { step: DeliveryStep::NotDelivered, reason_code: Some(ReasonCode::Restarted), reason: Some("the service restarted while it was held for its receiver".into()), ..d.delivery };
             let body = Body::DeliveryUpdated { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery };
             if let Err(e) = app.store.lock().unwrap().record(&Principal::Service, body) {
                 tracing::warn!("cannot record a delivery: {e}");

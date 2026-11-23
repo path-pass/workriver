@@ -287,8 +287,11 @@ fn one_writer_and_only_keys() {
     assert_eq!(pressed(&t).len(), 1);
 
     // A press while a message is being typed into the same agent: refused, never between.
-    // (A requirement added to its task is told it whatever its state; its screen is read
-    // first, under the agent's writer: held here for a while.)
+    // (The runtime calls it idle, its screen still shows the dialog: a requirement added to
+    // its task is tried at once, and its screen is read first, under the agent's writer:
+    // held here for a while. The dialog then holds the note.)
+    t.fake.agents.lock().unwrap()[1].1.state = Idle;
+    wait_until("waiting on its screen", || waits_on(&t, "s-a").is_some_and(|(_, screen)| screen));
     let (_, s) = screen(&t, "s-a");
     let reading = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
     *t.fake.on_read.lock().unwrap() = Some(Box::new({

@@ -21,7 +21,7 @@ pub(in crate::server) fn gone_from(seen: &mut HashMap<String, Option<String>>, l
 }
 
 /// Why a discussion's question is over (its result's gate was submitted), if it is.
-fn over(state: &core::State, q: &core::Question) -> Option<String> {
+pub(super) fn over(state: &core::State, q: &core::Question) -> Option<String> {
     let g = state.result_gate(&q.unit, q.task).filter(|g| g.state == core::TaskState::Done)?;
     Some(format!("its gate {}#{} was submitted: the discussion of {}#{} is over", q.unit, g.n, q.unit, q.task))
 }
@@ -44,12 +44,10 @@ impl App {
         let Some(session) = all.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone()) else {
             return self.drop_question(id, ReasonCode::AgentGone, &format!("{}#{} has no agent", q.unit, q.task));
         };
-        // Named as the runtime lists it, else as last recorded.
-        let listed = self.live().unwrap_or_default().into_iter().find(|a| a.session == session).map(|a| a.name);
-        let name = listed.or_else(|| all.name_of(&session).map(str::to_string)).unwrap_or_else(|| session.clone());
         let text = prompts::discussion(&all, &q, &self.home);
+        let h = Held::new(&all, For::Discussion, id, &session, text, None);
         drop(all);
-        self.hand(Held { question: id.into(), kind: For::Discussion, to: session, name, text, not_ready: None, about: None });
+        self.hand(h);
     }
 
     /// A question of a discussion was typed into its agent: recorded as given to it, an
@@ -100,34 +98,16 @@ impl App {
         left
     }
 
-    /// Whether a discussion's question may still be given, checked right before each send:
-    /// open, its gate not submitted (then it fails now). None: the records cannot be read, so
-    /// it waits.
-    pub(in crate::server) fn still_asked(&self, id: &str) -> Option<bool> {
-        let all = got(self.store.lock().unwrap().recorded()).ok().flatten()?;
-        let q = all.question(id).ok().filter(|q| q.open())?.clone();
-        let ended = over(&all, &q);
-        drop(all);
-        match ended {
-            Some(why) => {
-                self.drop_question(id, ReasonCode::GateSubmitted, &why);
-                Some(false)
-            }
-            None => Some(true),
-        }
-    }
-
     /// The manager hears of a discussion what it must act on: the result amended while its
     /// gate is not submitted, and the conclusion. The rest it reads in `task show`.
-    /// Given through `hand` (`For::Duty`): held while the manager is on a blind task, waits for
-    /// a person, is not listed or cannot be sent to, and given once it can take it.
+    /// Given through `hand`: held until the manager can take it.
     pub(in crate::server) fn tell_of_discussion(&self, e: &core::Event) {
         let live = self.live();
         let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
-        let to = delivery::discussed(&all, live.as_deref(), e);
+        let held: Vec<Held> = delivery::discussed(&all, live.as_deref(), e).into_iter().map(|(agent, text)| Held::notice(&all, &agent, text, None)).collect();
         drop(all);
-        for (agent, text) in to {
-            self.hand(Held::duty(agent, text));
+        for h in held {
+            self.hand(h);
         }
     }
 }

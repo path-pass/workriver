@@ -189,18 +189,23 @@ the new manager and the one it replaced are told (`tell_of_seat`). And a project
 `project.added` and its first `workspace.created` are recorded under one lock of the store.
 A seat that is not the one the event's `replaces` names is refused by the rules and answered
 409 (`core::SEAT_CHANGED`). No runtime is asked while the store is locked. A requirement added to a task (`task.noted`) is
-told apart: the append handler calls `App::noted` after the commit, which tells the task's
-agent (found in the runtime now, not the last poll) and gives how far that got, answered
-beside the recorded event. An agent not found while machines are followed may have started
-on one since it was last read: the answer says it is not told yet, and a thread of its own
-(`find_noted`) reads the machines again (`Machines::refresh`, each on its own thread) and
-tells it after the first read that shows it, so no request ever waits for a machine. One whose agent is
-on a blind task is kept as the event and the agent it is for (`App.notes`), not as text:
-each poll works it out again (`give_notes`), so it is given only while the task is still
-started and with that agent. It goes out by `App::type_at` (its place from `App::place_of`,
-then `send_at` there): to that session on that machine and no other (a seated manager: at
-the place its seat is held to only), files as that machine can get them. A held
-notice (`For::Notice`) is matched and sent the same way, by session only. How a failed read is handled before and after the commit is in
+told apart: the append handler calls `App::noted` after the commit, which finds the task's
+agent (in the runtime now, not the last poll) and hands it the note (`For::Note`), and gives
+how far that got, answered beside the recorded event.
+
+Everything that is typed into an agent and may have to wait goes one way: `App::hand` (a
+read of the agents now, then `App::give`), and at each poll `give` again for everything
+held (`App.held`), against the poll's own read. `give` is five steps for every kind: still
+wanted (the appointment its receiver held when it was handed, `Held.seat`, from the records
+read that built the text; a message's own appointment; a discussion's question still open;
+a note's task still started and with that agent), not blind, its receiver in that read (by
+session alone, but a temporary agent's question and review by the name workriver gave it; a
+seated session only where its seat is held to), its state (one that waits for a person or
+is not ready is held; a discussion's question also while it works), then typed by
+`App::type_at` under `discussing` (a discussion's question) or `appointing` (everything
+else), still wanted. What differs by kind is `For::policy`; what has a record of its own
+ends in it (`ended`), what has none is never dropped while it is still wanted (held, and
+typed again). How a failed read is handled before and after the commit is in
 AGENTS.md (Layout).
 
 ## The outer crate
@@ -250,7 +255,7 @@ crates/workriver/
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
-│   │   │   ├── record.rs             # App::record/complete, a seating's read and what follows it, noted/give_notes,
+│   │   │   ├── record.rs             # App::record/complete, a seating's read and what follows it, noted,
 │   │   │   │                         # post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.

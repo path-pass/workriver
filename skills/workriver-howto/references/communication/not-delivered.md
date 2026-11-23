@@ -16,8 +16,11 @@ Why, as the page says it:
 - *the seat was given anew* - the message was for an earlier manager of the workspace and
   is never passed on to the next: the user writes again.
 - *Herdr is not reachable* - the service must run where it reaches Herdr's socket.
-- *Herdr refused it* - the agent was starting, or waits at a question or approval in its
-  terminal: sort that out there.
+- *Held* (not "not delivered") - the agent waits at a question or approval in its terminal,
+  is starting, or is on a blind task: it is given by itself once the agent can take it;
+  answer the dialog in its terminal (or from the page) if that is what it waits on.
+- *Herdr refused it* - the send failed in a way that may have typed part of it: it is not
+  sent twice; paste it by hand (below).
 
 Nothing is lost: the decision is recorded either way and `workriver board` shows it; the
 user can paste the message by hand with "Copy message" on the page.

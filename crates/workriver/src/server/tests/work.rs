@@ -785,10 +785,10 @@ fn a_task_note_is_told_and_shown() {
     // The blind task delivered, what was held is given.
     rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
     wait_until("the held note is given", || added("s-rev").iter().any(|m| m.contains("u1#4 \"Changelog\"")));
-    // Its agent gone: not told, and nobody else is, whatever its name.
+    // Its agent not listed: held for it, and nobody else is told, whatever its name.
     fake.agents.lock().unwrap().retain(|(p, _)| p != "p3");
     let out = boss.append("", "task.noted", note(1, "And the docs")).unwrap();
-    assert!(crate::cli::made(&out).starts_with("added to u1#1; its agent was not told: fix is not running"), "{out}");
+    assert!(crate::cli::made(&out).starts_with("added to u1#1; not told yet: fix is not running"), "{out}");
     assert!(added("s-fix").len() == 2 && sent("s-decoy").is_empty(), "{:?}", fake.sent.lock().unwrap());
 
     // Delivered: no more.

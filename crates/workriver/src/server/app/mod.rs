@@ -23,6 +23,7 @@ use crate::server::access::auth::Auth;
 use crate::server::access::caller::Callers;
 use crate::server::access::pins::Pins;
 use crate::server::delivery;
+pub(in crate::server) use crate::server::delivery::named;
 use crate::server::files;
 use crate::server::machines::metrics::Metrics;
 use crate::server::views::{self, Cache};
@@ -51,12 +52,8 @@ pub(super) struct App {
     pub(super) pending: Mutex<Vec<Pending>>,
     /// Questions waiting for their temporary agent's answer, with when they give up.
     pub(super) deadlines: Mutex<Vec<(String, std::time::Instant)>>,
-    /// Questions whose agent waits for a person in its terminal: given once it is free.
+    /// What waits until its receiver can take it (`App::hand`, `App::give`): tried at each poll.
     pub(super) held: Mutex<Vec<Held>>,
-    /// Requirements added to tasks whose agent is not told yet (it is on a blind task): the
-    /// event, and the agent it is for. Looked at again at each poll (`App::give_notes`).
-    // ponytail: in memory, like `held`; after a restart the agent reads it at `task show`.
-    pub(super) notes: Mutex<Vec<(core::Event, delivery::Receiver)>>,
     /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
     pub(super) idle: Mutex<Vec<(String, String, std::time::Instant)>>,
     pub(super) waits: Waits,
@@ -277,13 +274,6 @@ pub(in crate::server) fn untyped(e: RuntimeError) -> RuntimeError {
         RuntimeError::Failed(why) => RuntimeError::Unreachable(why),
         e => e,
     }
-}
-
-/// The live agents `agent` names: those with this session, else those of this name. Each
-/// caller says what none and several mean to it.
-pub(in crate::server) fn named<'a>(live: &'a [RuntimeAgent], agent: &str) -> Vec<&'a RuntimeAgent> {
-    let exact: Vec<&RuntimeAgent> = live.iter().filter(|a| a.session == agent).collect();
-    if exact.is_empty() { live.iter().filter(|a| a.name == agent).collect() } else { exact }
 }
 
 /// Refuses a name several running agents have, listing them by session.
