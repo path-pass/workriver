@@ -67,19 +67,13 @@ impl App {
     /// place resolved once, its screen read there, and the message typed at that same place;
     /// a screen that shows a question takes no message (`Blocked`; the agent is marked waiting
     /// on its screen). Until the message is asked for nothing is typed: a read that fails then
-    /// (the runtime does not answer, or its answer failed) is that error, and the message
-    /// waits. Only a runtime that cannot resolve a session at all (`Unsupported`) types it as
-    /// it always did.
-    pub(in crate::server) fn type_in(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
-        self.type_at(session, machine, None, text)
-    }
-
-    /// As `type_in`; with `pin` (a seated manager's place, `App::send_seated`), at that place
-    /// and no other: its screen read there, and the message typed there only while it shows
-    /// the session (`Runtime::send_at`), never wherever else the session shows. Under the
-    /// agent's writer, so a press never comes between the read and the message. A user's
-    /// message holds `App::appointing` around this (`App::hand`): the order is always
-    /// appointing, then the writer, never the other way.
+    /// (the runtime does not answer, or its answer failed; or it cannot resolve a session at
+    /// all) is that error, and the message waits. With `pin` (a seated manager's place,
+    /// `App::send_seated`), at that place and no other: its screen read there, and the message
+    /// typed there only while it shows the session (`Runtime::send_at`), never wherever else
+    /// the session shows. Under the agent's writer, so a press never comes between the read and
+    /// the message. A user's message holds `App::appointing` around this (`App::hand`): the
+    /// order is always appointing, then the writer, never the other way.
     pub(in crate::server) fn type_at(&self, session: &str, machine: Option<&str>, pin: Option<&str>, text: &str) -> Result<(), RuntimeError> {
         let writer = self.terminals.writer(session, machine);
         let _one = writer.lock().unwrap();
@@ -89,10 +83,7 @@ impl App {
         };
         let place = match pin {
             Some(p) => p.to_string(),
-            None => match self.runtime.resolve(machine, session) {
-                Err(RuntimeError::Unsupported) => return self.runtime.send_to(machine, session, text),
-                r => r.map_err(untyped)?,
-            },
+            None => self.runtime.resolve(machine, session).map_err(untyped)?,
         };
         match self.runtime.screen(machine, &place) {
             Ok(s) if shows_a_question(&s.text) => {

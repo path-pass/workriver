@@ -370,23 +370,12 @@ const readTab = (): SettingsGroup => {
 }
 const keepTab = (g: SettingsGroup) => { try { localStorage.setItem(TAB, g) } catch { /* not remembered, still shown */ } }
 
-/** Each Settings on the page, to be opened on a group. */
-const openers = new Set<(g: SettingsGroup) => void>()
-/** Opens Settings on `group`'s tab: what a link to a setting calls. The tab the user picked
- *  stays the one Settings opens on next time. */
-export function openSettings(group: SettingsGroup) { openers.forEach(open => open(group)) }
-
 /** `compact`: only the gear, for the folded rail. */
 export function Settings({ compact = false, ws = null }: { compact?: boolean; ws?: Workspace | null }) {
   const { t } = useT()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState(readTab)
   const pick = (g: SettingsGroup) => { setTab(g); keepTab(g) }
-  useEffect(() => {
-    const opener = (g: SettingsGroup) => { setTab(g); setOpen(true) }
-    openers.add(opener)
-    return () => { openers.delete(opener) }
-  }, [])
   // A group with nothing to set here has no tab; its remembered pick shows the first.
   const shown = GROUPS.filter(g => (g === 'workspaces' ? (ws?.workspaces ?? []).length > 0 : g !== 'machines' || !MOCK))
   const label: Record<SettingsGroup, string> = {

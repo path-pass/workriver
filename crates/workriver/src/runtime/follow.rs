@@ -334,7 +334,7 @@ impl Machines {
     pub fn with(local: Arc<dyn Runtime>, remotes: Vec<(&str, Arc<dyn Runtime>)>) -> Arc<Machines> {
         let m = Machines::new(local, PathBuf::new(), String::new());
         for (label, runtime) in remotes {
-            let setting = Setting { ssh: label.into(), options: Default::default(), port: 0, enabled: true };
+            let setting = Setting { ssh: label.into(), options: Default::default(), enabled: true };
             let tunnel = Mutex::new(Tunnel { up: true, port: Some(47999), ..Tunnel::default() });
             let e = Arc::new(Entry { label: label.into(), setting, runtime, runner: scan::Runner::Local, seen: Mutex::default(), tunnel, stop: AtomicBool::new(false) });
             poll_once(&e, false);
@@ -508,22 +508,13 @@ impl Runtime for Machines {
             Some(m) => {
                 let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed; enable it with `workriver machine enable`")))?;
                 let at = on(&e, &|r: &dyn Runtime| r.locate(None, place))?;
-                Ok(Place { agent: at.agent.map(|a| their_agent(a, m)), group: at.group.map(|g| theirs(g, m)) })
+                Ok(Place { agent: at.agent.map(|a| their_agent(a, m)) })
             }
         }
     }
 
     fn focus(&self, session: &str) -> Result<(), RuntimeError> {
         self.route(session, |r| r.focus(session))
-    }
-
-    fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError> {
-        self.route(agent, |r| r.send(agent, text))
-    }
-
-    /// Asked of the machine named, whether or not the agent was seen there yet.
-    fn send_to(&self, machine: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
-        self.at(machine, |r| r.send_to(None, session, text))
     }
 
     /// Asked of the machine named, at that machine's own place.
@@ -577,7 +568,7 @@ impl Runtime for Machines {
             Some(m) => {
                 let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed; enable it with `workriver machine enable`")))?;
                 let roots = on(&e, &|r: &dyn Runtime| r.roots(None, place))?;
-                Ok(roots.into_iter().map(|r| Root { at: Place { agent: r.at.agent.map(|a| their_agent(a, m)), group: r.at.group.map(|g| theirs(g, m)) }, ..r }).collect())
+                Ok(roots.into_iter().map(|r| Root { at: Place { agent: r.at.agent.map(|a| their_agent(a, m)) }, ..r }).collect())
             }
         }
     }

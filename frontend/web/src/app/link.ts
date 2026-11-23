@@ -1,6 +1,5 @@
 // Each unit, intent and task has its own address: `/u1`, `/u1/3` (task 3 picked, its detail
-// open), `/i3` (the intent), `/i3/1` (a task of the intent's own work), and optionally
-// `?finding=P2-1`. The fragment is not used: it carries the sign-in code (`#k=`).
+// open), `/i3` (the intent), and optionally `?finding=P2-1`. The fragment is not used: it carries the sign-in code (`#k=`).
 import { unitsOf } from '@/planning/select'
 import type { Pick } from '@/work/types'
 import type { Workspace } from '@/workspace/types'
@@ -29,12 +28,11 @@ export const linkTo = (path: string) => location.origin + path
 
 /**
  * What a place opens: a unit, or an intent's page (`unit` is then the intent's id), with a
- * task picked (on an intent's page, one of its earlier own tasks); or nothing it names.
+ * task of the unit picked; or nothing it names.
  */
 export function resolve(ws: Workspace, p: Place): { unit: string; pick: Pick } | null {
   const intent = ws.intents.find(i => i.id === p.id)
-  // An intent's own tasks are in its earlier work, whose id is the intent's.
-  const unit = intent ? intent.units.find(u => u.intentLevel) : unitsOf(ws).find(u => u.id === p.id && !u.intentLevel)
+  const unit = intent ? undefined : unitsOf(ws).find(u => u.id === p.id)
   if (!intent && !unit) return null
   if (!p.task) return { unit: p.id, pick: null }
   if (!unit?.tasks.some(n => n.id === p.task)) return null

@@ -36,12 +36,12 @@ fn machines_are_separate_and_need_no_link() {
     assert_eq!(all.locate(None, "w1:p1").unwrap().agent.unwrap().session, "s-boss");
     assert_eq!(all.locate(Some("box"), "w1:p1").unwrap().agent.unwrap().session, "s-far");
     // Messages and new agents go to the agent's own machine, with that machine's own ids.
-    all.send("s-far", "hi").unwrap();
-    all.send("s-boss", "ho").unwrap();
+    all.send_at(Some("box"), "w1:p1", "s-far", "hi").unwrap();
+    all.send_at(None, "w1:p1", "s-boss", "ho").unwrap();
     assert_eq!((far.sent.lock().unwrap().len(), local.sent.lock().unwrap().len()), (1, 1));
     all.start_temporary("w1@box", "claude", "why-q9", "/srv/x").unwrap();
     assert_eq!(far.started.lock().unwrap()[0].0, "w1");
-    all.send("why-q9", "by name, before the next read").unwrap();
+    all.send_at(Some("box"), "place-why-q9", "s-why-q9", "before the next read").unwrap();
     assert_eq!(far.sent.lock().unwrap().len(), 2);
     all.close("why-q9").unwrap();
     all.poll_all();
@@ -62,7 +62,7 @@ fn machines_are_separate_and_need_no_link() {
     manage(&d, "w1:p1", "s-boss");
     assert_eq!(at_place(&d, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-boss");
     let there = at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((there["actor"].as_str(), there["group"]["id"].as_str(), there["intent"].as_str(), there["workspace"].is_null()), (Some("s-far"), Some("w1@box"), None, true), "the same group name over there is no workspace");
+    assert_eq!((there["actor"].as_str(), there["intent"].as_str(), there["workspace"].is_null()), (Some("s-far"), None, true), "the same group name over there is no workspace");
     assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
 
     // The user makes a second workspace and seats the agent over there in it: a manager on
@@ -322,7 +322,7 @@ fn a_machines_connection_is_kept_up() {
     // (through the stand-in): up with its port; down at once, since when, the next attempt.
     std::fs::remove_file(tmp.path().join("connections")).ok();
     let all = crate::runtime::follow::Machines::with_ssh(std::sync::Arc::new(Fake::default()), tmp.path().to_path_buf(), &ssh.display().to_string(), Pace { min: Duration::from_millis(300), ..pace });
-    let setting = crate::runtime::Setting { ssh: "box".into(), options: crate::runtime::socket_option(Some("/run/herdr.sock".into())), port: 0, enabled: true };
+    let setting = crate::runtime::Setting { ssh: "box".into(), options: crate::runtime::socket_option(Some("/run/herdr.sock".into())), enabled: true };
     all.start("box", setting, 1);
     let state = || all.states().into_iter().next().unwrap();
     wait_until("connected", || state().tunnel);
@@ -428,9 +428,9 @@ fn units_on_another_machine() {
     assert_eq!((worker["unreachable"].as_bool(), worker["state"].as_str()), (Some(true), Some("unknown")), "as last seen, in no state: {worker}");
     let shown: crate::common::wire::TaskShow = serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert!(shown.place.unwrap().disconnected_since.is_some());
-    // A message for an agent there is refused at once, saying why.
+    // A message for an agent there is refused at once, saying why: its place cannot be read.
     let started = std::time::Instant::now();
-    let e = workriver_core::runtime::Runtime::send(all.as_ref(), "s-worker", "hi").unwrap_err();
+    let e = workriver_core::runtime::Runtime::resolve(all.as_ref(), Some("box"), "s-worker").unwrap_err();
     // Nothing was typed: the error says so, and what waits to be given waits on.
     assert!(matches!(e, workriver_core::runtime::RuntimeError::Unreachable(_)), "{e:?}");
     let e = e.to_string();

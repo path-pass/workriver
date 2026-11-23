@@ -117,6 +117,12 @@ Newest first. A manager that was already running reads this once after an update
   found.
   `agent.seen` is workriver's own record now: an agent or the user appending it is
   refused. (`hand-off`)
+- **The store's migration script left the repository** (nothing to do unless a user asks
+  how to convert an old store). `scripts/migrate-virtual-workspaces/`, which converts a
+  store written before workspaces were workriver's own, is no longer in the tree: commit
+  `7cdf576` holds it, and its `README.md` there says how to run it, on any machine with a
+  clone (`docs/getting-started.md`, "Update"). A service refusing such a store names that
+  commit.
 
 ## 2026-11-21
 
@@ -207,14 +213,6 @@ Newest first. A manager that was already running reads this once after an update
   then, the task is still started and with that same worker: dropped, or the worker
   closed, it is not given (it stays on the task; whoever takes the task reads it at
   `task show`).
-- **`manager here` records your workspace as the runtime names it** (managers): the label
-  is no longer taken from the request, so a workspace is never taken for another one by
-  what a command calls it.
-- **`manager here --intent` is for that intent's own workspace** (managers): naming an
-  intent registers you for the workspace it runs in, and only from there. An intent that
-  runs in no workspace, or in another one than yours, is refused: run `workriver manager
-  here` without `--intent` in your workspace's terminal, then `workriver intent start`.
-  Registrations already recorded stay as they are.
 - **More for a task already handed out is `workriver task note`** (managers): `workriver task
   note u1#3 --text "..." [--attach FILE]` adds a requirement to a task not delivered or
   dropped, by you or the user only. It shows under what the task asks, with who and when, in
@@ -356,11 +354,6 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-18
 
-- **One workspace, one manager** (managers): `workriver manager here` registers you for the
-  workspace your pane is in, and is refused while another manager of it is running (it
-  names that agent). Registering again yourself is fine; a manager no longer running is
-  taken over. Handing over to another pane: write down what workriver does not hold, the
-  user closes you, the new one registers at once (`start-intent`, "Changing managers").
 - **What only the user runs, the user runs in a terminal of its own** (managers, workers):
   `workriver project add`, `machine add`, `workspace link` and the like are refused from an
   agent's pane, and so is `!` in your session (it runs in your pane). Ask the user to run
@@ -407,15 +400,6 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
-- **An intent of another project** (managers): workriver works out which project your
-  workspace works on (your pane's folder, else your current intent; the user can set it),
-  shown by `workriver workspace list`. The user's start message now names the intent's
-  project and folder (`The user started i3 «title» of project «workriver» (folder «…») in
-  your workspace …`), and `workriver intent start` prints a `warning:` line when the intent's
-  project is not your workspace's. Then do not split it: ask the user with a decide gate
-  first (`start-intent`, `ask-user`). The page asks the user before starting an intent in a
-  workspace of another project.
-
 - **Research and design for a whole intent go in a research unit** (managers): `workriver
   unit add [i3] --kind research --title "…" [--purpose "…"]` makes a unit with no repository,
   branch or base (none of them is taken). It takes research, design, review and gate tasks
@@ -423,15 +407,13 @@ Newest first. A manager that was already running reads this once after an update
   delivered and decided it is ready to close, `workriver unit done u5 --reason "…"`; `unit
   merged`, `unit move` and `commit link` are refused on it. New tasks on an intent
   (`workriver task add i3 …`) are refused, pointing here; `task add` always names a unit and
-  `--intent` is gone. Tasks an intent already has (`i3#1`…) work as before (start, deliver,
-  gates, findings, `--cause i3#2:P2-1` from a unit, links `/i3/1`) but take no new ones.
-  (`units`, `design-gate`, `ask-user`, `closing-units`; worker guide)
+  `--intent` is gone. (`units`, `design-gate`, `ask-user`, `closing-units`; worker guide)
 - **Add to an intent's note**: `workriver intent set i3 --add-note "…"` (its manager or the
   user) appends a paragraph after what the note holds. The user reads the note on the
-  intent's own page (`workriver link i3`: goal, note, workspace and manager, units, and the
-  intent's earlier research and design); the rail no longer shows goals and notes. Put there
-  what the user should see about the intent as a whole: a decision from a design gate, a
-  link to a report. (`start-intent`, `design-gate`)
+  intent's own page (`workriver link i3`: goal, note, workspace and manager, units); the
+  rail no longer shows goals and notes. Put there what the user should see about the intent
+  as a whole: a decision from a design gate, a link to a report. (`start-intent`,
+  `design-gate`)
 - **The user can start an intent in your workspace from the page** (managers): you then get
   `[workriver] The user started i3 «title» in your workspace; it is now where new work goes.
   Split it into units and tasks …`, with its goal quoted. It is already active and your
@@ -447,15 +429,12 @@ Newest first. A manager that was already running reads this once after an update
   pane, then answer with `workriver reply m3 --text "…"`; the user reads replies in the page,
   not your terminal. Only the manager it was sent to can reply; you may reply more than once.
   (`user-message`)
-- **The user can ask about a whole unit**: with no task picked, the page's Ask why asks about
-  the unit; a temporary agent answers from its records and code and asks none of its agents.
-  `workriver ask` still takes a task (`u1#3`): a unit is refused. (`ask`)
 - **Task text and delivery notes are short Markdown**: the user's page now renders a task's
   `--text` and a delivery's `--note` (and answers to questions) as Markdown, keeping line
   breaks; a long one is cut to a few lines with "show more". Write them as a line or two of
   what, then bullets; no wall of text. `workriver task show` still prints the raw text.
   (`units`, `hand-off`; worker guide)
-- **A later task says what it follows**: once a unit (or intent) has a task, `workriver task
+- **A later task says what it follows**: once a unit has a task, `workriver task
   add` without `--after` or a same-unit `--cause` is refused ("u1 already has tasks: say which
   one this follows with --after <n> (the latest is #N), or --after start to run beside the
   first"). It used to hang off the start beside the first task, away from the work it
@@ -475,7 +454,7 @@ Newest first. A manager that was already running reads this once after an update
   agent itself only while it is idle. The one asked never gets `[workriver] The agent … asks
   about your task …` any more. (`ask`)
 - **Every intent, unit and task has its own link**: `workriver link u1#3` (or `u1`, `i3`,
-  `i3#1`, `u1#3:P2-1`) prints the address that opens it in the user's browser on the
+  `u1#3:P2-1`) prints the address that opens it in the user's browser on the
   machine workriver runs on, also when run on another machine; `task show` prints its
   `Link:` and `board` a `link:` line under each intent and unit. To point the user at
   something, give them that link. (`ask-user`; worker guide)

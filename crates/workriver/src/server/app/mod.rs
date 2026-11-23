@@ -80,7 +80,7 @@ pub(super) struct App {
     /// When each live agent was first seen idle or done, by session (and when, to measure it).
     // ponytail: in memory, like `blocked`; a restart starts every idle wait again.
     pub(super) idle_since: Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
-    /// Running tasks whose agent stopped (reminded, or escalated), by (unit or intent, task),
+    /// Running tasks whose agent stopped (reminded, or escalated), by (unit, task),
     /// as of the last poll.
     pub(super) stalls: Mutex<std::collections::HashMap<(String, u32), delivery::reminders::Watch>>,
     /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).
@@ -230,12 +230,12 @@ impl App {
     /// Sends a message to the agent that has this session on `machine` (none: this one), as
     /// the caller found it in the runtime, and to no other: one that is gone is not replaced
     /// by an agent going by its name. Its place is resolved once and its screen read there
-    /// first (`type_in`). Files as `send` gives them, for that machine.
+    /// first (`type_at`). Files as `send` gives them, for that machine.
     pub(super) fn send_to(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
         if let Some(sent) = self.send_seated(session, text) {
             return sent;
         }
-        self.type_in(session, machine, &self.readable_on(machine, text))
+        self.type_at(session, machine, None, &self.readable_on(machine, text))
     }
 
     /// A seated manager is typed into at the root its session is pinned to, on that root's

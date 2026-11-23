@@ -31,14 +31,14 @@ fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Res
 }
 
 impl State {
-    /// The tasks of a unit, or an intent's intent-level tasks.
-    pub fn tasks_of(&self, owner: &str) -> Option<&Vec<Task>> {
-        self.units.iter().find(|u| u.id == owner).map(|u| &u.tasks).or_else(|| self.intents.iter().find(|i| i.id == owner).map(|i| &i.tasks))
+    /// The tasks of a unit.
+    pub fn tasks_of(&self, unit: &str) -> Option<&Vec<Task>> {
+        self.units.iter().find(|u| u.id == unit).map(|u| &u.tasks)
     }
 
-    /// A task by its owner (a unit, or an intent for intent-level work) and number.
+    /// A task by its unit and number.
     pub fn task(&self, unit: &str, n: u32) -> Result<&Task, Rejected> {
-        let Some(tasks) = self.tasks_of(unit) else { return no(format!("no unit or intent {unit}")) };
+        let Some(tasks) = self.tasks_of(unit) else { return no(format!("no unit {unit}")) };
         match tasks.iter().find(|t| t.n == n) {
             Some(t) => Ok(t),
             None => no(format!("no task {unit}#{n}")),
@@ -52,7 +52,7 @@ impl State {
     }
 
     fn prepare_task(&self, mut t: NewTask) -> Result<NewTask, Rejected> {
-        // A task is in a unit, or (research, design and their reviews and gates) in an intent.
+        // A task is in a unit.
         let (owner, intent, count) = if let Ok(u) = self.unit(&t.unit) {
             if u.merged.is_some() {
                 return no(format!("unit {} is merged; record new work in a new unit", u.id));
@@ -62,8 +62,7 @@ impl State {
             }
             (u.id.clone(), u.intent.clone(), u.tasks.len())
         } else {
-            // Before 2026-11-17 research and design went into the intent itself (`i3#1`); those
-            // tasks still replay and work, but new ones go into a research unit.
+            // Research and design go into a research unit, not the intent itself.
             let i = self.intent(&t.unit).map_err(|_| Rejected(format!("no unit {}", t.unit)))?;
             return no(format!(
                 "{} is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add {} --kind research --title \"...\", then workriver task add u<N> ...",
@@ -189,11 +188,7 @@ impl State {
     }
 
     pub(crate) fn task_mut(&mut self, unit: &str, n: u32) -> Option<&mut Task> {
-        let tasks = match self.units.iter_mut().find(|u| u.id == unit) {
-            Some(u) => &mut u.tasks,
-            None => &mut self.intents.iter_mut().find(|i| i.id == unit)?.tasks,
-        };
-        tasks.iter_mut().find(|t| t.n == n)
+        self.units.iter_mut().find(|u| u.id == unit)?.tasks.iter_mut().find(|t| t.n == n)
     }
 
     /// The rules of a task's events: `prepare`, for these kinds.
@@ -336,11 +331,7 @@ impl State {
             TaskCreated(t) => {
                 // Before 0.2 a task named no intent: its unit's.
                 let intent = if t.intent.is_empty() { self.intent_of(&t.unit).unwrap_or_default().to_string() } else { t.intent.clone() };
-                let tasks = match self.units.iter_mut().find(|u| u.id == t.unit) {
-                    Some(u) => Some(&mut u.tasks),
-                    None => self.intents.iter_mut().find(|i| i.id == t.unit).map(|i| &mut i.tasks),
-                };
-                if let Some(tasks) = tasks {
+                if let Some(tasks) = self.units.iter_mut().find(|u| u.id == t.unit).map(|u| &mut u.tasks) {
                     tasks.push(Task {
                         n: t.n,
                         intent,
@@ -380,10 +371,8 @@ impl State {
                     })
                 }
                 // More work for a unit closed as done: it is open again, its state from its tasks.
-                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit)
-                    && let Some(was) = u.done.take()
-                {
-                    u.reopened = Some(was);
+                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit) {
+                    u.done = None;
                 }
                 // The task it blocks follows it from now on.
                 if let Some(b) = t.blocks

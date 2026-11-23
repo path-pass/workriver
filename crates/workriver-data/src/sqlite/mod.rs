@@ -27,7 +27,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
     /// The file holds events written before workspaces were workriver's own.
     #[error(
-        "{} holds events in the form from before virtual workspaces, which this version does not read. Nothing was changed. Migrate a copy of it once with scripts/migrate-virtual-workspaces (see its README), or run the version that wrote it",
+        "{} holds events in the form from before virtual workspaces, which this version does not read. Nothing was changed. Migrate a copy of it once with scripts/migrate-virtual-workspaces as commit 7cdf576 holds it (see its README), or run the version that wrote it",
         .0.display()
     )]
     OldForm(PathBuf),

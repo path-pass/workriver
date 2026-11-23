@@ -47,7 +47,6 @@ export const en = {
     addCancel: 'Cancel',
     drag: 'Drag to reorder',
     start: 'Start',
-    intentWork: 'Research and design',
     foldGroup: 'Show or hide the units of {{title}}',
     failed: 'Not saved: {{error}}',
     mergeOpen: 'Merge…',
@@ -71,7 +70,6 @@ export const en = {
     addKind: 'Kind',
     tags: 'Tags: {{tags}}',
     held: {
-      tasks: 'Has tasks of its own, so it cannot be merged (drop it with a reason instead).',
       units: 'Has units of its own, so it cannot be merged (drop it with a reason instead).',
       findings: 'Has backlog findings of its own, so it cannot be merged (drop it with a reason instead).',
       chores: 'Has chores of its own, so it cannot be merged (drop it with a reason instead).'
@@ -96,8 +94,6 @@ export const en = {
     units: 'Units',
     moved: 'moved {{time}} ago',
     neverMoved: 'nothing yet',
-    earlier: 'Earlier research and design',
-    earlierHint: 'Recorded on the intent itself, before research and design became units of their own.',
     kind: { feature: 'Feature', fix: 'Fix', chore: 'Chore', research: 'Research' },
     size: { s: 'S', m: 'M', l: 'L' },
     sizeHint: { s: 'S: one unit, one round of review; hours', m: 'M: one or two units, a few review rounds; a day or two', l: 'L: three units or more, or a design first; days' },
@@ -589,13 +585,10 @@ export const en = {
       held: 'Waiting for {{agent}}: it goes in once {{agent}} is free.',
       starting: 'Starting an agent…',
       reading: 'Reading the records and the code…',
-      asking: 'Asking {{agent}}…',
       blocked: 'Waiting for you in {{runtime}}: {{agent}} needs an answer in its terminal. The question goes in once it is free.'
     },
     toTerminal: 'Go to the terminal',
     asked: 'Asked {{agent}}',
-    busy: '{{agent}} was busy; answered from the records',
-    ended: '{{agent}}’s session has ended; answered from the records',
     cannot: 'Could not start an agent to answer: {{reason}}',
     threadEnded: 'Ended',
     concludeAsked: 'Conclusion asked for',
@@ -919,7 +912,6 @@ export const en = {
     lostCommits: 'Its commits are not on the current branch: {{commits}} (on a branch this unit left)',
     uncommitted: 'Writing, not committed yet',
     notStarted: 'Not started yet.',
-    notDone: 'Not done yet.',
     willChange: 'Expected to change: {{paths}}'
   },
   stat: {

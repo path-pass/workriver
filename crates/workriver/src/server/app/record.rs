@@ -102,7 +102,11 @@ impl App {
                 self.tell_of_discussion(&e);
             }
             Body::QuestionAsked { id, discuss: true, .. } => self.discuss(id),
-            Body::GateSubmitted { unit, task, .. } => self.gate_submitted(unit, *task),
+            // The open questions of the discussions it ends fail, so no answer or amendment of
+            // a discussion comes after what the user confirmed.
+            Body::GateSubmitted { .. } => {
+                self.discussions_over();
+            }
             Body::TaskAmended { .. } => self.tell_of_discussion(&e),
             Body::ThreadEnded { thread } => self.end_thread(thread),
             Body::MessageSent { id, .. } => self.tell_manager(id),
@@ -300,7 +304,7 @@ impl App {
             // What the receiver must act on: held while it is on a blind task, waits for a
             // person, is not listed or cannot be sent to; given once it can take it.
             for (agent, text) in to {
-                self.hand(Held { question: String::new(), kind: For::Duty, to: agent.clone(), name: agent, text, not_ready: None, about: None });
+                self.hand(Held::duty(agent, text));
             }
             return;
         }

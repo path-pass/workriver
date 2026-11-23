@@ -93,7 +93,7 @@ pub(super) async fn machine_set(State(app): State<Shared>, Extension(caller): Ex
         }
     };
     match m.action.as_str() {
-        "add" => all.add(&m.label, crate::runtime::Setting { ssh: m.ssh, options: m.options, port: 0, enabled: false }).map_err(bad)?,
+        "add" => all.add(&m.label, crate::runtime::Setting { ssh: m.ssh, options: m.options, enabled: false }).map_err(bad)?,
         "enable" => {
             let setting = all.enable(&m.label, true).map_err(bad)?;
             follow(&app, &m.label, setting).await?;

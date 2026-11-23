@@ -243,9 +243,7 @@ impl State {
             },
             QuestionsRead { unit, task, at } => {
                 self.task(&unit, task)?;
-                // Stored as the service writes times, so that they compare as text.
-                let Ok(t) = humantime::parse_rfc3339_weak(&at) else { return no(format!("{at:?} is not a time")) };
-                QuestionsRead { unit, task, at: humantime::format_rfc3339_seconds(t).to_string() }
+                QuestionsRead { unit, task, at: crate::records::stored_time(&at)? }
             }
             QuestionFailed { question, reason_code, reason } => {
                 if !self.question(&question)?.open() {

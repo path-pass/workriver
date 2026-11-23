@@ -14,8 +14,7 @@ import { Content, slot, Slot, SLOT } from '@/content/Chips'
 import { Choice } from '@/ui/Choice'
 
 /** What an intent holds that a merge would lose; the service refuses those (`intent.merged`). */
-function heldBy(ws: Workspace, i: Intent): 'tasks' | 'units' | 'findings' | 'chores' | null {
-  if (i.units.some(u => u.intentLevel)) return 'tasks'
+function heldBy(ws: Workspace, i: Intent): 'units' | 'findings' | 'chores' | null {
   if (i.units.length) return 'units'
   if ((ws.backlog ?? []).some(b => b.intent === i.id)) return 'findings'
   return i.chores.length ? 'chores' : null

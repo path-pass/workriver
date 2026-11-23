@@ -55,7 +55,7 @@ impl App {
         };
         let (q, unit, task_agent, manager) = {
             let Ok(q) = s.question(id).cloned() else { return };
-            let Some(u) = s.unit_or_intent(&q.unit) else { return };
+            let Ok(u) = s.unit(&q.unit).cloned() else { return };
             let task_agent = s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone());
             let intent = s.intents.iter().find(|i| i.id == u.intent);
             let manager = intent.and_then(|i| s.manager_of(&i.id)).map(str::to_string);
@@ -94,7 +94,7 @@ impl App {
             Ok(h) => h,
             Err(e) => return unread(e),
         };
-        // Intent-level work has no branch: its project folder is where to read.
+        // A research unit has no branch: its project folder is where to read.
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
         let dir = self.work_tree(&unit);
         // A question about the whole unit reads its commits itself (its prompt says how).
@@ -122,6 +122,11 @@ impl App {
         self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None, about: None });
     }
 
+    /// The user's message is for one appointment: its seat was given to another meanwhile.
+    fn seat_changed(&self, h: &Held) {
+        self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name))
+    }
+
     /// Gives a question's message to the agent that answers it (`to`: a session or a live
     /// agent's name). One waiting for a person in its terminal (blocked) cannot take
     /// it: it is held and given once the agent is free (`poll`), or the question fails with
@@ -129,9 +134,7 @@ impl App {
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
     pub(in crate::server) fn hand(&self, mut h: Held) {
-        // A notice and the user's message are for a session: an agent that only goes by it as
-        // a name is not it (any agent may take a seated manager's session id as its name).
-        let by_session = matches!(h.kind, For::Notice | For::Message | For::Broadcast);
+        let by_session = h.kind.by_session();
         let is = |a: &RuntimeAgent| a.session == h.to || (!by_session && a.name == h.to);
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
@@ -145,7 +148,7 @@ impl App {
         if matches!(h.kind, For::Message | For::Broadcast) {
             match self.still_appointed(&h.question, &h.to) {
                 Some(true) => {}
-                Some(false) => return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name)),
+                Some(false) => return self.seat_changed(&h),
                 None => {
                     h.not_ready = None;
                     self.held.lock().unwrap().push(h);
@@ -178,7 +181,7 @@ impl App {
         // A notice and the user's message go to the session found, on its machine, and to no
         // other: what that machine's runtime answers is kept (one that drops before typing
         // stays one that typed nothing). Anything else by `to`.
-        let sent = |h: &Held| match found.filter(|_| matches!(h.kind, For::Notice | For::Message | For::Broadcast)) {
+        let sent = |h: &Held| match found.filter(|_| h.kind.by_session()) {
             Some(a) => self.send_to(&a.session, a.machine.as_deref(), &h.text),
             None => self.send(&h.to, &h.text),
         };
@@ -213,7 +216,7 @@ impl App {
                     _ => Some(true),
                 };
                 match asked {
-                    Some(false) if message => return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name)),
+                    Some(false) if message => return self.seat_changed(&h),
                     Some(false) => return,
                     None => h.not_ready = None,
                     Some(true) => match sent(&h) {

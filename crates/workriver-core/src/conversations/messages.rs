@@ -21,7 +21,7 @@ pub struct Agent {
 }
 
 /// The user's message to a workspace's manager (or to every manager), and what it answered.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 pub struct Message {
     pub id: String,
     pub intent: String,
@@ -85,26 +85,7 @@ pub enum Notice {
 impl Message {
     /// A line of workriver's own in workspace `workspace`'s conversation, about `session`.
     pub(crate) fn notice(id: &str, workspace: &str, session: &str, at: &str, notice: Notice) -> Message {
-        Message {
-            id: id.into(),
-            intent: String::new(),
-            workspace: workspace.into(),
-            manager: session.into(),
-            since: 0,
-            text: String::new(),
-            unit: String::new(),
-            task: 0,
-            context: vec![],
-            to: vec![],
-            at: at.into(),
-            delivery: None,
-            replies: vec![],
-            by_manager: false,
-            choice: None,
-            answered: None,
-            answer: None,
-            notice: Some(notice),
-        }
+        Message { id: id.into(), workspace: workspace.into(), manager: session.into(), at: at.into(), notice: Some(notice), ..Message::default() }
     }
 }
 
@@ -415,9 +396,7 @@ impl State {
                 if !workspace.is_empty() {
                     self.workspace(&workspace)?;
                 }
-                // Stored as the service writes times, so that they compare as text.
-                let Ok(t) = humantime::parse_rfc3339_weak(&at) else { return no(format!("{at:?} is not a time")) };
-                MessagesRead { workspace, at: humantime::format_rfc3339_seconds(t).to_string() }
+                MessagesRead { workspace, at: crate::records::stored_time(&at)? }
             }
             other => unreachable!("{} is not one of a message's kinds", name_of_kind(&other)),
         })
@@ -465,13 +444,8 @@ impl State {
                     context: context.clone(),
                     to: to.clone(),
                     at: at.clone(),
-                    delivery: None,
-                    replies: vec![],
-                    by_manager: false,
-                    choice: None,
-                    answered: None,
                     answer: answer.clone(),
-                    notice: None,
+                    ..Message::default()
                 })
             }
             MessageSaid { id, intent, workspace, text, choice } => self.messages.push(Message {
@@ -481,18 +455,10 @@ impl State {
                 manager: e.actor.clone(),
                 since: self.appointment(workspace, &e.actor),
                 text: text.clone(),
-                unit: String::new(),
-                task: 0,
-                context: vec![],
-                to: vec![],
                 at: at.clone(),
-                delivery: None,
-                replies: vec![],
                 by_manager: true,
                 choice: choice.clone(),
-                answered: None,
-                answer: None,
-                notice: None,
+                ..Message::default()
             }),
             MessagesRead { workspace, at: upto } => {
                 let r = self.read.entry(workspace.clone()).or_default();

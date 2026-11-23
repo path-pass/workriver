@@ -1,7 +1,7 @@
 // Settings, mounted: one group shows at a time, as a tab; the tab picked is kept in this
-// browser; a link to a setting opens Settings on its group's tab; a group whose setting has
-// not come says it is loading or why it cannot be read. The default of a manager's start:
-// saved, and tried once, with what came of it.
+// browser; a group whose setting has not come says it is loading or why it cannot be read.
+// The default of a manager's start: saved, with no try (whether a model works shows on a
+// start).
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,7 +23,7 @@ vi.mock('@/api/actions', async original => ({
   startSettings: () => reads.start(),
   setStartSettings: (h: string, m: string) => { reads.saved.push([h, m]); return reads.save(h, m) },
 }))
-const { openSettings, Settings } = await import('./Settings')
+const { Settings } = await import('./Settings')
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -91,31 +91,6 @@ describe('Settings in tabs', () => {
     await open()
     expect(tabs().map(b => b.textContent)).not.toContain('Workspaces')
     expect(selected()).toBe('General')
-  })
-
-  it('a link to a setting opens Settings on its group’s tab', async () => {
-    await mount()
-    expect(document.querySelector('[role=dialog]')).toBeNull()
-    await act(async () => { openSettings('machines') })
-    await settle()
-    expect(selected()).toBe('Other machines')
-    expect(text()).toContain('Add')
-  })
-
-  it('a link to a setting leaves the tab picked as it was', async () => {
-    await mount()
-    await open()
-    await pick('Stopped workers')
-    await act(async () => { openSettings('machines') })
-    await settle()
-    expect(selected()).toBe('Other machines')
-    expect(localStorage.getItem('workriver.settings.tab')).toBe('workers')
-
-    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
-    await settle()
-    expect(document.querySelector('[role=dialog]')).toBeNull()
-    await open()
-    expect(selected()).toBe('Stopped workers')
   })
 
   it('a group whose setting is still coming says it is loading', async () => {

@@ -61,16 +61,12 @@ pub struct Unit {
     /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done: Option<Closed>,
-    /// Closed as done before, then given a new task, which opened it again: that closing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reopened: Option<Closed>,
     #[serde(default, skip_serializing_if = "UnitKind::is_default")]
     pub kind: UnitKind,
 }
 
 impl Unit {
-    /// Code on a branch: what git is read for. A research unit and an intent's own work
-    /// (seen as a unit) have none.
+    /// Code on a branch: what git is read for. A research unit has none.
     pub fn has_code(&self) -> bool {
         self.kind.is_code() && !self.branch.is_empty()
     }
@@ -170,34 +166,6 @@ impl State {
             Some(u) => Ok(u),
             None => no(format!("no unit {id}")),
         }
-    }
-
-    /// A unit, or an intent seen as a unit for its intent-level tasks (no branch; its
-    /// project folder as the repository).
-    pub fn unit_or_intent(&self, id: &str) -> Option<Unit> {
-        if let Ok(u) = self.unit(id) {
-            return Some(u.clone());
-        }
-        let i = self.intents.iter().find(|i| i.id == id)?;
-        Some(Unit {
-            id: i.id.clone(),
-            intent: i.id.clone(),
-            title: i.title.clone(),
-            purpose: i.goal.clone(),
-            repo: i.project.clone(),
-            branch: String::new(),
-            base: String::new(),
-            machine: None,
-            at: i.at.clone(),
-            merged: None,
-            merged_commits: vec![],
-            tasks: i.tasks.clone(),
-            earlier: vec![],
-            links: vec![],
-            done: None,
-            reopened: None,
-            kind: UnitKind::Code,
-        })
     }
 
     /// Where unit `u` stands. A waiting gate or an open finding comes before work going on,
@@ -423,7 +391,6 @@ impl State {
                 earlier: vec![],
                 links: vec![],
                 done: None,
-                reopened: None,
             }),
             UnitMerged { unit, commits } => {
                 if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {

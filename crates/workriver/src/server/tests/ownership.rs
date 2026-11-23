@@ -196,9 +196,9 @@ fn a_runtime_group_made_renamed_or_closed_changes_no_record() {
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll reads the runtime
     let (boss, new) = (at_place(&d, "p1"), at_place(&d, "p2"));
     let mine = boss.call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((mine["workspace"]["id"].as_str(), mine["manager"].as_bool(), mine["intent"].as_str(), mine["group"]["label"].as_str()), (Some("ws1"), Some(true), Some("i1"), Some("renamed")), "{mine}");
+    assert_eq!((mine["workspace"]["id"].as_str(), mine["manager"].as_bool(), mine["intent"].as_str()), (Some("ws1"), Some(true), Some("i1")), "{mine}");
     let theirs = new.call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((theirs["workspace"].is_null(), theirs["manager"].as_bool(), theirs["intent"].is_null(), theirs["group"]["id"].as_str()), (true, Some(false), true, Some("w1")), "{theirs}");
+    assert_eq!((theirs["workspace"].is_null(), theirs["manager"].as_bool(), theirs["intent"].is_null()), (true, Some(false), true), "{theirs}");
     let e = new.append("", "message.said", json!({ "text": "Mine now" })).unwrap_err().to_string();
     assert!(e.contains("only a workspace's manager says something to the user"), "{e}");
     let next = planned(&d, "Next", Some(&project(tmp.path())));

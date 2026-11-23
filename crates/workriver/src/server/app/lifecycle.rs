@@ -116,9 +116,8 @@ impl App {
         }
         // Held questions whose agent is free now are given to it; one whose agent is gone fails.
         if let Some(agents) = &now {
-            // A notice, a user's message and a copy of one to every manager are for a session:
-            // an agent that only goes by it as a name is not it (as `hand` finds them).
-            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (!matches!(h.kind, For::Notice | For::Message | For::Broadcast) && a.name == h.to)).map(|a| a.state);
+            // As `hand` finds them (`For::by_session`).
+            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (!h.kind.by_session() && a.name == h.to)).map(|a| a.state);
             let ready: Vec<Held> = {
                 let mut held = self.held.lock().unwrap();
                 let at = std::time::Instant::now();

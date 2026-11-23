@@ -157,9 +157,6 @@ pub struct Intent {
     /// Who decides its open findings.
     #[serde(default)]
     pub findings: FindingsPolicy,
-    /// Intent-level work (research, design), numbered `i3#1`…
-    #[serde(default)]
-    pub tasks: Vec<Task>,
     /// What kind of work it is; none: not said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<IntentKind>,
@@ -189,16 +186,12 @@ pub struct Edits {
     pub title: u32,
     pub goal: u32,
     pub note: u32,
-    #[serde(default, skip_serializing_if = "zero")]
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
     pub kind: u32,
-    #[serde(default, skip_serializing_if = "zero")]
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
     pub size: u32,
-    #[serde(default, skip_serializing_if = "zero")]
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
     pub tags: u32,
-}
-
-fn zero(n: &u32) -> bool {
-    *n == 0
 }
 
 /// Which fields of an intent a version changed.
@@ -402,7 +395,6 @@ impl State {
                     }
                     // Work, findings or chores of its own would be lost with it.
                     let held = [
-                        ("tasks", !x.tasks.is_empty()),
                         ("units", self.units.iter().any(|u| &u.intent == f)),
                         ("backlog findings", self.backlog.iter().any(|b| b.intent.as_deref() == Some(f))),
                         ("chores", self.chores.iter().any(|c| &c.intent == f)),
@@ -476,7 +468,6 @@ impl State {
                     workspace: None,
                     reason: None,
                     findings: FindingsPolicy::default(),
-                    tasks: vec![],
                     by: e.actor.clone(),
                     kind: *kind,
                     size: *size,

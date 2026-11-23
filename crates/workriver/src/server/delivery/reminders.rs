@@ -73,10 +73,8 @@ pub(in crate::server) fn step(state: &State, live: &[RuntimeAgent], idle: &HashM
     for i in state.intents.iter().filter(|i| i.state == IntentState::Active) {
         let manager = state.manager_of(&i.id);
         let units = state.units.iter().filter(|u| u.intent == i.id && u.merged.is_none() && u.done.is_none());
-        // Where the work runs: the unit's machine, or the intent's manager's.
-        let seat = state.intent_workspace(&i.id).and_then(|w| w.manager.as_ref()).and_then(|m| m.machine.as_deref());
-        let owners = std::iter::once((&i.id, &i.tasks, seat)).chain(units.map(|u| (&u.id, &u.tasks, u.machine.as_deref())));
-        for (owner, tasks, machine) in owners {
+        // Where the work runs: the unit's machine.
+        for (owner, tasks, machine) in units.map(|u| (&u.id, &u.tasks, u.machine.as_deref())) {
             for t in tasks.iter().filter(|t| t.state == TaskState::Running && t.kind != TaskKind::Gate) {
                 let Some(a) = t.agent.as_deref() else { continue };
                 let key = (owner.clone(), t.n);
@@ -176,12 +174,10 @@ fn of(t: &Task, x: &RuntimeAgent) -> bool {
     t.agent.as_deref().is_some_and(|a| a == x.session || a == x.name)
 }
 
-/// Every task with its owner (a unit, or an intent for its own), and whether that work is
-/// still open: the unit neither merged nor done, the intent planned or active.
+/// Every task with its unit, and whether that work is still open: the unit neither merged
+/// nor done.
 fn all_tasks(state: &State) -> impl Iterator<Item = (&str, bool, &Task)> {
-    let units = state.units.iter().flat_map(|u| u.tasks.iter().map(move |t| (u.id.as_str(), u.merged.is_none() && u.done.is_none(), t)));
-    let intents = state.intents.iter().flat_map(|i| i.tasks.iter().map(move |t| (i.id.as_str(), matches!(i.state, IntentState::Planned | IntentState::Active), t)));
-    units.chain(intents)
+    state.units.iter().flat_map(|u| u.tasks.iter().map(move |t| (u.id.as_str(), u.merged.is_none() && u.done.is_none(), t)))
 }
 
 /// Not a worker a manager started: a manager itself, or a temporary agent answering a

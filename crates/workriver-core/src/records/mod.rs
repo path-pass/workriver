@@ -26,6 +26,14 @@ pub(crate) fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
+/// A time as the service writes times, so that stored ones compare as text.
+pub(crate) fn stored_time(at: &str) -> Result<String, Rejected> {
+    match humantime::parse_rfc3339_weak(at) {
+        Ok(t) => Ok(humantime::format_rfc3339_seconds(t).to_string()),
+        Err(_) => no(format!("{at:?} is not a time")),
+    }
+}
+
 pub(crate) fn user() -> String {
     "user".into()
 }

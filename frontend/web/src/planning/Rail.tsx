@@ -100,8 +100,6 @@ function Signals({ unit }: { unit: Unit }) {
   // Merged: when it was recorded so, else its last commit.
   const on = unit.merged ?? last?.date
   if (finished) return <><Progress unit={unit} />{on && <span className="text-xs text-rail-ink-2">{date(on, false)}</span>}</>
-  // The intent's own work has no branch or commits: nothing to say unless something waits.
-  if (unit.intentLevel && !n.blocking && !n.waiting) return quiet
   if (!n.blocking && !n.waiting) return unit.progress && unit.progress !== 'working' ? <><Progress unit={unit} />{quiet}</> : quietSince(unit) !== null ? quiet : <span className="tag">{t((noCode(unit) ? unit.status === 'active' : unit.commits.length) ? 'unit.active' : 'unit.untouched')}</span>
   return (
     <>
@@ -511,15 +509,15 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   // A search for a tag shows its intents with all their units.
   const tagged = (i: Intent) => !!needle && (i.tags ?? []).some(x => x.includes(needle))
   const match = (u: Unit) => !needle || (u.id + ' ' + u.title + ' ' + u.purpose).toLowerCase().includes(needle)
-  // The intent's own earlier work is on its page, not here. A search for an intent's id
-  // shows it with all its units; an intent with no units yet still shows, but not in a search.
+  // A search for an intent's id shows it with all its units; an intent with no units yet
+  // still shows, but not in a search.
   const groupsOf = (list: Intent[]) => list
     .map(intent => {
-      const units = intent.units.filter(u => !u.intentLevel)
+      const units = intent.units
       const named = !!needle && (intent.id.toLowerCase() === needle || tagged(intent))
       return { intent, units: named ? units : units.filter(match), named }
     })
-    .filter(g => g.units.length || g.named || (!needle && !g.intent.units.some(u => !u.intentLevel)))
+    .filter(g => g.units.length || g.named || (!needle && !g.intent.units.length))
   const planned = intents
     .filter(i => stateOf(i) === 'planned' && (!needle || [i.id, i.title, i.goal, i.note, ...(i.tags ?? [])].join(' ').toLowerCase().includes(needle)))
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))

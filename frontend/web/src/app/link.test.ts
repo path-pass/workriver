@@ -5,7 +5,7 @@ import type { Workspace } from '@/workspace/types'
 
 const ws = {
   intents: [
-    { id: 'i1', units: [{ id: 'i1', intentLevel: true, tasks: [{ id: '1' }] }, { id: 'u1', tasks: [{ id: '1' }, { id: '3' }] }] },
+    { id: 'i1', units: [{ id: 'u1', tasks: [{ id: '1' }, { id: '3' }] }] },
     { id: 'i2', units: [{ id: 'u2', tasks: [] }] },
   ],
 } as unknown as Workspace
@@ -34,11 +34,11 @@ describe('addresses', () => {
     }
   })
 
-  it('opens a unit, an intent page, a task in either; or nothing it names', () => {
+  it('opens a unit, an intent page, a task of a unit; or nothing it names', () => {
     expect(resolve(ws, { id: 'u1' })).toEqual({ unit: 'u1', pick: null })
     expect(resolve(ws, { id: 'u1', task: '3', finding: 'P2-1' })).toEqual({ unit: 'u1', pick: { kind: 'task', id: '3', finding: 'P2-1' } })
     expect(resolve(ws, { id: 'i1' })).toEqual({ unit: 'i1', pick: null })
-    expect(resolve(ws, { id: 'i1', task: '1' })).toEqual({ unit: 'i1', pick: { kind: 'task', id: '1', finding: undefined } })
+    expect(resolve(ws, { id: 'i1', task: '1' })).toBeNull()
     expect(resolve(ws, { id: 'i2', task: '1' })).toBeNull()
     expect(resolve(ws, { id: 'i2' })).toEqual({ unit: 'i2', pick: null })
     expect(resolve(ws, { id: 'u1', task: '9' })).toBeNull()

@@ -22,10 +22,6 @@ pub struct Setting<O> {
     pub ssh: String,
     #[serde(flatten)]
     pub options: O,
-    /// Before 0.3 the port over there was fixed; it is chosen per connection now. Kept so
-    /// that older settings still read.
-    #[serde(default, skip_serializing)]
-    pub port: u16,
     pub enabled: bool,
 }
 

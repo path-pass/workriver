@@ -19,7 +19,7 @@ export const liveSession = (sessions: Session[], r: AgentRef) => sessions.find(x
  * The live session a task's agent runs in: its session (or, with none, its name), in the
  * task's workspace when it is known (a `Space.id`: the records put an agent there, by its
  * seat or its tasks), and, when the task's unit has a repository, on that repository's machine
- * (absent: this one). A unit with none (research, an intent's own work) names no machine, so
+ * (absent: this one). A unit with none (research) names no machine, so
  * its agent may be on any. Only when exactly one fits: the same session may show on two
  * machines and a name in several workspaces, and keys must never go to another instance.
  */
@@ -30,73 +30,6 @@ export function taskSession(sessions: Session[], n: { agent?: string | null; age
     && (!unit.repo || (x.machine ?? '') === (unit.machine ?? ''))
     && (!workspace || x.workspace === workspace))
   return fit.length === 1 ? fit[0] : undefined
-}
-
-/**
- * Where a live agent is, in the order the rail lists them. Agents cross units, so this is
- * worked out over the whole workspace:
- * working  running a node, wherever else it holds work
- * queued   holds work that has not started, runs nothing
- * idle     neither; its session is still there
- */
-export type AgentState = 'working' | 'queued' | 'idle'
-
-export interface AgentAt {
-  agent: string
-  /** The session, when the data has one: what the terminal button reaches. */
-  session?: string
-  /** What the session is about, in the harness's words. */
-  topic?: string
-  state: AgentState
-  /** Waiting at a question or approval in its terminal (the runtime says so). */
-  blocked: boolean
-  /** The manager of its intent. */
-  manager: boolean
-  /** The machine it runs on; absent: this one. */
-  machine?: string
-  /** Its machine cannot be reached: as last seen. */
-  unreachable?: boolean
-  /** The node it is on; idle: the last one it finished (data order), or null if none. */
-  at: { unit: Unit; node: Task } | null
-}
-
-/** Agents of one workspace (by the records), or of none (`key` empty). */
-export interface AgentGroup {
-  key: string
-  /** The workspace's name; empty for those in no workspace. */
-  label: string
-  intent: Intent | null
-  agents: AgentAt[]
-}
-
-/** Where every live agent is, worked out over the whole workspace (agents cross units). */
-export function agents(ws: Workspace): AgentAt[] {
-  return agentGroups(ws).flatMap(g => g.agents)
-}
-
-/**
- * Live agents by workspace: groups with someone working first, then by name;
- * inside, the manager, then working, blocked, holding work, idle.
- */
-export function agentGroups(ws: Workspace): AgentGroup[] {
-  const tasks = unitsOf(ws).flatMap(unit => unit.tasks.map(node => ({ unit, node })))
-  const groups = new Map<string, AgentGroup>()
-  for (const s of ws.sessions.filter(s => !s.ended)) {
-    const mine = (state: string) => tasks.filter(({ node }) => node.state === state && (s.session && node.agentSession ? node.agentSession === s.session : node.agent === s.agent))
-    const running = mine('running')[0], todo = mine('todo')[0], last = mine('done').at(-1) ?? null
-    // Working without a node of its own (a manager planning, say): working all the same.
-    const [state, at]: [AgentState, AgentAt['at']] = running ? ['working', running] : s.state === 'working' ? ['working', todo ?? last] : todo ? ['queued', todo] : ['idle', last]
-    const intent = ws.intents.find(i => i.id === s.intent) ?? null
-    const space = ws.workspaces?.find(w => w.id === s.workspace)
-    const key = space?.id ?? ''
-    if (!groups.has(key)) groups.set(key, { key, label: space?.name ?? '', intent, agents: [] })
-    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked' || !!s.onScreen, manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
-  }
-  const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)
-  const list = [...groups.values()]
-  for (const g of list) g.agents.sort((a, b) => rank(a) - rank(b))
-  const busy = (g: AgentGroup) => (g.agents.some(a => a.state === 'working') ? 0 : 1)
-  return list.sort((a, b) => busy(a) - busy(b) || a.label.localeCompare(b.label))
 }
 
 /**

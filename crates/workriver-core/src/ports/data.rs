@@ -87,22 +87,21 @@ pub struct Delivered {
     pub delivery: Delivery,
 }
 
-/// Every delivery at `step`: tasks' and their findings', of units and of intents' own work,
-/// then chores', then backlog findings' (a batch's message is recorded on its first
-/// finding). A chore's or a backlog finding's has no unit or task. What a start watches again
-/// and what it records as lost are both read here, so neither leaves out a kind.
+/// Every delivery at `step`: tasks' and their findings', in the units' order, then chores',
+/// then backlog findings' (a batch's message is recorded on its first finding). A chore's
+/// or a backlog finding's has no unit or task. What a start watches again and what it
+/// records as lost are both read here, so neither leaves out a kind.
 fn deliveries_at(all: &State, step: DeliveryStep) -> Vec<Delivered> {
     let at = |d: &Option<Delivery>| d.clone().filter(|d| d.step == step);
     let mut out = vec![];
-    let owners = all.units.iter().map(|u| (&u.id, &u.tasks)).chain(all.intents.iter().map(|i| (&i.id, &i.tasks)));
-    for (owner, tasks) in owners {
-        for t in tasks {
+    for u in &all.units {
+        for t in &u.tasks {
             if let Some(d) = at(&t.delivery) {
-                out.push(Delivered { unit: owner.clone(), task: t.n, finding: None, chore: None, delivery: d });
+                out.push(Delivered { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d });
             }
             for f in &t.findings {
                 if let Some(d) = at(&f.delivery) {
-                    out.push(Delivered { unit: owner.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
+                    out.push(Delivered { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
                 }
             }
         }

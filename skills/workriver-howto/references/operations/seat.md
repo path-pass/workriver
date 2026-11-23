@@ -4,9 +4,9 @@
 was refused from a new terminal, or you take over from another manager.
 
 A workspace is workriver's own (`ws1`: an id, a name that is only shown, one project). It
-has one seat. **Only the user seats a manager**; no agent does, itself included, and
-`workriver manager here` is gone. workriver starts a working agent only on the user's own
-act, never on an agent's, and schedules none. Give the user one of:
+has one seat. **Only the user seats a manager**; no agent does, itself included. workriver
+starts a working agent only on the user's own act, never on an agent's, and schedules none.
+Give the user one of:
 
 - on the page: the workspace's line in the left rail, "Manager", then your name;
 - from the user's own terminal (a new window, or a Herdr pane with no agent; `!` in your

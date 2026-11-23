@@ -7,8 +7,7 @@ through an agent runtime. Today that runtime is [Herdr](https://herdr.dev), the 
 workriver supports. This page holds everything in the other documents that is Herdr's
 own: where the [README](../../README.md), [Getting started](../getting-started.md) and the
 [Security model](../security.md) say "the runtime", read Herdr; where they say an agent's
-terminal, read the Herdr pane it runs in. A workspace is not Herdr's: workriver's
-workspaces are its own records (`ws1`), and a Herdr workspace is only where a pane sits.
+terminal, read the Herdr pane it runs in.
 
 ## Installing and running
 
@@ -164,7 +163,7 @@ Herdr's sidebar yourself.
 - **A machine says *connected, but its Herdr does not answer***: Herdr is not running
   there, or its socket is elsewhere (`--herdr-socket`).
 - **The terminal view says it cannot be had**: the client socket is not there (a Herdr that serves no
-  terminal stream, or another machine connected before this version: disable and enable it), its
+  terminal stream), its
   path here is too long for a socket (a shorter data directory or machine name), or
   `herdr` on the service's `PATH` is missing or of another version than the server.
 - **"Not delivered: …"** on the page:

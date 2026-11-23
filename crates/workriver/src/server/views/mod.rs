@@ -118,7 +118,6 @@ fn where_is(state: &core::State, live: &[RuntimeAgent], names: &Names, manager: 
 /// commits, uncommitted work, what other sessions are about and the machine each runs on
 /// (a workspace's own machine stays: it is the workspace's, kept in the records too).
 fn hide(ws: &mut Workspace, state: &core::State) {
-    ws.reduced = true;
     for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
         hide_unit(u);
     }
@@ -187,7 +186,6 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
             ThreadOut {
                 id: t.id.clone(),
                 ended: t.ended,
-                live: agent.is_some(),
                 discuss: t.discuss,
                 conclusion: t.conclusion.clone(),
                 turns: state
@@ -292,7 +290,7 @@ impl Names {
 
 /// `blocked`: when each blocked live agent (by session) was first seen blocked; `idle`: idle
 /// (or done) the same way; `stalls`: the
-/// running tasks whose agent stopped, by (unit or intent, task).
+/// running tasks whose agent stopped, by (unit, task).
 pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::common::wire::Stall>, proposals: &HashMap<String, Option<String>>) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
@@ -325,10 +323,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
             kind: i.kind,
             size: i.size,
             tags: i.tags.clone(),
-            units: intent_unit(state, live, i, &names)
-                .into_iter()
-                .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| if u.kind.is_code() { unit(state, live, u, cache, &names, state.manager_of(&i.id)) } else { branchless(state, live, u, &names, false) }))
-                .collect(),
+            units: state.units.iter().filter(|u| u.intent == i.id).map(|u| if u.kind.is_code() { unit(state, live, u, cache, &names, state.manager_of(&i.id)) } else { branchless(state, live, u, &names) }).collect(),
             chores: state
                 .chores
                 .iter()
@@ -456,7 +451,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .map(|c| chore(c, &names, Some(state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_default())))
         .collect();
     let messages = messages(state, live, &names);
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, chores, alerts: vec![], messages, runs: vec![] }
 }
 
 /// Whether a unit is work to coordinate with: not merged, not closed, and its intent neither
@@ -506,24 +501,11 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
     state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), repos: repos_in(&p.path) }).collect()
 }
 
-/// An intent's own tasks (research, design and their reviews and gates, recorded before
-/// research units) as a unit without a repository, listed first under the intent; none when
-/// it has none.
-fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, names: &Names) -> Option<Unit> {
-    if i.tasks.is_empty() {
-        return None;
-    }
-    let u = state.unit_or_intent(&i.id)?;
-    Some(branchless(state, live, &u, names, true))
-}
-
-/// A unit with no branch: a research unit, or (`intent_level`) an intent's own work. No
-/// commits, no code, nothing to merge.
-fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names: &Names, intent_level: bool) -> Unit {
+/// A unit with no branch: a research unit. No commits, no code, nothing to merge.
+fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names: &Names) -> Unit {
     let manager = state.manager_of(&u.intent);
     Unit {
         id: u.id.clone(),
-        intent_level,
         kind: (!u.kind.is_code()).then_some(u.kind),
         title: u.title.clone(),
         purpose: u.purpose.clone(),
@@ -542,7 +524,7 @@ fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names:
         code: String::new(),
         squash: None,
         overdue: None,
-        threads: if intent_level { vec![] } else { threads(state, live, names, &u.id, 0) },
+        threads: threads(state, live, names, &u.id, 0),
         overlaps: vec![],
     }
 }
@@ -674,7 +656,6 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let progress_now = if !merged && cache.merged_now.iter().any(|(x, _)| x == &u.id) { core::Progress::Merged } else { state.progress(u) };
     Unit {
         id: u.id.clone(),
-        intent_level: false,
         kind: (!u.kind.merges()).then_some(u.kind),
         title: u.title.clone(),
         purpose: u.purpose.clone(),
@@ -721,15 +702,6 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         TaskKind::Review => t.reviewer.map(|r| name(&r)),
         _ => None,
     };
-    let by_task = |n: u32| u.tasks.iter().find(|x| x.n == n);
-    // Who raised implement work: the finder of what it answers, the user, or the plan.
-    let raised_by = (!finder).then(|| match t.causes.first().and_then(|c| by_task(c.task)) {
-        Some(f) if f.kind == TaskKind::Gate => "user".to_string(),
-        Some(f) if f.kind == TaskKind::Tests => "test".to_string(),
-        Some(f) => f.reviewer.map(|r| name(&r)).unwrap_or_else(|| "code-review".into()),
-        None if t.by == "user" => "user".into(),
-        None => "plan".into(),
-    });
     let policy = state.intents.iter().find(|i| i.id == u.intent).map(|i| i.findings).unwrap_or_default();
     // The manager decides only while there is one running; else its findings fall to the user.
     let manager_runs = manager.is_some_and(|m| live.iter().any(|a| a.session == m));
@@ -783,7 +755,6 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         agent: t.agent.as_deref().map(|a| names.of(a)),
         agent_session: t.agent.clone(),
         writing: false,
-        raised_by,
         gate: t.gate,
         since,
         started: t.started.clone(),
@@ -855,7 +826,6 @@ fn unregistered(c: &scan::Commit) -> Task {
         agent: None,
         agent_session: None,
         writing: false,
-        raised_by: None,
         gate: None,
         since: None,
         started: None,

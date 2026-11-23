@@ -201,7 +201,7 @@ fn version(path: &std::path::Path) -> (i64, bool) {
 }
 
 /// The product reads only the new form: a store with events and without the format's step
-/// is refused, naming the script, and opening it does not mark it; a new store, and one
+/// is refused, naming the script and the commit that holds it, and opening it does not mark it; a new store, and one
 /// that holds no events yet, is marked.
 #[test]
 fn a_store_without_the_format_mark_is_refused_and_never_marked() {
@@ -210,7 +210,7 @@ fn a_store_without_the_format_mark_is_refused_and_never_marked() {
     before_the_format(&old, 1);
     for _ in 0..2 {
         let err = Store::open(&old).err().expect("refused").to_string();
-        assert!(err.contains("scripts/migrate-virtual-workspaces") && err.contains("Nothing was changed"), "{err}");
+        assert!(err.contains("scripts/migrate-virtual-workspaces as commit 7cdf576") && err.contains("Nothing was changed"), "{err}");
         assert_eq!(version(&old), (1, false), "left as it is");
     }
     let empty = dir.path().join("empty.db");

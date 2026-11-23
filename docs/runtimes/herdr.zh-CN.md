@@ -6,8 +6,7 @@ workriver 通过一个 agent 运行时得知谁在运行、在哪里、处于什
 目前这个运行时是 [Herdr](https://herdr.dev)，也是 workriver 唯一支持的一个。其他文档里属于
 Herdr 自己的内容都放在这一页：[README](../README.zh-CN.md)、[上手](../getting-started.zh-CN.md)
 和[安全模型](../security.zh-CN.md)里说"运行时"的地方，指的就是 Herdr；说 agent 的终端的地方，
-指的是它所在的 Herdr 窗格。工作区不是 Herdr 的：workriver 的工作区是它自己的记录（`ws1`），
-Herdr 工作区只是窗格所在的地方。
+指的是它所在的 Herdr 窗格。
 
 ## 安装和运行
 
@@ -129,8 +128,7 @@ socket 旁边的 `-client.sock`），所以页面上对那台机器上 agent 的
   `HERDR_SOCKET_PATH`。协议警告表示 Herdr 不是 0.9；可能还能用，但没测过。
 - **某台机器显示 *connected, but its Herdr does not answer***：那边没有运行 Herdr，或者 socket
   在别处（`--herdr-socket`）。
-- **终端视图说打不开**：client socket 不在（Herdr 不提供终端画面流，或者这台机器在这个版本之前就连上了：停用再
-  启用它），它在这边的路径对 socket 来说太长（换短一点的数据目录或机器名），或者服务 `PATH` 上没有 `herdr`、版本和服务端不同。
+- **终端视图说打不开**：client socket 不在（Herdr 不提供终端画面流），它在这边的路径对 socket 来说太长（换短一点的数据目录或机器名），或者服务 `PATH` 上没有 `herdr`、版本和服务端不同。
 - 页面上显示 **"没送出：…"**：
   - *连不上 Herdr*：见第一条；
   - *Herdr 没有接收*：通常是 `agent_not_ready`（agent 还在启动，或者不是窗格的前台程序）或

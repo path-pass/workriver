@@ -1,7 +1,0 @@
-{"at":"2026-01-01T00:01:00Z","actor":"workriver","kind":"agent.seen","body":{"session": "s-m1", "name": "app-mgr", "harness": "claude", "cwd": "/r/app"},"from":1}
-{"at":"2026-01-01T00:02:00Z","actor":"user","kind":"project.added","body":{"id": "p1", "path": "/r/app", "title": "App"},"from":2}
-{"at":"2026-01-01T00:03:00Z","actor":"user","kind":"intent.created","body":{"id": "i1", "title": "Login", "project": "/r/app", "state": "planned"},"from":3}
-{"at":"2026-01-01T00:05:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws1","name":"app","project":"p1"},"check":true}
-{"at":"2026-01-01T00:05:00Z","actor":"user","kind":"intent.state_changed","body":{"intent":"i1","state":"active","workspace":"ws1"},"from":5,"check":true}
-{"at":"2026-01-01T00:06:00Z","actor":"user","kind":"intent.state_changed","body":{"intent": "i1", "state": "planned"},"from":6}
-{"at":"2026-01-01T00:06:00Z","actor":"user","kind":"workspace.closed","body":{"workspace":"ws1"},"check":true}

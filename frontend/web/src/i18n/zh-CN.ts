@@ -45,7 +45,6 @@ export const zhCN: OneForm<typeof en> = {
     addCancel: '取消',
     drag: '拖动调整顺序',
     start: '开始',
-    intentWork: '调研与设计',
     foldGroup: '展开或收起「{{title}}」的单元',
     failed: '没有保存：{{error}}',
     mergeOpen: '合并…',
@@ -68,7 +67,6 @@ export const zhCN: OneForm<typeof en> = {
     addKind: '类型',
     tags: '标签：{{tags}}',
     held: {
-      tasks: '有自己的任务，不能合并（可以写明原因放弃它）。',
       units: '有自己的单元，不能合并（可以写明原因放弃它）。',
       findings: '有自己的待办问题，不能合并（可以写明原因放弃它）。',
       chores: '有自己的杂事，不能合并（可以写明原因放弃它）。'
@@ -93,8 +91,6 @@ export const zhCN: OneForm<typeof en> = {
     units: '单元',
     moved: '{{time}}前有动静',
     neverMoved: '还没有动静',
-    earlier: '早先的调研与设计',
-    earlierHint: '这些是在调研与设计成为独立单元之前，直接记在意图上的。',
     kind: { feature: '功能', fix: '修复', chore: '维护', research: '调研' },
     size: { s: 'S', m: 'M', l: 'L' },
     sizeHint: { s: 'S：一个单元、一轮评审；几小时', m: 'M：一两个单元、几轮评审；一两天', l: 'L：三个单元以上，或先做设计；几天' },
@@ -578,13 +574,10 @@ export const zhCN: OneForm<typeof en> = {
       held: '等 {{agent}}：它空下来后问题会自动发进去。',
       starting: '正在启动 agent…',
       reading: '正在读记录和代码…',
-      asking: '正在问 {{agent}}…',
       blocked: '在 {{runtime}} 里等你：{{agent}} 需要你在它的终端里回答。回答后问题会自动发给它。'
     },
     toTerminal: '去终端',
     asked: '问过 {{agent}}',
-    busy: '{{agent}} 正忙，根据记录回答',
-    ended: '{{agent}} 的会话已结束，根据记录回答',
     cannot: '没能启动回答的 agent：{{reason}}',
     threadEnded: '已结束',
     concludeAsked: '请它写结论',
@@ -898,7 +891,6 @@ export const zhCN: OneForm<typeof en> = {
     lostCommits: '它的提交不在当前分支上：{{commits}}（在这个单元离开的分支上）',
     uncommitted: '正在写，还没有提交',
     notStarted: '还没有开始。',
-    notDone: '还没有做。',
     willChange: '预计会改：{{paths}}'
   },
   stat: {

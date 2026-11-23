@@ -197,7 +197,7 @@ impl App {
     fn held_task(&self, session: &str) -> Option<(String, u32)> {
         let state = got(self.store.lock().unwrap().recorded()).ok().flatten()?;
         let on = |owner: &str, ts: &[workriver_core::Task]| ts.iter().filter(|t| t.agent.as_deref() == Some(session) && t.state == TaskState::Running).map(|t| (owner.to_string(), t.n)).collect::<Vec<_>>();
-        let mine: Vec<(String, u32)> = state.units.iter().flat_map(|u| on(&u.id, &u.tasks)).chain(state.intents.iter().flat_map(|i| on(&i.id, &i.tasks))).collect();
+        let mine: Vec<(String, u32)> = state.units.iter().flat_map(|u| on(&u.id, &u.tasks)).collect();
         (mine.len() == 1).then(|| mine[0].clone())
     }
 }

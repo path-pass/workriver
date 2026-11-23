@@ -42,12 +42,6 @@ pub fn socket_option(socket: Option<String>) -> MachineOptions {
     MachineOptions { socket }
 }
 
-/// Today's adapter behind a socket of a test's own, as for a followed machine.
-#[cfg(test)]
-pub fn adapter_at(socket: std::path::PathBuf) -> Arc<dyn Runtime> {
-    adapter::remote::connect(socket, "box", String::new())
-}
-
 /// The sockets of a followed machine's runtime that its connection brings here, each as
 /// (here, there), for its runtime socket over there.
 pub fn forwards(home: &std::path::Path, label: &str, there: &str) -> Vec<(String, String)> {

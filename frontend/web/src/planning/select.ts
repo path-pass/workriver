@@ -4,14 +4,14 @@ import type { Workspace } from '@/workspace/types'
 import { QUIET } from '@/config/defaults'
 import { findingsOf } from '@/work/select'
 
-/** Every unit, across intents (with each intent's own earlier work, `intentLevel`). */
+/** Every unit, across intents. */
 export const unitsOf = (ws: Workspace | null) => ws?.intents.flatMap(i => i.units) ?? []
-/** A unit with no branch and no code: research and design, or an intent's own earlier work. */
-export const noCode = (u: Unit) => !!u.intentLevel || u.kind === 'research'
+/** A unit with no branch and no code: research and design. */
+export const noCode = (u: Unit) => u.kind === 'research'
 /** The first unit the rail shows for a project (or for all): of its active intents, then of its done ones. */
 export function firstUnit(ws: Workspace, project: string | null): Unit | undefined {
   const mine = ws.intents.filter(i => !project || i.project === project)
-  return [...mine.filter(i => (i.state ?? 'active') === 'active'), ...mine.filter(i => i.state === 'done')].flatMap(i => i.units).find(u => !u.intentLevel)
+  return [...mine.filter(i => (i.state ?? 'active') === 'active'), ...mine.filter(i => i.state === 'done')].flatMap(i => i.units)[0]
 }
 /** The intent a unit belongs to, or the intent itself (its page). */
 export const intentOf = (ws: Workspace, unitId: string) => ws.intents.find(i => i.id === unitId || i.units.some(u => u.id === unitId))
@@ -44,8 +44,8 @@ export function quietSince(u: Unit, now = Date.now()): number | null {
 }
 
 /**
- * An active intent where nothing moved for `QUIET`, in any of its units or its own tasks
- * (its intent-level unit): since the latest movement. Units that never moved do not count.
+ * An active intent where nothing moved for `QUIET`, in any of its units: since the latest
+ * movement. Units that never moved do not count.
  */
 export function intentQuietSince(i: Intent, now = Date.now()): number | null {
   if ((i.state ?? 'active') !== 'active' || i.units.some(busy)) return null

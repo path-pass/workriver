@@ -22,9 +22,6 @@ pub struct Workspace {
     /// The other machines followed, with whether each can be reached.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) machines: Vec<super::MachineState>,
-    /// A part only: what an agent on a blind task may see.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) reduced: bool,
     /// Chores that belong to no intent: a project's, or (no project) nobody's.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) chores: Vec<Chore>,
@@ -417,9 +414,6 @@ pub(crate) struct Chore {
 #[derive(Serialize)]
 pub(crate) struct Unit {
     pub(crate) id: String,
-    /// The intent's own work (research, design) shown as a unit without a repository.
-    #[serde(rename = "intentLevel", skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) intent_level: bool,
     /// Research and design, with no branch, or a spike, never merged; absent: code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) kind: Option<core::UnitKind>,
@@ -461,7 +455,7 @@ pub(crate) struct Unit {
     /// Ready for longer than the user's `readyHours` without a merge: since when.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) overdue: Option<String>,
-    /// Conversations about the unit as a whole ("ask why" with no task picked), oldest first.
+    /// Conversations about the unit as a whole (a question with no task picked), oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) threads: Vec<ThreadOut>,
     /// Open, the files it changes that another open unit of its project, in the same
@@ -502,8 +496,6 @@ pub(crate) struct Task {
     pub(crate) agent_session: Option<String>,
     pub(crate) writing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) raised_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) gate: Option<core::GateKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) since: Option<String>,
@@ -538,7 +530,7 @@ pub(crate) struct Task {
     /// A research task (shown like implement work; its output is its note and attachments).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) research: bool,
-    /// Conversations about it ("ask why"), oldest first.
+    /// Conversations about it (questions asked of it), oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) threads: Vec<ThreadOut>,
     /// Waiting gates: the latest conclusion reached about it or the work it follows, to start
@@ -658,8 +650,8 @@ pub(crate) struct Finding {
     /// running); absent: it waits for the user.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) decider: Option<&'static str>,
-    /// While open: it would be the manager's, but none is registered or running, so it
-    /// falls to the user.
+    /// While open: it would be the manager's, but the seat is empty or its agent is not
+    /// running, so it falls to the user.
     #[serde(rename = "noManager", skip_serializing_if = "std::ops::Not::not")]
     pub(crate) no_manager: bool,
     /// What was added to it since it was reported, oldest first.
@@ -724,8 +716,6 @@ pub(crate) struct Commit {
 pub(crate) struct ThreadOut {
     pub(crate) id: String,
     pub(crate) ended: bool,
-    /// Its temporary agent runs, so a follow-up keeps its context.
-    pub(crate) live: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) conclusion: Option<String>,
     pub(crate) turns: Vec<Turn>,

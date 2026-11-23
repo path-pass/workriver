@@ -14,8 +14,8 @@
 
 Units are added by the intent's manager (you, for an intent that runs in the workspace you
 manage) or by the user, by nobody else: a worker that finds work for another unit tells
-you. An intent that is planned and never ran, or runs where no manager registered, has no
-manager: start it first (`start-intent`), or the user adds the unit. One put back in the
+you. An intent that is planned and never ran, or runs in a workspace whose seat is empty,
+has no manager: start it first (`start-intent`), or the user adds the unit. One put back in the
 roadmap keeps the manager of the workspace it last ran in, who still adds its units.
 
 A unit is built, reviewed and merged on its own, on its own branch. The branch is the
@@ -61,9 +61,8 @@ a **spike**: a unit with a `spike/<topic>` branch and its own worktree like a co
 any kind of task, never merged; closed with `workriver unit done <u> --reason "<what was
 learned>"`. `workriver guide how spike`.
 
-Tasks are always in a unit: `workriver task add i3 …` is refused. Older intents may have
-tasks of their own (`i3#1`): they still work as before (start, deliver, gates, findings,
-`--cause i3#2:P2-1` from a unit), but take no new tasks; follow-up goes into a research unit.
+Tasks are always in a unit: `workriver task add i3 …` is refused; research and design go
+into a research unit.
 
 The first task of a unit starts from it. Every later one says what it follows: `--after
 <n>` (the task it continues; repeat for several), `--after start` to run beside the first,
@@ -71,8 +70,8 @@ or `--cause` naming findings of a task in the same unit.
 
 **You will see:** the unit id (`u1`), task refs (`u1#1`).
 
-**Refusals:** "no intent given, and Herdr workspace … has no current intent" -
-`start-intent`. "… is not a git repository" / "base … is not a commit or branch" - fix
+**Refusals:** "no intent given, and workspace ws1 has no current intent; its manager starts
+one" - `start-intent`. "… is not a git repository" / "base … is not a commit or branch" - fix
 `--repo` or `--base`. "i3 is an intent: tasks go into a unit … workriver unit add i3 --kind research …" - add a research
 unit and the task there. "u2 is a research unit: it takes research, design, review and gate tasks" -
 implementing goes in a code unit. "u2 is a research unit: …" - it has no branch to merge,
@@ -82,5 +81,5 @@ with feat/, chore/ or fix/" / "a unit's branch must not be its base" - name the 
 branch so, as the message says. "only the user or the manager of intent i3 (boss) adds its
 units" - not your intent: tell its manager (`workriver manager tell <your task> --text "…"`).
 "i7 has no manager: units are added by the manager of the workspace it runs in, once it is
-started, or by the user" - it never ran, or runs where nobody registered: start it first
+started, or by the user" - it never ran, or its workspace's seat is empty: start it first
 (`start-intent`), or ask the user.
