@@ -97,13 +97,20 @@ pub(in crate::server) async fn unit_code(State(app): State<Shared>, Extension(ca
     .await
 }
 
+#[derive(Deserialize)]
+pub(in crate::server) struct StateReport {
+    #[serde(default)]
+    took: bool,
+}
+
 /// The records as the caller may see them (`App::view`), each intent with where its text
 /// stands (`edits`: its version, who made it and when, the version that last changed each
 /// field), which the state itself never serializes; its history is read on its own route.
 /// The templates are the library a unit can name: the user's, and each built-in the user
 /// has none of, marked built in (the records hold only the user's), so a CLI of another
-/// build shows the steps this service places.
-pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<serde_json::Value>, ApiError> {
+/// build shows the steps this service places. The CLI can opt in to intent statistics,
+/// computed from those same visible records.
+pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>, Query(report): Query<StateReport>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
         let mut out = serde_json::to_value(&state).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -113,6 +120,12 @@ pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller
             }
         }
         out["templates"] = json!(state.library());
+        if report.took {
+            let now = std::time::SystemTime::now();
+            let rows = state.intents.iter().map(|i| state.intent_took(i, now)).collect::<Result<Vec<_>, _>>()
+                .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            out["intent_took"] = json!(rows);
+        }
         Ok(Json(out))
     })
     .await

@@ -220,6 +220,26 @@ fn lists_findings_and_machines_from_the_cli() {
     let history = run(&["intent", "history", "i3"]);
     assert!(history.contains("  the user  merged i4 into it; changed the tags\n") && history.contains("  the user  merged i5 into it\n"), "{history}");
 
+    // A project report contains one JSON object per intent, also the closed ones.
+    let other = tmp.path().join("other");
+    std::fs::create_dir(&other).unwrap();
+    run(&["project", "add", other.to_str().unwrap(), "--title", "Other"]);
+    run(&["backlog", "add", "Other work", "--goal", "An unrelated intent", "--project", "p2"]);
+    let report = run(&["intent", "took", "p1", "--json"]);
+    let rows: Vec<Value> = report.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(rows.iter().map(|row| row["intent"].as_str().unwrap()).collect::<Vec<_>>(), ["i1", "i2", "i3", "i4", "i5"]);
+    assert_eq!(rows[0]["units_by_kind"], json!({"code": 1}));
+    assert_eq!(rows[0]["tasks_by_kind"], json!({"review": 1}));
+    assert_eq!(rows[0]["review_rounds"], json!({"u1": 0}));
+    assert!(rows[3]["closed"].is_string());
+    let one: Value = serde_json::from_str(&run(&["intent", "took", "i3", "--json"])).unwrap();
+    assert_eq!(one, rows[2]);
+    assert_eq!((&one["kind"], &one["size"], &one["active_days"]), (&json!("feature"), &json!("s"), &json!(0.0)));
+    let default = cli().current_dir(&repo).args(["intent", "took", "--json"]).output().unwrap();
+    assert!(default.status.success(), "{}", String::from_utf8_lossy(&default.stderr));
+    assert_eq!(String::from_utf8(default.stdout).unwrap(), report);
+    assert!(run(&["intent", "took", "i3"]).contains("i3  feature S"));
+
     // The user adds a machine (not followed yet), follows it, stops, and removes it; the
     // settings file says so at every step, and the connection lives only while followed.
     let settings = || -> Value { serde_json::from_str(&std::fs::read_to_string(home.join("settings.json")).unwrap_or_else(|_| "{}".into())).unwrap() };

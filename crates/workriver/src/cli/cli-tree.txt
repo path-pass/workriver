@@ -189,6 +189,7 @@ workriver help intent history
 workriver help intent move
 workriver help intent set
 workriver help intent start
+workriver help intent took
 workriver help link
 workriver help machine
 workriver help machine add
@@ -266,6 +267,7 @@ workriver intent help history
 workriver intent help move
 workriver intent help set
 workriver intent help start
+workriver intent help took
 workriver intent history
 workriver intent history  arg diff --diff value=["N"] num=1 action=Set
 workriver intent history  arg help --help -h num=0 action=Help
@@ -291,6 +293,10 @@ workriver intent start
 workriver intent start  arg help --help -h num=0 action=Help
 workriver intent start  arg intent index=1 value=["INTENT"] num=1 action=Set required
 workriver intent start  arg workspace --workspace value=["WORKSPACE"] num=1 action=Set
+workriver intent took
+workriver intent took  arg help --help -h num=0 action=Help
+workriver intent took  arg json --json value=["JSON"] num=0 default=["false"] action=SetTrue
+workriver intent took  arg target index=1 value=["TARGET"] num=1 action=Set
 workriver link
 workriver link  arg help --help -h num=0 action=Help
 workriver link  arg target index=1 value=["TARGET"] num=1 action=Set required
