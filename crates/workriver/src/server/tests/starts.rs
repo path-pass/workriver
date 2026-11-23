@@ -382,6 +382,20 @@ fn a_shells_warning_before_the_command_does_not_stop_the_seating() {
     wait_until("seated", || seat_of(&d, &ws)["session"] == session.as_str());
 }
 
+/// A shell line that mentions the harness's command before the start typed it (a shortcut
+/// its set-up prints), then a warning of that set-up: the screen is read only after the
+/// last line with the command, so a ready agent with a session is seated.
+#[test]
+fn a_shell_line_with_the_command_before_the_typed_one_does_not_stop_the_seating() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.start_screen.lock().unwrap() = Some("Project shortcut: claude --model opus\n⚠ Optional development tools are not on PATH\nzhangdongwei@air proj % claude --model 'opus'\n ▐▛███▜▌   Claude Code v2.1.330\n\n────────\n❯ Try \"edit <filepath> to…\"\n────────\n".into());
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits());
+    let ws = workspace_named(&d, "chat");
+    let session = format!("s-ws1-manager-{}", start(&d, &ws, "opus").unwrap()["seq"]);
+    wait_until("seated", || seat_of(&d, &ws)["session"] == session.as_str());
+}
+
 /// A read of the start's place that fails is not a closed terminal: it is read again, and
 /// what comes up is seated.
 #[test]

@@ -45,11 +45,12 @@ impl Harness {
         Ok(if model.is_empty() { vec![] } else { vec![self.model_flag.to_string(), model.to_string()] })
     }
 
-    /// The problem the harness reported as it started, as its screen shows it: after the line
-    /// where the start typed its command (this kind and `args`, as words of that line; the
-    /// quotes and backslashes a runtime types around an argument are not counted), the first
-    /// line that starts with its mark, without the mark, with the indented lines the terminal
-    /// wrapped it onto. What the shell printed before the command is the shell's, never read.
+    /// The problem the harness reported as it started, as its screen shows it: after the last
+    /// line where the start's command shows (this kind and `args`, as words of that line; the
+    /// quotes and backslashes a runtime types around an argument are not counted), which is
+    /// where the start typed it, the first line that starts with its mark, without the mark,
+    /// with the indented lines the terminal wrapped it onto. What the shell printed before,
+    /// a line of its own that mentions the command among it, is the shell's, never read.
     /// None: no such line, or no line with the command (nothing to tell the harness's from).
     pub fn startup_error(&self, screen: &str, args: &[String]) -> Option<String> {
         let command: Vec<&str> = std::iter::once(self.kind).chain(args.iter().map(String::as_str)).collect();
@@ -57,7 +58,9 @@ impl Harness {
             let words: Vec<String> = line.split_whitespace().map(|w| w.replace(['\'', '"', '\\'], "")).collect();
             words.windows(command.len()).any(|w| w.iter().zip(&command).all(|(a, b)| a == b))
         };
-        let mut lines = screen.lines().skip_while(|l| !typed(l)).skip(1).skip_while(|l| !l.starts_with(self.error_mark));
+        let lines: Vec<&str> = screen.lines().collect();
+        let at = lines.iter().rposition(|l| typed(l))?;
+        let mut lines = lines[at + 1..].iter().copied().skip_while(|l| !l.starts_with(self.error_mark));
         let first = lines.next()?.trim_start_matches(self.error_mark).trim();
         let wrapped = lines.take_while(|l| l.starts_with(char::is_whitespace) && !l.trim().is_empty()).map(str::trim);
         Some(std::iter::once(first).chain(wrapped).collect::<Vec<_>>().join(" "))
@@ -93,8 +96,8 @@ mod tests {
     }
 
     /// What each harness shows as it starts with a model it does not know (Claude Code
-    /// 2.1.330, Codex 0.171.0, measured), and with one it knows: read after the line where
-    /// the start typed the harness's command.
+    /// 2.1.330, Codex 0.171.0, measured), and with one it knows: read after the last line
+    /// with the harness's command, where the start typed it.
     #[test]
     fn a_startup_error_is_the_marked_line_after_the_command() {
         let claude = harness("claude").unwrap();
@@ -133,6 +136,12 @@ mod tests {
         assert_eq!(claude.startup_error(&right, &args("opsu")).as_deref(), Some("Model \"opsu\" isn't recognized"));
         // Another command is not the start's: what follows it is not read.
         assert_eq!(claude.startup_error(&format!("{shell}claude --model sonnet\n⚠ Model \"x\" isn't recognized{ready}"), &args("opus")), None);
+        // A shell line that mentions the command before the start typed it is not where the
+        // harness's screen begins: only what follows the last line with the command is read.
+        let hint = |model: &str| format!("Project shortcut: claude --model {model}\n⚠ Optional development tools are not on PATH\nzhangdongwei@air proj % ");
+        assert_eq!(claude.startup_error(&format!("{}claude --model 'opus'{ready}", hint("opus")), &args("opus")), None);
+        let wrong = format!("{}claude --model 'opsu'\n⚠ Model \"opsu\" isn't recognized\n{ready}", hint("opsu"));
+        assert_eq!(claude.startup_error(&wrong, &args("opsu")).as_deref(), Some("Model \"opsu\" isn't recognized"));
         // No line with the command (scrolled out of what was read): nothing is read as an error.
         assert_eq!(claude.startup_error("⚠ Optional development tools are not on PATH\n❯ Try\n", &args("opus")), None);
     }

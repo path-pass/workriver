@@ -62,10 +62,11 @@ workriver 工作区同名的 Herdr 工作区里（取第一个同名的，没有
 harness 的类型和以 Herdr 列表形式给出的参数（只在你选了模型时带 `--model <模型>`），名字是这次启动自己的
 `<ws>-manager-<n>`（`n` 是这次启动在 workriver 记录里的编号）：Herdr 的整个服务里一个正在运行的名字只能用一次
 （`agent_name_taken`），而之前启动的 agent 可能还在运行。Herdr 报告这个窗格里的 agent 已就绪（idle 或 done）、
-有 harness 自己的会话，并且屏幕上（`pane.read`，最近的行，不折行）在 Herdr 输入 harness 命令的那一行之后
-没有以 `⚠` 开头的行时，workriver 才指定它为管理者（Herdr 在那一行里会给参数加引号，比如
+有 harness 自己的会话，并且屏幕上（`pane.read`，最近的行，不折行）在最后一行带 harness 命令的行（即 Herdr
+输入命令的那一行）之后没有以 `⚠` 开头的行时，workriver 才指定它为管理者（Herdr 在那一行里会给参数加引号，比如
 `claude --model 'claude-opus-5-5[1m]'`）。Claude Code 和 Codex 启动时遇到不认识的模型就是这样报告的（两者
-照样启动、照样就绪）；命令之前 shell 打印的东西属于 shell，不读。屏幕上有这样一行的启动不指定任何人就结束，
+照样启动、照样就绪）；命令之前 shell 打印的东西属于 shell，不读，哪怕其中一行提到了这条命令（比如 shell
+启动配置打印的快捷方式）。屏幕上有这样一行的启动不指定任何人就结束，
 agent 留在窗格里继续运行，页面上显示那一行。Codex 会占满整个屏幕，所以 Herdr 读回来的内容里没有它的命令行，
 也就读不到它的错误（在 Codex 0.171.0 上实测）；不过从页面启动的 Codex 在有会话之前本来就不会被指定，而它要到
 收到第一条提示词才有会话。Herdr 的 `agent_not_ready`
