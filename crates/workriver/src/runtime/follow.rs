@@ -364,10 +364,13 @@ impl Machines {
     /// here after each machine was read, until it says the search is over. It returns then,
     /// or once every read ended, or once `within` has passed (a slow machine's read goes on
     /// by itself); with no `within`, a slow machine makes it long: never call it so while a
-    /// request waits. What it gives: the machines whose read did not end well in that time.
+    /// request waits. What it gives: the machines followed that were not read now, those
+    /// whose connection is down among them (their agents are as last seen, of any age), and
+    /// those whose read did not end well in that time.
     pub fn refresh(&self, within: Option<Duration>, mut found: impl FnMut() -> bool) -> Vec<String> {
-        let entries: Vec<Arc<Entry>> = self.entries.lock().unwrap().iter().filter(|e| e.tunnel.lock().unwrap().up).cloned().collect();
-        let mut unread: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
+        let all: Vec<Arc<Entry>> = self.entries.lock().unwrap().clone();
+        let mut unread: Vec<String> = all.iter().map(|e| e.label.clone()).collect();
+        let entries: Vec<Arc<Entry>> = all.into_iter().filter(|e| e.tunnel.lock().unwrap().up).collect();
         let (read, reads) = std::sync::mpsc::channel();
         for e in entries {
             let read = read.clone();

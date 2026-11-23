@@ -181,10 +181,9 @@ impl App {
         // A seated manager's row waits only where its seat is held to, as last read: a row of
         // a lost seat, of one not read, or on another machine than the seat's offers no dialog
         // (what the user acts on is the workspace's "confirm its terminal").
-        let seats = self.seats.lock().unwrap().clone();
         for s in ws.sessions.iter_mut() {
             let Some(m) = state.seat_of(&s.session).filter(|w| !w.closed).and_then(|w| w.manager.as_ref()) else { continue };
-            if m.machine != s.machine || !seats.get(&s.session).is_some_and(|(at, place)| *at == m.machine && place.is_some()) {
+            if self.place_as_read(&s.session, m.machine.as_deref(), s.machine.as_deref()).is_err() {
                 (s.blocked_since, s.on_screen) = (None, false);
             }
         }

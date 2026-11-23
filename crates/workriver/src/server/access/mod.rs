@@ -260,7 +260,7 @@ impl App {
         // A machine no seat is on any more is not read: what was found there goes.
         self.seats.lock().unwrap().retain(|_, (m, _)| machines.contains(m));
         for m in machines {
-            if let Err(e) = self.see_roots_on(m.as_deref(), agents) {
+            if let Err(e) = self.see_roots_on(m.as_deref(), agents).map(drop) {
                 tracing::debug!("cannot read the roots{}: {e}", on(m.as_deref()));
             }
         }
@@ -278,7 +278,7 @@ impl App {
     /// machine lists a seated session. Everything is read before anything changes: roots,
     /// records or the machine's runner not read, that machine's seats are not known
     /// (`seat_place` answers so) and its pins and proposals stay as they were.
-    fn see_roots_on(&self, machine: Option<&str>, agents: &[RuntimeAgent]) -> Result<(), RuntimeError> {
+    fn see_roots_on(&self, machine: Option<&str>, agents: &[RuntimeAgent]) -> Result<Vec<(String, Option<String>)>, RuntimeError> {
         let read = (|| {
             let roots = self.runtime.agent_roots(machine)?;
             let read = got(self.store.lock().unwrap().recorded());
@@ -353,7 +353,7 @@ impl App {
         {
             let mut seats = self.seats.lock().unwrap();
             seats.retain(|_, (m, _)| m.as_deref() != machine);
-            seats.extend(places.into_iter().map(|(s, p)| (s, (machine.map(str::to_string), p))));
+            seats.extend(places.iter().map(|(s, p)| (s.clone(), (machine.map(str::to_string), p.clone()))));
         }
         // The proposals of the seats on other machines stay as their own read left them.
         let elsewhere = |id: &String| all.workspace(id).ok().filter(|w| !w.closed).and_then(|w| w.manager.as_ref()).is_some_and(|m| m.machine.as_deref() != machine);
@@ -367,7 +367,7 @@ impl App {
         if changed {
             let _ = self.changed.send(());
         }
-        Ok(())
+        Ok(places)
     }
 
     /// Where the seats on `machine` are is not known any more: its read failed.
@@ -400,35 +400,34 @@ impl App {
     /// runs and alone shows the session; with no pin, the one root of the seat's machine that
     /// shows it, in the seat's folder). Anything else is `NoAgent`, whatever terminal reports
     /// the session; so is a request that names another machine than the seat's. The seat's
-    /// machine is read now (the agents and its roots); not read, it is that error, never an
-    /// older answer. A session with no seat is at the one place its machine's runtime shows
-    /// it (`Runtime::resolve`). It reads, never under an agent's writer: a message's send
-    /// holds `appointing` (or `discussing`) around it, a press nothing.
+    /// machine is read now (the agents and its roots), and the answer is that read's own,
+    /// never one another read wrote meanwhile; not read, it is that error, never an older
+    /// answer. A session with no seat is at the one place its machine's runtime shows it
+    /// (`Runtime::resolve`). It reads, never under an agent's writer: a message's send holds
+    /// `appointing` (or `discussing`) around it, a press nothing.
     pub(in crate::server) fn place_of(&self, session: &str, machine: Option<&str>) -> Result<String, RuntimeError> {
         let Some(seat) = self.seat_machine(session)? else { return self.runtime.resolve(machine, session) };
         let agents = self.runtime.agents().inspect_err(|_| self.forget_seats(seat.as_deref()))?;
-        self.see_roots_on(seat.as_deref(), &agents)?;
-        self.seat_place(session, machine).unwrap_or_else(|| self.runtime.resolve(machine, session))
+        let found = self.see_roots_on(seat.as_deref(), &agents)?.into_iter().find(|(s, _)| s == session).map(|(_, place)| (seat.clone(), place));
+        seat_answer(session, seat.as_deref(), machine, found.as_ref())
     }
 
     /// The same from what the last read of the seat's machine found (`App::seats`), with no
     /// read of its own: for what only reads a screen. None: the records say the session holds
-    /// no seat, and nothing else is ever None. A seat whose machine was not read, or whose last
-    /// read failed, is `Unreachable`; one on another machine than `machine`, `NoAgent`.
+    /// no seat, and nothing else is ever None.
     pub(in crate::server) fn seat_place(&self, session: &str, machine: Option<&str>) -> Option<Result<String, RuntimeError>> {
-        let seat = match self.seat_machine(session) {
-            Err(e) => return Some(Err(e)),
-            Ok(None) => return None,
-            Ok(Some(m)) => m,
-        };
-        if seat.as_deref() != machine {
-            return Some(Err(RuntimeError::NoAgent(session.into())));
+        match self.seat_machine(session) {
+            Err(e) => Some(Err(e)),
+            Ok(None) => None,
+            Ok(Some(seat)) => Some(self.place_as_read(session, seat.as_deref(), machine)),
         }
-        Some(match self.seats.lock().unwrap().get(session) {
-            Some((m, Some(place))) if *m == seat => Ok(place.clone()),
-            Some((m, None)) if *m == seat => Err(RuntimeError::NoAgent(session.into())),
-            _ => Err(RuntimeError::Unreachable(format!("where the manager {session} runs{} cannot be read now", on(seat.as_deref())))),
-        })
+    }
+
+    /// Where `session`, seated on machine `seat`, is for a request on `machine`, as the last
+    /// read of the seat's machine found it (`App::seats`): `seat_answer`. For a caller that
+    /// already has the seat from the records it read.
+    pub(in crate::server) fn place_as_read(&self, session: &str, seat: Option<&str>, machine: Option<&str>) -> Result<String, RuntimeError> {
+        seat_answer(session, seat, machine, self.seats.lock().unwrap().get(session))
     }
 
     /// Whether the last read of its seat's machine found `session`'s seat lost (no read of
@@ -545,6 +544,22 @@ impl App {
             "manager": workspace.as_ref().is_some_and(|w| w.3),
             "intent": workspace.and_then(|w| w.2),
         }))
+    }
+}
+
+/// Where `session`, seated on machine `seat`, is for a request on `machine`, from what a read
+/// of the seat's machine found (`found`: that machine, and the place or none where the seat
+/// is lost; none: not read). The one rule: a request for another machine than the seat's is
+/// `NoAgent`; a lost seat is `NoAgent`; a seat whose machine was not read, or whose last read
+/// failed, is `Unreachable`.
+fn seat_answer(session: &str, seat: Option<&str>, machine: Option<&str>, found: Option<&SeatFound>) -> Result<String, RuntimeError> {
+    if seat != machine {
+        return Err(RuntimeError::NoAgent(session.into()));
+    }
+    match found {
+        Some((m, Some(place))) if m.as_deref() == seat => Ok(place.clone()),
+        Some((m, None)) if m.as_deref() == seat => Err(RuntimeError::NoAgent(session.into())),
+        _ => Err(RuntimeError::Unreachable(format!("where the manager {session} runs{} cannot be read now", on(seat)))),
     }
 }
 

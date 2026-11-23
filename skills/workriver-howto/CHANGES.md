@@ -7,9 +7,9 @@ Newest first. A manager that was already running reads this once after an update
 - **A name is read again on every machine** (managers): `task add --agent impl` and `task
   start --agent impl` read the machines workriver follows again first, for up to a second,
   so a second `impl` that just started on one is seen (refused, both listed). A machine
-  that does not answer in that second refuses the name: "machine box did not answer: name
-  the agent by its session". Give the session (`workriver agents`). Nothing changes when no
-  other machine is followed. (`units`)
+  that is disconnected or does not answer in that second refuses the name: "machine box did
+  not answer: name the agent by its session". Give the session (`workriver agents`); a
+  session never waits. Nothing changes when no other machine is followed. (`units`)
 - **The user can start a manager from the page** (managers): the workspace's line, "Start
   manager": workriver opens a terminal in the project's folder, starts the harness the user
   picked (Claude Code or Codex, with a model) and seats it once it is ready with a session

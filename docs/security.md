@@ -211,7 +211,9 @@ are checked by the event rules against what is recorded, when the event is recor
   then the one terminal of the seat's machine that shows the session in the seat's folder,
   and the first read that knows that terminal's shell holds the seat to it. Its screen is
   read there first, as for every message (below, "A dialog the runtime misses"), and a
-  message holds the order of seat changes, then the agent's one writer, never the reverse.
+  message holds the order of seat changes, then the agent's one writer, never the reverse
+  (a discussion's order with gates comes before both). A seat change waits for a message or
+  notice being typed, a slow machine's too: the place is found under that order.
 - **What belongs to an appointment never reaches the next.** A message you sent, a question
   a manager asked you with options, a reply: each belongs to the appointment it was sent to
   or asked under. A message still waiting when the seat is given anew is recorded as not

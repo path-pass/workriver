@@ -774,4 +774,86 @@ fn a_name_is_read_again_on_every_machine() {
     let e = boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "C", "agent": "impl", "inputs": [{ "from": "start" }] })).unwrap_err().to_string();
     assert!(e.contains("machine box did not answer") && e.contains("by its session"), "{e}");
     assert!(started.elapsed() < std::time::Duration::from_millis(2500), "waited {:?}", started.elapsed());
+    // A session the records know, not running now: taken as given, with no read waited for.
+    local.agents.lock().unwrap().push(("p2".into(), started_in("s-w", "w", "/w/w")));
+    here(&user, "p2").unwrap();
+    local.agents.lock().unwrap().retain(|(p, _)| p != "p2");
+    let started = std::time::Instant::now();
+    let made = boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "D", "agent": "s-w", "inputs": [{ "from": "start" }] })).unwrap();
+    assert_eq!(made["body"]["agent"], "s-w");
+    assert!(started.elapsed() < std::time::Duration::from_millis(900), "waited {:?}", started.elapsed());
+}
+
+/// A followed machine whose connection is down is not read again, and its agents are listed
+/// as last seen: a name is never resolved from that older list. Refused, naming the machine
+/// and pointing at the session.
+#[test]
+fn a_name_is_not_resolved_from_a_disconnected_machines_old_list() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss"))];
+    *far.agents.lock().unwrap() = vec![("p3".into(), started_in("s-one", "impl", "/srv/a"))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    manage(&user, "p1", "s-boss");
+    let boss = at_place(&user, "p1");
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    // The connection goes down; over there the first `impl` ends and a second one starts.
+    all.drop_tunnel("box");
+    *far.agents.lock().unwrap() = vec![("p4".into(), started_in("s-two", "impl", "/srv/b"))];
+    let e = boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "A", "agent": "impl" })).unwrap_err().to_string();
+    assert!(e.contains("machine box did not answer") && e.contains("by its session"), "{e}");
+}
+
+/// The same with the seat on another machine: the seated session is not listed there, and
+/// an agent on this machine takes its session id as its name. The user's message is not
+/// delivered, a worker's `manager tell` waits for the session, and the manager's own task
+/// dropped tells nobody here.
+#[test]
+fn an_agent_named_after_a_remote_seated_session_not_listed_gets_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("p2".into(), started_in("s-w", "ja-impl", "/w/w"))];
+    *far.agents.lock().unwrap() = vec![("p3".into(), started_in("s-new", "new", "/srv/n"))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let there = kernel.daemon(all.local_port("box").unwrap(), None, None);
+    let ws = workspace_named(&user, "chat");
+    all.poll_all();
+    seat(&user, &ws, Some("s-new")).unwrap();
+    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    let made = user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
+    let intent = made["body"]["id"].as_str().unwrap().to_string();
+    user.append("", "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": ws })).unwrap();
+    let boss = at_place(&there, "p3");
+    boss.append("", "unit.created", json!({ "intent": intent, "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "title": "look at it", "agent": "s-new", "inputs": [{ "from": "1" }] })).unwrap();
+    let worker = at_place(&user, "p2");
+    worker.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    *far.agents.lock().unwrap() = vec![];
+    *local.agents.lock().unwrap() = vec![("p9".into(), started_in("s-evil", "s-new", "/w/e")), ("p2".into(), started_in("s-w", "ja-impl", "/w/w"))];
+    all.poll_all();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a regular read of the runtime
+    user.call("/api/message", Some(json!({ "workspace": ws, "text": "UNLISTED_MSG" }))).unwrap();
+    wait_until("not delivered", || message(&user, "UNLISTED_MSG")["step"] == "not-delivered");
+    worker.append("", "manager.told", json!({ "unit": "u1", "task": 1, "text": "UNLISTED_TOLD" })).unwrap();
+    user.call("/api/task/drop", Some(json!({ "unit": "u1", "task": 2, "reason": "UNLISTED_DROP" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let evil: Vec<String> = local.sent.lock().unwrap().iter().filter(|(t, _)| t == "s-evil").map(|(_, m)| m.clone()).collect();
+    assert!(evil.is_empty(), "typed into the agent named after the session: {evil:?}");
+    assert!(far.sent.lock().unwrap().iter().all(|(_, m)| !m.contains("UNLISTED")), "typed nothing over there");
 }

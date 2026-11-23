@@ -219,7 +219,9 @@ impl App {
                 // it is not delivered; a seat changed later comes after the send.
                 // Every other kind in order with a seat change too, so what is sent to a manager
                 // is typed into the seat as it is: the lock, then where it is held to
-                // (`place_of`), then the agent's writer.
+                // (`place_of`), then the agent's writer. The order: `discussing`, then
+                // `appointing`, then the writer (`App::discussing`); a seat change waits for
+                // this send, over ssh too.
                 let message = matches!(h.kind, For::Message | For::Broadcast);
                 let _order = match h.kind {
                     For::Discussion => self.discussing.lock().unwrap(),

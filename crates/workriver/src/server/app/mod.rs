@@ -65,11 +65,18 @@ pub(super) struct App {
     pub(super) blocked: Mutex<std::collections::HashMap<String, String>>,
     /// Orders a discussion's last check and send against a gate's record: whichever comes
     /// first, the other sees it (`App::hand`, `App::record`).
+    ///
+    /// The lock order, everywhere: `discussing`, then `appointing`, then an agent's writer
+    /// (`Terminals::writer`), never the reverse. A gate's record holds `discussing` while what
+    /// follows it hands notices out, which take `appointing`; nothing takes `discussing` while
+    /// it holds `appointing` or a writer.
     pub(in crate::server) discussing: Mutex<()>,
-    /// Orders the user's message's last check of its appointment and send against a seat
-    /// change's record: whichever comes first, the other sees it (`App::hand`, `App::record`).
-    /// Taken before an agent's writer (`Terminals::writer`, held while a message is typed or
-    /// a key pressed), never while one is held.
+    /// Orders every send `App::hand` makes but a discussion's (the user's message's last check
+    /// of its appointment, and every notice, duty, question or review) against a seat change's
+    /// record: whichever comes first, the other sees it (`App::hand`, `App::record`). The send
+    /// finds its place under it (`App::place_of`, which for a seat on another machine reads
+    /// over ssh), so a seat change waits for a send under way, a slow machine's too. Taken
+    /// after `discussing`, before an agent's writer, never while one is held.
     pub(in crate::server) appointing: Mutex<()>,
     /// The machine each session was last listed on (none: this one), and the sessions gone:
     /// last listed on a machine whose read now is complete without them. What a discussion's
@@ -121,7 +128,7 @@ pub(super) struct App {
     /// Where each seated session is, as the last read of its seat's machine found it
     /// (`App::see_roots_on`), by session: that machine, and the place, or none where the seat
     /// is lost. No entry: that machine was not read, or its last read failed.
-    pub(in crate::server) seats: Mutex<std::collections::HashMap<String, SeatFound>>,
+    pub(super) seats: Mutex<std::collections::HashMap<String, SeatFound>>,
     /// Which machines' connections were up at the last poll: the page hears of a change at once.
     pub(super) tunnels: Mutex<Vec<(String, bool)>>,
     /// Who the user is: the token, sessions of the page, one-time codes.
@@ -151,7 +158,7 @@ pub(super) type Shared = Arc<App>;
 
 /// Where a seated session was found by the last read of its seat's machine: that machine
 /// (none: this one), and the place, or none where the seat is lost.
-pub(in crate::server) type SeatFound = (Option<String>, Option<String>);
+pub(super) type SeatFound = (Option<String>, Option<String>);
 
 /// A read that failed, already logged: the storage's words, for whoever has to say why
 /// something did not happen.

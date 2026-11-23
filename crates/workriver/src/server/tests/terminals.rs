@@ -904,3 +904,29 @@ fn a_session_two_machines_list_takes_no_message_by_its_session() {
         assert!(f.sent.lock().unwrap().iter().all(|(_, m)| !m.contains("Why a trie?")), "typed nothing");
     }
 }
+
+/// A seat made where the runtime knew no shell (no pin); its manager exits, and a terminal
+/// in another folder reports its session and waits on a dialog: no screen, no view, no
+/// mark, no key, and its row offers no dialog.
+#[test]
+fn a_seat_with_no_pin_whose_manager_left_shows_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.no_shell.lock().unwrap() = vec!["p1".into()];
+    *fake.agents.lock().unwrap() = vec![("p1".into(), workriver_core::runtime::RuntimeAgent { cwd: "/w/boss".into(), ..live("s-boss", "boss", "w1", Idle) })];
+    let db = tmp.path().join("w.db");
+    let waits = crate::server::Waits { tick: Duration::from_millis(300), ..Default::default() };
+    let (d, kernel) = daemon_and(fake.clone(), &db, waits);
+    manage(&d, "p1", "s-boss");
+    let t = T { _tmp: tmp, db, fake, d, kernel, machines: None };
+    *t.fake.agents.lock().unwrap() = vec![("p5".into(), workriver_core::runtime::RuntimeAgent { cwd: "/elsewhere".into(), ..live("s-boss", "boss", "w1", Idle) })];
+    t.fake.shown.lock().unwrap().insert("p5".into(), bash("⏺ Bash(rm -rf x)"));
+    t.fake.agents.lock().unwrap()[0].1.state = Done; // its screen is read as it changes
+    wait_until("the seat is lost", || proposal(&t) == "s-boss");
+    std::thread::sleep(Duration::from_millis(900)); // a few regular reads
+    assert_eq!(waits_on(&t, "s-boss"), None, "no mark, no wait offered");
+    t.fake.agents.lock().unwrap()[0].1.state = Blocked;
+    std::thread::sleep(Duration::from_millis(900));
+    assert_eq!(waits_on(&t, "s-boss"), None, "blocked, but not the manager's terminal");
+    nothing_of_the_lost_seat(&t, "agent=s-boss");
+}

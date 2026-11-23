@@ -35,6 +35,8 @@ impl App {
     pub(in crate::server) fn record(&self, who: &Principal, mut body: Body) -> Result<core::Event, ApiError> {
         // A gate and what follows it (its hook fails the discussions it ends) in order with a
         // discussion's last check and send (`App::hand`): no question it ends is typed in after.
+        // Held while what follows hands notices out, which take `appointing`: `discussing`
+        // first, always (`App::discussing`).
         let _order = matches!(body, Body::GateSubmitted { .. }).then(|| self.discussing.lock().unwrap());
         let (actor, machine) = (who.actor(), who.machine());
         // The user seats a session: where its machine's runtime shows it now is read here,
@@ -63,7 +65,10 @@ impl App {
         let body = self.complete(actor, body, machine)?;
         let (committed, before) = {
             // A seat change in order with a message's last check and send (`App::hand`): no
-            // message of the appointment it ends is typed in after it is committed.
+            // message of the appointment it ends is typed in after it is committed. It waits for
+            // a send under way, which finds its place under the lock (over ssh for a seat on
+            // another machine). Held for the commit only: nothing here takes `discussing` or a
+            // writer under it.
             let _order = matches!(body, Body::WorkspaceManagerSet { .. } | Body::WorkspaceClosed { .. } | Body::ManagerStartSeated { .. }).then(|| self.appointing.lock().unwrap());
             let mut store = self.store.lock().unwrap();
             // The seat it changes, read in the same order and under the same lock: the one told
@@ -267,14 +272,23 @@ impl App {
     }
 
     /// Resolve a task's assignee from the runtime now: an exact session or a unique name
-    /// (`named`). A name is looked for after every followed machine whose connection is up
-    /// was read again (`Machines::refresh`), for a second at most: a second agent of that
-    /// name that appeared there since its last read is seen. One that does not answer in time
-    /// refuses the name, never resolved from its older list: the agent is then named by its
-    /// session. With no machine followed nothing is read again and nothing waits.
+    /// (`named`). A session (live, or one the records know) is taken as it is, with no read
+    /// waited for. A name is looked for after every followed machine was read
+    /// again (`Machines::refresh`), for a second at most: a second agent of that name that
+    /// appeared on one since its last read is seen. A machine not read now (its connection
+    /// down, or no answer in that second) refuses the name, never resolved from its older
+    /// list: the agent is then named by its session. With no machine followed nothing is read
+    /// again and nothing waits.
     fn task_session(&self, agent: &str) -> Result<String, ApiError> {
         let mut live = self.runtime.agents().unwrap_or_default();
         if live.iter().any(|a| a.session == agent) {
+            return Ok(agent.to_string());
+        }
+        let known = {
+            let store = self.store.lock().unwrap();
+            store.agent(agent)?.is_some() || store.seat_of(agent)?.is_some()
+        };
+        if known {
             return Ok(agent.to_string());
         }
         if let Some(machines) = &self.machines {

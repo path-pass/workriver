@@ -40,8 +40,9 @@ never a worktree directly in the project folder (it would read as another reposi
 `--agent` is the worker's name or its session. A name two running agents have is refused
 ("several running agents are …", listing them): give the session of the one you mean. A
 name is looked for after the machines workriver follows are read again (up to a second); a
-machine that does not answer in that time refuses it ("machine … did not answer: name the
-agent by its session"): give the session (`workriver agents` lists it).
+machine that is disconnected or does not answer in that time refuses it ("machine … did not
+answer: name the agent by its session"): give the session (`workriver agents` lists it). A
+session never waits for that read.
 
 `--text` is what the worker and the user read in the task's detail. Write it as short
 Markdown: a line or two of what is wanted, then bullets (requirements, constraints, where to
