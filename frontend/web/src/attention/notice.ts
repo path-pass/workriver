@@ -1,15 +1,5 @@
-// How the inbox names waiting agents and stalled workers, and which waiting agents are news.
-import type { T } from '@/i18n'
-import type { InboxRow, WaitingAgentRow } from './select'
-
-/** The inbox's label for a waiting agent or stalled worker. */
-export function blockingLine(t: T, waited: (since: number) => string, r: InboxRow): string {
-  if (r.agent) return t('inbox.blockedAgent', { agent: r.agent.name })
-  const n = r.node!
-  const task = `${r.unit!.id}#${n.taskId ?? n.id}`
-  const agent = n.agent ?? ''
-  return n.stalled?.gone ? t('inbox.stalledGone', { task, agent }) : t('inbox.stalled', { task, agent, ago: waited(r.since) })
-}
+// Which waiting agents are news.
+import type { WaitingAgentRow } from './select'
 
 /**
  * Finds newly waiting agents by row key. The first list is what was there when the page
