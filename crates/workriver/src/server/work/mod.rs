@@ -14,6 +14,7 @@ use crate::server::files;
 use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
+use crate::server::views::Snapshot;
 
 #[derive(Deserialize)]
 pub(super) struct ShowQuery {
@@ -48,7 +49,7 @@ pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Exte
                 }
             }
         };
-        let ws = serde_json::to_value(app.snapshot(&state, true, "task")).unwrap_or_default();
+        let ws = serde_json::to_value(app.snapshot(&state, Snapshot::Light, "task")).unwrap_or_default();
         let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
         app.record_merges(found);
         // A reader on another machine cannot open this machine's files: it gets a link it

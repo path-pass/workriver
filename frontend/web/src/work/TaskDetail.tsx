@@ -140,7 +140,7 @@ function Waiting({ s }: { s: Session | undefined }) {
 }
 
 /** `workspace`: the workspace of the unit's intent (a `Space.id`), when known: where its agents are found. */
-export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Unit; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk; workspace?: string }) {
+export function Detail({ unit, n, finding, onPick, talk, workspace, gitPending }: { unit: Unit; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk; workspace?: string; gitPending?: boolean }) {
   const { t, num, when } = useT()
   // The instance of its agent in its workspace (on its unit's machine, for code): the one its buttons reach.
   const live = taskSession(talk.sessions, n, unit, workspace)
@@ -155,7 +155,7 @@ export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Un
     const of = byId(n.inputs.find(i => i.primary)?.from)
     const files = [...new Set(commitsOf(of).filter(c => !c.merge).flatMap(c => c.files.map(f => f.path)))]
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.state === 'dropped' ? 'state.dropped' : n.result === 'running' ? 'state.running' : 'state.done')}</>
-    input = <><StepLine unit={unit} n={n} />{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}<Added n={n} /><Answers n={n} /></>
+    input = <><StepLine unit={unit} n={n} />{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : !gitPending && quiet(t('io.noChanges'))}<Added n={n} /><Answers n={n} /></>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
@@ -248,7 +248,7 @@ export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Un
             )
           })
         : (n.lostCommits?.length ?? 0) > 0 ? quiet(t('io.lostCommits', { commits: n.lostCommits!.join(t('list.sep')) }))
-        : n.state !== 'done' && <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
+        : n.state !== 'done' && <>{!gitPending && quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
       {grew && <div className="mt-1 flex items-start gap-1.5 text-xs text-ink-2"><Icon name="grew" className="mt-px size-3.5 flex-none" />{grewText(t, grew)}</div>}
       {n.output.note && <div className="mt-1"><Prose text={n.output.note} /></div>}
       <Thumbs list={n.output.attachments ?? []} />

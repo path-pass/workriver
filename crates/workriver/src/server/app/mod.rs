@@ -41,6 +41,8 @@ pub(super) struct App {
     /// What keeps the work, as core's data port: the service knows nothing else of it.
     pub(super) store: Mutex<Box<dyn WorkStore>>,
     pub(super) cache: Mutex<Cache>,
+    /// The first full Git read requested by the board.
+    pub(super) browser_git: Mutex<views::BrowserGit>,
     /// Wakes the background read of repositories on other machines.
     pub(super) remote_kick: std::sync::mpsc::Sender<()>,
     pub(super) runtime: Arc<dyn Runtime>,

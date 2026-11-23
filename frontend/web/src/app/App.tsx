@@ -224,7 +224,7 @@ export default function App() {
   const page = ws?.intents.find(i => i.id === unitId) ?? null
   const sel = useMemo(() => (unit ? selectionOf(unit, pick) : null), [unit, pick])
   // The same unit with its files' texts, for the code and the lines picked in it.
-  const coded = useCode(unit)
+  const coded = useCode(ws?.gitPending ? null : unit)
   const codeSel = useMemo(() => (coded ? selectionOf(coded, pick) : null), [coded, pick])
   const tree = useSame(ws && unit && !noCode(unit) ? repoOf(ws, unit).modules : null)
   // The files another open unit also changes, with those units and their intents.
@@ -260,7 +260,7 @@ export default function App() {
     setProject(p => (p && project !== p ? null : p))
     setUnitId(r.unit)
     setPick(r.pick)
-    return true
+    return !(w.gitPending && r.pick?.id.startsWith('commit:'))
   }, [])
   // A Markdown link leaves the destination visible, even when it names the current page.
   const navigate = useCallback((path: string) => {
@@ -559,7 +559,7 @@ export default function App() {
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
-            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} workspace={intentOf(ws, unit.id)?.workspace} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
+            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} workspace={intentOf(ws, unit.id)?.workspace} gitPending={ws.gitPending && !noCode(unit)} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
             {tree && coded && codeSel && <CodeLayer
               root={tree}
               unit={coded}

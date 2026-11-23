@@ -1,6 +1,6 @@
 // Each unit, intent and task has its own address: `/u1`, `/u1/3` (task 3 picked, its detail
 // open), `/i3` (the intent), and optionally `?finding=P2-1`. The fragment is not used: it carries the sign-in code (`#k=`).
-import { unitsOf } from '@/planning/select'
+import { noCode, unitsOf } from '@/planning/select'
 import type { Pick } from '@/work/types'
 import type { Workspace } from '@/workspace/types'
 
@@ -35,6 +35,8 @@ export function resolve(ws: Workspace, p: Place): { unit: string; pick: Pick } |
   const unit = intent ? undefined : unitsOf(ws).find(u => u.id === p.id)
   if (!intent && !unit) return null
   if (!p.task) return { unit: p.id, pick: null }
-  if (!unit?.tasks.some(n => n.id === p.task)) return null
+  if (!unit) return null
+  const pendingCommit = ws.gitPending && !noCode(unit) && p.task.startsWith('commit:')
+  if (!pendingCommit && !unit.tasks.some(n => n.id === p.task)) return null
   return { unit: p.id, pick: { kind: 'task', id: p.task, finding: p.finding } }
 }

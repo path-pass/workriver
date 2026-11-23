@@ -25,6 +25,8 @@ pub(in crate::server) struct Cache {
     pub(super) stored: Stored,
     file: Option<std::path::PathBuf>,
     pub(super) dirty: bool,
+    /// The board's initial build: Git data has not been read yet.
+    pub(super) records_only: bool,
     /// This build: no file texts, uncommitted work or trees (board, `task show`).
     pub(super) light: bool,
     /// This build: files without their texts, only how many lines changed (the page's

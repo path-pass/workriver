@@ -8,6 +8,9 @@ use workriver_scan as scan;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
+    /// The browser can show recorded work while its first Git read is in progress.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) git_pending: bool,
     pub(crate) repos: Vec<Repo>,
     pub(crate) projects: Vec<ProjectOut>,
     pub(crate) backlog: Vec<BacklogOut>,

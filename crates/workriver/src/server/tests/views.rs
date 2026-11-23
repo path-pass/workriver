@@ -5,6 +5,85 @@ use serde_json::json;
 
 use super::support::*;
 
+#[test]
+fn browser_workspace_shows_records_before_git_and_notifies_when_ready() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::time::Duration;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "Base"]);
+    git(&repo, &["switch", "-q", "-c", "feat/work"]);
+    std::fs::write(repo.join("hello.txt"), "hello\n").unwrap();
+    git(&repo, &["add", "hello.txt"]);
+    git(&repo, &["commit", "-q", "-m", "Hello\n\nTask: u1#1"]);
+
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", workriver_core::runtime::AgentState::Idle))];
+    let (user, kernel) = daemon_and(fake, &tmp.path().join("w.db"), Default::default());
+    let boss = kernel.daemon(user.port, Some("p1".into()), None);
+    let ws = seat_at(&user, &boss);
+    user.append("", "intent.created", json!({ "title": "First load", "state": "planned" })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Hello", "repo": repo, "branch": "feat/work", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Write hello", "agent": "s-boss", "inputs": [{ "from": "start" }] })).unwrap();
+
+    let port = user.port;
+    let origin = format!("http://127.0.0.1:{port}");
+    let link = user.call("/api/session/code", Some(json!({}))).unwrap();
+    let code = link["url"].as_str().unwrap().split_once("#k=").unwrap().1;
+    let (status, answer) = http(port, "POST", "/api/session", &[("Origin", &origin)], Some(&json!({ "code": code }).to_string()));
+    assert_eq!(status, 200, "{answer}");
+    let cookie = answer.lines().find(|l| l.starts_with("set-cookie:")).unwrap().split_once(':').unwrap().1.split(';').next().unwrap().trim();
+    let browser = |path, headers: &[(&str, &str)]| {
+        let headers = [("Cookie", cookie)].into_iter().chain(headers.iter().copied()).collect::<Vec<_>>();
+        let (status, answer) = http(port, "GET", path, &headers, None);
+        assert_eq!(status, 200, "{answer}");
+        serde_json::from_str::<serde_json::Value>(answer.split_once("\r\n\r\n").unwrap().1).unwrap()
+    };
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    write!(stream, "GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").unwrap();
+    let mut events = BufReader::new(stream);
+    let mut line = String::new();
+    assert!(events.read_line(&mut line).unwrap() > 0 && line.starts_with("HTTP/1.1 200"), "{line}");
+    while line != "\r\n" {
+        line.clear();
+        assert!(events.read_line(&mut line).unwrap() > 0);
+    }
+
+    let first = browser("/api/workspace", &[]);
+    assert_eq!(first["gitPending"], true, "the first browser snapshot precedes Git");
+    let unit = &first["intents"][0]["units"][0];
+    assert_eq!(unit["tasks"][0]["title"], "Write hello");
+    assert_eq!(unit["commits"], json!([]));
+    assert_eq!(first["repos"][0]["modules"]["children"], json!([]));
+
+    let full = loop {
+        line.clear();
+        assert!(events.read_line(&mut line).expect("the browser hears when Git is ready") > 0);
+        if line.starts_with("event: changed") {
+            let ws = browser("/api/workspace", &[]);
+            if ws["gitPending"] != true {
+                break ws;
+            }
+        }
+    };
+    let commit = &full["intents"][0]["units"][0]["commits"][0];
+    assert_eq!(commit["subject"], "Hello");
+    assert_eq!(full["intents"][0]["units"][0]["tasks"][0]["output"]["commits"][0], commit["id"]);
+    assert_eq!(full["repos"][0]["modules"]["children"][0]["name"], "hello.txt");
+
+    let proof = user.process(false).0.unwrap();
+    let named = browser("/api/workspace?as=boss", &[("X-Workriver-Caller", &proof)]);
+    assert_eq!(named["intents"][0]["units"][0]["commits"][0]["subject"], "Hello");
+    let light = browser("/api/workspace?light=true", &[]);
+    assert_eq!(light["intents"][0]["units"][0]["commits"][0]["subject"], "Hello");
+    assert!(light["repos"][0]["modules"]["children"].as_array().unwrap().is_empty());
+}
+
 /// A commit made without its trailer is linked to its task by hand; and a unit whose work
 /// is rebased onto a new branch stays one unit: its commits are read from the new branch,
 /// the link follows its commit to the new hash, and what only the old branch had is told.

@@ -132,6 +132,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         attachments: Mutex::default(),
         store: Mutex::new(store),
         cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL))),
+        browser_git: Mutex::default(),
         remote_kick: kick,
         machines,
         listeners: Mutex::default(),

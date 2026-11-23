@@ -2,7 +2,7 @@
 // and who manages it, and its units with where each stands.
 import { useContext, useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
-import { lastMove, quietSince } from './select'
+import { lastMove, noCode, quietSince } from './select'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
 import { record, setSpace } from '@/api/actions'
@@ -41,6 +41,7 @@ function UnitRow({ ws, unit, onUnit }: { ws: Workspace; unit: Unit; onUnit: (id:
   const { t, waited, when } = useT()
   const n = needs([unit])
   const last = lastMove(unit)
+  const gitPending = ws.gitPending && !noCode(unit)
   return (
     <li>
       <button type="button" onClick={() => onUnit(unit.id)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2.5 py-2 text-left hover:bg-sunken">
@@ -51,10 +52,12 @@ function UnitRow({ ws, unit, onUnit }: { ws: Workspace; unit: Unit; onUnit: (id:
           <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} />
           <Progress unit={unit} />
           <Marks {...n} />
-          <Quiet since={quietSince(unit)} />
-          {Number.isFinite(last)
-            ? <Tip text={when(last)}><span className="text-xs text-ink-2 tabular-nums">{t('intent.moved', { time: waited(last) })}</span></Tip>
-            : <span className="text-xs text-ink-2">{t('intent.neverMoved')}</span>}
+          {!gitPending && <>
+            <Quiet since={quietSince(unit)} />
+            {Number.isFinite(last)
+              ? <Tip text={when(last)}><span className="text-xs text-ink-2 tabular-nums">{t('intent.moved', { time: waited(last) })}</span></Tip>
+              : <span className="text-xs text-ink-2">{t('intent.neverMoved')}</span>}
+          </>}
         </span>
       </button>
     </li>

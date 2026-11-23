@@ -44,4 +44,13 @@ describe('addresses', () => {
     expect(resolve(ws, { id: 'u1', task: '9' })).toBeNull()
     expect(resolve(ws, { id: 'u9' })).toBeNull()
   })
+
+  it('opens the unit of a commit link while Git is pending', () => {
+    const pending = { ...ws, gitPending: true }
+    const place = { id: 'u1', task: 'commit:abc' }
+    expect(resolve(pending, place)).toEqual({ unit: 'u1', pick: { kind: 'task', id: 'commit:abc' } })
+    expect(resolve(ws, place)).toBeNull()
+    expect(resolve(pending, { id: 'u1', task: '9' })).toBeNull()
+    expect(resolve(pending, { id: 'u9', task: 'commit:abc' })).toBeNull()
+  })
 })

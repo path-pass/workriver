@@ -170,6 +170,39 @@ function listen(initial: Workspace) {
   return (next: Workspace) => act(() => emit(next))
 }
 
+it('shows the recorded board while keeping a commit link open for the Git update', async () => {
+  const url = '/u1/commit%3Aabc'
+  history.replaceState(null, '', url)
+  localStorage.setItem('workriver.side', 'commits')
+  const unit = { ...held.intents[0].units[0], kind: undefined, repo: '/project', branch: 'fix/login' }
+  const pending = {
+    ...held,
+    gitPending: true,
+    repos: [{ path: '/project', name: 'Project', modules: { name: 'Project', path: '', files: 0, loc: 0, children: [] } }],
+    intents: [{ ...held.intents[0], units: [unit] }],
+  }
+  const push = listen(pending)
+  const fetch = vi.fn(async () => Response.json({ code: 'after-git', commits: [] }))
+  vi.stubGlobal('fetch', fetch)
+  await act(async () => { render() })
+  expect(heading()).toContain('Login')
+  expect(host.textContent).toContain('manual step an agent is waiting on')
+  expect(host.textContent).not.toContain('No commits in this project yet.')
+  expect(location.pathname).toBe(url)
+  expect(fetch).not.toHaveBeenCalled()
+
+  const commit = { id: 'abc', subject: 'Restore login', author: 'impl', date: at, live: false, files: [] }
+  const gap: Task = { ...task, id: 'commit:abc', taskId: null, kind: 'implement', state: 'unregistered', title: commit.subject, output: { commits: [commit.id] } }
+  await act(async () => push({
+    ...pending,
+    gitPending: false,
+    intents: [{ ...pending.intents[0], units: [{ ...unit, code: 'after-git', tasks: [...unit.tasks, gap], commits: [commit] }] }],
+  }))
+  expect(host.textContent).toContain('The commit names no task, so its input is unknown.')
+  expect(location.pathname).toBe(url)
+  expect(fetch).toHaveBeenCalledWith('/api/unit/u1/code')
+})
+
 it('shows only agents stuck in their terminals in the Manager bar and hides it when they resume', () => {
   const push = listen({ ...held, sessions: [stuck] })
   localStorage.setItem('workriver.side', 'talk')

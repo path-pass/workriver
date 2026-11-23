@@ -451,7 +451,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .map(|c| chore(c, &names, Some(state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_default())))
         .collect();
     let messages = messages(state, live, &names);
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, chores, alerts: vec![], messages, runs: vec![], templates: state.library() }
+    Workspace { git_pending: cache.records_only, repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, chores, alerts: vec![], messages, runs: vec![], templates: state.library() }
 }
 
 /// Whether a unit is work to coordinate with: not merged, not closed, and its intent neither
@@ -581,7 +581,9 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let merged = u.merged.is_some();
     // On another machine: as the background read it last (it never waits on ssh here); what
     // was read stays while the machine cannot be reached.
-    let (commits, files, patch, net) = if u.machine.is_some() && !cache.remote_reads {
+    let (commits, files, patch, net) = if cache.records_only {
+        Default::default()
+    } else if u.machine.is_some() && !cache.remote_reads {
         let shared = cache.shared.lock().unwrap();
         let (c, f, p, n) = shared.units.get(&u.id).cloned().unwrap_or_default();
         (c, if cache.light { vec![] } else { f }, p, if cache.light { None } else { n })
@@ -630,7 +632,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(state, live, u, t, names, manager, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
     // Commits of branches the unit left, each once: found again here (the same hash, the same
     // patch id, or the same subject and author date) or not on the current branch.
-    let (again, gone) = earlier_commits(u, &commits, &patch);
+    let (again, gone) = if cache.records_only { Default::default() } else { earlier_commits(u, &commits, &patch) };
     for t in &mut tasks {
         let n: Option<u32> = t.id.parse().ok();
         t.lost_commits = gone.iter().filter(|c| c.task.is_some() && c.task == n).map(|c| c.hash.chars().take(9).collect()).collect();
