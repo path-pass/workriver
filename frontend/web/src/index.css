@@ -328,21 +328,13 @@
   .irow-pair.hold, .irow-pair.hold:hover { background: var(--hold-bg); }
   .irow-pair.hold:hover { box-shadow: var(--shadow); }
   .irow-pair.hold .irow[data-kind="agent"]:hover { box-shadow: none; }
-  /* The Manager conversation's bar of what blocks on the user: Blocking's rows, one line each,
-     in their inbox colours; framed so it reads apart from the conversation under it. */
+  /* The Manager conversation's bar: agents waiting in their terminals, in the inbox's orange. */
   .nbar { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-  .nrow { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 8px; border-radius: 6px; text-align: left; font-size: 13px; transition: background .15s; }
-  .nrow:hover { background: var(--sunken); }
-  .nrow .ic { color: var(--ink-2); }
+  .nrow { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 8px; border-radius: 6px; text-align: left; font-size: 13px; background: var(--hold-bg); color: var(--hold-ink); font-weight: 600; }
+  .nrow:hover { box-shadow: var(--shadow); }
+  .nrow .ic { color: var(--hold); }
   .nrow .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nrow .age { color: var(--ink-2); font-size: 12px; }
-  .nrow[data-kind="gate"] { background: var(--you-bg); color: var(--you-ink); font-weight: 600; }
-  .nrow[data-kind="gate"] .ic { color: var(--you); }
-  .nrow[data-kind="agent"] { background: var(--hold-bg); color: var(--hold-ink); font-weight: 600; }
-  .nrow[data-kind="agent"] .ic { color: var(--hold); }
-  .nrow[data-kind="stalled"] .ic { color: var(--you); }
-  .nrow:is([data-kind="gate"], [data-kind="agent"]):hover { box-shadow: var(--shadow); }
-  .nrow:is([data-kind="gate"], [data-kind="agent"]) .age { color: inherit; font-weight: 400; }
+  .nrow .age { font-size: 12px; font-weight: 400; }
   .irow[data-kind="loose"] .ic { color: var(--del); }
   .irow[data-kind="far"] .ic { color: var(--amber); }
   .irow[data-kind="machine"][data-level=warn] :is(.ic, .level) { color: var(--amber-ink); }

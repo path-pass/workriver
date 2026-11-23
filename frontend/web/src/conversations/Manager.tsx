@@ -159,7 +159,7 @@ export function Manager({ unit, n, finding, talk, needs }: { unit: Unit | null; 
       onDrop={e => { if (hasFiles(e)) { e.preventDefault(); takeFiles.current?.([...e.dataTransfer.files]) } }}
     >
       <h2 id="side-talk" className="mb-2 flex-none px-4.5 text-sm font-[650]">{t('talk.title')}</h2>
-      {/* What blocks on the user stays in sight while they talk (attention/NeedsBar). */}
+      {/* Agents waiting in their terminals stay in sight while the user talks. */}
       {needs}
       {talk && <ManagerTalk unit={unit} n={n} finding={finding} talk={talk} takeFiles={takeFiles} />}
     </section>

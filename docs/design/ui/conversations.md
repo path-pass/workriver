@@ -41,17 +41,14 @@ context; everything else still goes to the manager.
   manager not running (the box is then disabled, says nobody would read it, and "Manager…"
   beside it opens the manager select, `navigation.md`), and a manager seated later sees it
   all. A workspace picked there, or asked for, stays while other sections are open.
-- **The Needs you bar.** While the user works in the conversation, what blocks on them
-  stays in sight: under the section's heading, above the workspace select (in the side panel
-  and the narrow sheet alike), a framed bar with "Needs you" and a count. It lists Blocking's
-  rows (`navigation.md`, Needs you) in its order, followed by the managers' questions that
-  can still be answered. Each line shows the kind as an icon, the row's words cut to one
-  line, and how long it has waited (the time in a tooltip), in the inbox's colours (orange
-  for an agent waiting, violet for a gate). Past about four rows it scrolls inside itself.
-  A click on a Blocking row goes where Needs you's row goes. A click on a question opens
-  its workspace's conversation and takes the user to that question. Reading it leaves it
-  in the bar until it is answered or closes. The bar reads the same snapshot as Needs you
-  and Manager. With no rows there is no bar.
+- **The Needs you bar.** Under the conversation's heading and above the workspace select,
+  in the side panel and the narrow sheet, a framed bar reads "Needs you" with the number
+  of agents waiting for the user in their terminals. It shows the orange agent rows from
+  Blocking (`navigation.md`, Needs you), oldest first. Each shows a terminal icon, one
+  line of text and how long the agent has waited, with the time in a tooltip. Past about
+  four rows it scrolls inside itself. A click opens the agent's terminal answer gate.
+  The bar updates from the same snapshot as Needs you and hides when no agent is waiting
+  in its terminal. The user answers managers' questions in the conversation.
 - **The manager's state.** Above the input of an open workspace's conversation, a line shows
   its seated manager's runtime state in the same words as the rail, from the same snapshot,
   with a moving mark while the manager is working.

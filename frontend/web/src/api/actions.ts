@@ -135,7 +135,7 @@ export async function wantNotify(on: boolean): Promise<boolean> {
 }
 /**
  * One notification per `key`. Clicking brings this tab forward and does `open` when given.
- * A Blocking notification with an `open` action stays until clicked (on macOS when the
+ * An agent's terminal-wait notification with an `open` action stays until clicked (on macOS when the
  * browser's notification style is Alerts). Machine alerts use the browser's default.
  */
 export function notify(title: string, body: string | undefined, key: string, open?: () => void) {
