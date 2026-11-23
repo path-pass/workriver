@@ -5,12 +5,12 @@
 // not fetched: each is a link to where it points. A ```mermaid block is drawn as a diagram,
 // shown only as an image (Diagram.tsx). Loaded only when one is shown (react-markdown with
 // remark-gfm, about 50 kB gzip), so the main bundle does not carry it.
-import type { ComponentProps } from 'react'
+import { useContext, type ComponentProps } from 'react'
 import Markdown, { type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { pathOf, placeOf } from '@/app/link'
 import { contentLang, useT } from '@/i18n'
 import { Diagram } from './diagram/Diagram'
+import { NavigateContext } from './navigation'
 
 /** File paths in the text: the same pattern answers used before they were Markdown. */
 const PATH = /[\w-]+(?:\/[\w.-]+)+\.\w+/g
@@ -27,8 +27,9 @@ function workriverPath(href: string | undefined): string | undefined {
   const loopback = url.protocol === 'http:' && url.hostname === '127.0.0.1'
   const path = url.pathname + url.search + url.hash
   if (!(url.origin === location.origin || loopback) || !WORKRIVER_PATH.test(path)) return
-  const place = placeOf(url.pathname, url.search)
-  if (place) return pathOf(place.id, place.task ? { kind: 'task', id: place.task, finding: place.finding } : null)
+  const route = url.pathname.replace(/\/$/, '')
+  const finding = url.searchParams.get('finding')
+  return finding ? `${route}?finding=${encodeURIComponent(finding)}` : route
 }
 
 type MdNode = { type: string; value?: string; url?: string; children?: MdNode[] }
@@ -70,6 +71,7 @@ function Pre({ node, children }: ComponentProps<'pre'> & ExtraProps) {
 
 export default function MarkdownView({ text, compact = false, onFile }: { text: string; compact?: boolean; onFile?: (path: string) => void }) {
   const { t } = useT()
+  const navigate = useContext(NavigateContext)
   return (
     <div className={compact ? 'md md-sm' : 'md'} lang={contentLang(text)}>
       <Markdown
@@ -84,11 +86,9 @@ export default function MarkdownView({ text, compact = false, onFile }: { text: 
             const path = workriverPath(href)
             if (!path) return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
             return <a href={path} onClick={event => {
-              if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              if (!navigate || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
               event.preventDefault()
-              if (path === location.pathname + location.search + location.hash) return
-              history.pushState(null, '', path)
-              window.dispatchEvent(new PopStateEvent('popstate'))
+              navigate(path)
             }}>{children}</a>
           },
           img: ({ src, alt }) => {

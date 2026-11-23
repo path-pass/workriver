@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import MarkdownView from './Markdown'
+import { NavigateContext } from './navigation'
 
 const html = (text: string, onFile?: (path: string) => void) => renderToStaticMarkup(<MarkdownView text={text} onFile={onFile} />)
 
@@ -41,23 +42,26 @@ describe('Markdown an agent wrote', () => {
     ['http://127.0.0.1:8000/u1/3?finding=P2-1', '/u1/3?finding=P2-1'],
     [`[open](${location.origin}/u1/)`, '/u1'],
     ['[open](/i3)', '/i3'],
-  ])('navigates to %s in this tab on a plain click', (text, path) => {
+    ['[open](/u1/3/?finding=two+words)', '/u1/3?finding=two%20words'],
+  ])('passes %s to the page on a plain click', (text, path) => {
     const before = location.href
+    const entries = history.length
     const host = document.createElement('div')
     const root = createRoot(host)
     const destinations: string[] = []
-    const follow = () => destinations.push(location.pathname + location.search)
-    window.addEventListener('popstate', follow)
+    const navigate = (destination: string) => destinations.push(destination)
     try {
-      flushSync(() => root.render(<MarkdownView text={text} />))
+      flushSync(() => root.render(<NavigateContext.Provider value={navigate}><MarkdownView text={text} /></NavigateContext.Provider>))
       const link = host.querySelector('a')!
       let intercepted = false
       host.addEventListener('click', event => {
         intercepted = event.defaultPrevented
         event.preventDefault()
       })
-      link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }))
-      expect(intercepted).toBe(false)
+      for (const keys of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+        link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...keys }))
+        expect(intercepted).toBe(false)
+      }
       expect(destinations).toEqual([])
 
       link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
@@ -66,15 +70,10 @@ describe('Markdown an agent wrote', () => {
       expect(link.href).toBe(`${location.origin}${path}`)
       expect(link.target).toBe('')
 
-      const entries = history.length
-      link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-      expect(intercepted).toBe(true)
       expect(history.length).toBe(entries)
-      expect(destinations).toEqual([path])
+      expect(location.href).toBe(before)
     } finally {
       root.unmount()
-      window.removeEventListener('popstate', follow)
-      history.replaceState(null, '', before)
     }
   })
 
