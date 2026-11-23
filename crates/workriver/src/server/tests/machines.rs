@@ -64,6 +64,12 @@ fn machines_are_separate_and_need_no_link() {
     let there = at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap();
     assert_eq!((there["actor"].as_str(), there["intent"].as_str(), there["workspace"].is_null()), (Some("s-far"), None, true), "the same group name over there is no workspace");
     assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
+    // A template is read there as /api/state gives it, steps and all; its text, which is for
+    // editing on this machine, is not served there.
+    let shown = crate::cli::template_show_text(&at_place(&via_box, "w1:p1"), "development", false).unwrap();
+    assert!(shown.contains("design-review review (architecture-review)  after design") && shown.contains("The design against the project's rules."), "{shown}");
+    assert!(crate::cli::template_show_text(&at_place(&via_box, "w1:p1"), "nope", false).unwrap_err().to_string().contains("no template nope"));
+    assert!(crate::cli::template_show_text(&at_place(&via_box, "w1:p1"), "development", true).is_err(), "the text stays on this machine");
 
     // The user makes a second workspace and seats the agent over there in it: a manager on
     // another machine holds a seat like any other. It asks with options; the question is

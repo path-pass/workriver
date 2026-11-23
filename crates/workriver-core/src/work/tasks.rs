@@ -85,7 +85,7 @@ impl State {
             // Research and design go into a research unit, not the intent itself.
             let i = self.intent(&t.unit).map_err(|_| Rejected(format!("no unit {}", t.unit)))?;
             return no(format!(
-                "{} is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add {} --kind research --title \"...\", then workriver task add u<N> ...",
+                "{} is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add {} --kind research --title \"...\" --template research, then fill its research step: workriver task fill u<N>#1 ...",
                 i.id, i.id
             ));
         };

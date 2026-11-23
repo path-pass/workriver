@@ -84,8 +84,8 @@ or `--cause` naming findings of a task in the same unit.
 **Refusals:** "no intent given, and workspace ws1 has no current intent; its manager starts
 one" - `start-intent`. "a unit names its template …" / "template … is for a … unit" - name
 one made for the unit's kind, from the list it prints (`templates`). "… is not a git repository" / "base … is not a commit or branch" - fix
-`--repo` or `--base`. "i3 is an intent: tasks go into a unit … workriver unit add i3 --kind research …" - add a research
-unit and the task there. "u2 is a research unit: it takes research, design, review and gate tasks" -
+`--repo` or `--base`. "i3 is an intent: tasks go into a unit … workriver unit add i3 --kind research … --template research …" - add a research
+unit and fill its step (or add the task there). "u2 is a research unit: it takes research, design, review and gate tasks" -
 implementing goes in a code unit. "u2 is a research unit: …" - it has no branch to merge,
 move or link commits to; close it with `unit done`. "u1 already has tasks: say which one this
 follows with --after <n> …" - add `--after`, as above. "a unit's branch starts

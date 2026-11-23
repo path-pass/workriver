@@ -1908,7 +1908,7 @@
       "kind": "task.created"
     },
     {
-      "rejected": "i1 is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add i1 --kind research --title \"...\", then workriver task add u<N> ..."
+      "rejected": "i1 is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add i1 --kind research --title \"...\" --template research, then fill its research step: workriver task fill u<N>#1 ..."
     },
     {
       "body": {

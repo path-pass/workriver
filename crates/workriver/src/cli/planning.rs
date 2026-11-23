@@ -288,12 +288,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             return Ok(None);
         }
         Cmd::Template(TemplateCmd::Show { name, yaml }) => {
-            let shown = d.get(&format!("/api/template?name={name}"))?;
-            if yaml {
-                print!("{}", shown["text"].as_str().unwrap_or_default());
-            } else {
-                print!("{}", template_text(&serde_json::from_value(shown["template"].clone())?));
-            }
+            print!("{}", template_show_text(d, &name, yaml)?);
             return Ok(None);
         }
         Cmd::Template(TemplateCmd::Add { file }) => {
@@ -304,6 +299,22 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
         Cmd::Unit(UnitCmd::Done { unit, reason }) => d.append(actor, "unit.done", json!({ "unit": unit, "reason": reason }))?,
         _ => unreachable!("not one of intents, units, projects, workspaces and the backlog"),
     }))
+}
+
+/// What `template show` prints: the template as /api/state gives it (as `template list`
+/// reads the library, so a CLI on a followed machine shows the steps this service places), or
+/// with `yaml` its text as saved, which is for editing and read only on this machine
+/// (/api/template is not on a machine's listener).
+pub(crate) fn template_show_text(d: &Daemon, name: &str, yaml: bool) -> anyhow::Result<String> {
+    if yaml {
+        let shown = d.get(&format!("/api/template?name={name}"))?;
+        return Ok(shown["text"].as_str().unwrap_or_default().to_string());
+    }
+    let list: Vec<core::LibraryTemplate> = serde_json::from_value(d.get("/api/state")?["templates"].clone())?;
+    match list.iter().find(|t| t.template.name == name) {
+        Some(t) => Ok(template_text(t)),
+        None => bail!("no template {name}: `workriver template list` lists them"),
+    }
 }
 
 /// A new intent's kind, size and tags (`backlog add`, `intent add`).
