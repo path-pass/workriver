@@ -9,17 +9,21 @@ unit (commits, uncommitted work, the code view), but **never merged**. Give it i
 worktree like any code unit; the unit still names the repository:
 
     git -C <repo> fetch && git -C <repo> worktree add <repo>.worktrees/<unit> -b spike/<topic> origin/main
-    workriver unit add --kind spike --title "CRDT sync" --purpose "Is it fast enough offline?" --branch spike/crdt [--base main] [--repo <repo>]
+    workriver unit add --kind spike --title "CRDT sync" --purpose "Is it fast enough offline?" --branch spike/crdt --template spike [--base main] [--repo <repo>]
 
-Tasks as usual, any kind: `implement` for the code (commits carry `Task: u4#1`), `research`
-for the write-up, which delivers the numbers in `--note` and attaches the scripts and
-results (saved in `workriver attach --dir u4#2` before delivering; `attachments`):
+The `spike` template places two steps (`templates`): `experiment`, an implement task for the
+code (commits carry `Task: u4#1`), and `learned`, a research task for the write-up, which
+delivers the numbers in `--note` and attaches the scripts and results (saved in `workriver
+attach --dir u4#2` before delivering; `attachments`). Fill them; more tasks as usual, any
+kind:
 
-    workriver task add u4 --title "Benchmark CRDT sync against the current one" --agent bench
-    workriver task add u4 --kind research --title "What the numbers say" --after 1 --agent bench
+    workriver task fill u4#1 --title "Benchmark CRDT sync against the current one" --agent bench
+    workriver task fill u4#2 --title "What the numbers say" --agent bench
     workriver task deliver u4#2 --note "CRDT: 3x slower on 10k messages; see bench.md"
 
-When its work is delivered and decided it is "ready to close" (never "ready to merge"):
+A spike has no gate: the board and `unit done`'s answer are where a step left undone shows
+("Steps of template spike not done: learned (#2); u4 is closed without them …"). When its
+work is delivered and decided it is "ready to close" (never "ready to merge"):
 
     workriver unit done u4 --reason "CRDTs 3x slower on 10k messages: keep the current sync"
     git -C <repo> worktree remove <repo>.worktrees/u4

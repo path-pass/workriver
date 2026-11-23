@@ -57,7 +57,7 @@ fn service(tick: Duration, rewatch: Duration) -> T {
     let waits = crate::server::Waits { tick, rewatch, ..Default::default() };
     let (d, kernel) = daemon_and(fake.clone(), &db, waits);
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it", "agent": "s-a" })).unwrap();
     d.append("s-a", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
     let t = T { _tmp: tmp, db, fake, d, kernel, machines: None };
@@ -415,7 +415,7 @@ fn the_read_before_a_message_to_an_agent_with_no_seat() {
     fake.shown.lock().unwrap().insert("p2".into(), bash(""));
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), crate::server::Waits::default());
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the index", "agent": "s-d" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{ "from": "1" }] })).unwrap();
     d.append("s-d", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
@@ -626,7 +626,7 @@ fn two_machines(here: Vec<(&str, workriver_core::runtime::RuntimeAgent)>, far: V
     *other.agents.lock().unwrap() = far.into_iter().map(|(p, a)| (p.to_string(), a)).collect();
     let all = crate::runtime::follow::Machines::with(fake.clone(), vec![("box", other.clone())]);
     let db = tmp.path().join("w.db");
-    let store = workriver_data::Store::open(&db).unwrap();
+    let store = opened(&db);
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -893,7 +893,7 @@ fn a_session_two_machines_list_takes_no_message_by_its_session() {
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     manage(&t.d, "p1", "s-boss");
-    t.d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    t.d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     t.d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the index", "agent": "s-d" })).unwrap();
     t.d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{ "from": "1" }] })).unwrap();
     t.d.append("s-d", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();

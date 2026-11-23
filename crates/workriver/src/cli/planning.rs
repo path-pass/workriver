@@ -255,14 +255,14 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             print!("{}", intent_history_text(d, &intent, version, diff)?);
             return Ok(None);
         }
-        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine }) if kind == "research" => {
+        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine, template }) if kind == "research" => {
             if repo.is_some() || branch.is_some() || base.is_some() || machine.is_some() {
                 bail!("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
             }
             let intent = here_intent(intent)?;
-            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "kind": "research" }))?
+            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "kind": "research", "template": template.unwrap_or_default() }))?
         }
-        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine }) => {
+        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine, template }) => {
             let (repo, branch, base) = (repo.unwrap_or_else(|| ".".into()), branch.unwrap_or_default(), base.unwrap_or_else(|| "main".into()));
             let intent = here_intent(intent)?;
             // On another machine the path is that machine's: taken as written, checked there.
@@ -271,7 +271,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 Some(_) => json!(repo),
                 None => json!(std::fs::canonicalize(&repo).with_context(|| format!("no folder {repo}"))?),
             };
-            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base, "machine": machine, "kind": kind }))?
+            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base, "machine": machine, "kind": kind, "template": template.unwrap_or_default() }))?
         }
         Cmd::Unit(UnitCmd::Move { unit, machine, repo, branch, base }) => {
             if machine.is_none() && repo.is_none() && branch.is_none() && base.is_none() {
@@ -280,9 +280,41 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             d.append(actor, "unit.relocated", json!({ "unit": unit, "machine": machine, "repo": repo.unwrap_or_default(), "branch": branch.unwrap_or_default(), "base": base.unwrap_or_default() }))?
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
+        // The library, as the service gives it: the user's and the built-ins; no copy here.
+        Cmd::Template(TemplateCmd::List { unit }) => {
+            let list: Vec<core::LibraryTemplate> = serde_json::from_value(d.get("/api/state")?["templates"].clone())?;
+            let unit = unit.map(|u| serde_json::from_value::<core::UnitKind>(json!(u))).transpose()?;
+            print!("{}", templates_text(&list, unit));
+            return Ok(None);
+        }
+        Cmd::Template(TemplateCmd::Show { name, yaml }) => {
+            print!("{}", template_show_text(d, &name, yaml)?);
+            return Ok(None);
+        }
+        Cmd::Template(TemplateCmd::Add { file }) => {
+            let text = std::fs::read_to_string(&file).with_context(|| format!("cannot read {file}"))?;
+            d.call("/api/template", Some(json!({ "text": text })))?
+        }
+        Cmd::Template(TemplateCmd::Remove { name }) => d.call("/api/template/remove", Some(json!({ "name": name })))?,
         Cmd::Unit(UnitCmd::Done { unit, reason }) => d.append(actor, "unit.done", json!({ "unit": unit, "reason": reason }))?,
         _ => unreachable!("not one of intents, units, projects, workspaces and the backlog"),
     }))
+}
+
+/// What `template show` prints: the template as /api/state gives it (as `template list`
+/// reads the library, so a CLI on a followed machine shows the steps this service places), or
+/// with `yaml` its text as saved, which is for editing and read only on this machine
+/// (/api/template is not on a machine's listener).
+pub(crate) fn template_show_text(d: &Daemon, name: &str, yaml: bool) -> anyhow::Result<String> {
+    if yaml {
+        let shown = d.get(&format!("/api/template?name={name}"))?;
+        return Ok(shown["text"].as_str().unwrap_or_default().to_string());
+    }
+    let list: Vec<core::LibraryTemplate> = serde_json::from_value(d.get("/api/state")?["templates"].clone())?;
+    match list.iter().find(|t| t.template.name == name) {
+        Some(t) => Ok(template_text(t)),
+        None => bail!("no template {name}: `workriver template list` lists them"),
+    }
 }
 
 /// A new intent's kind, size and tags (`backlog add`, `intent add`).
@@ -582,6 +614,11 @@ pub(crate) enum UnitCmd {
         /// --branch are then the path and the branch as they are on that machine.
         #[arg(long, value_name = "LABEL")]
         machine: Option<String>,
+        /// The template whose steps the unit gets, placed as tasks to fill: one made for its
+        /// kind of unit, chosen by its description (`workriver template list --unit <kind>`).
+        /// Needed; it never changes afterwards.
+        #[arg(long, value_name = "NAME")]
+        template: Option<String>,
     },
     /// Record that a unit's branch was merged. Not needed after a fast-forward or a merge
     /// commit: workriver sees those and records them itself; a squash merge it cannot see.
@@ -611,6 +648,41 @@ pub(crate) enum UnitCmd {
         #[arg(long)]
         base: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum TemplateCmd {
+    /// The templates a unit can be made with: the user's and the built-ins, each with the kind
+    /// of unit it is for, its whole description (what it is for, when to choose it) and its
+    /// steps.
+    List {
+        /// Only the templates for this kind of unit.
+        #[arg(long, value_parser = ["code", "research", "spike"])]
+        unit: Option<String>,
+    },
+    /// One template: its description, then each step with what it follows and what it is for.
+    Show {
+        name: String,
+        /// The text as saved (a built-in's text when the user has none of that name).
+        #[arg(long)]
+        yaml: bool,
+    },
+    /// Save a template from a YAML file: the user's, from a terminal that is not an agent's.
+    /// One of a built-in's name replaces it whole. A change touches only units made after it.
+    ///
+    /// The format: `name` (a-z, 0-9, -), `description`, `unit` (code, research or spike;
+    /// default code), `steps`: each an `id`, a `kind` (implement, review, tests, gate, design,
+    /// research), a `description`, and where it applies `reviewer` (a review: code-review,
+    /// security-review, architecture-review), `gate` (a gate: decide, deploy, test) and `after`
+    /// (step ids written before it; left out: the step before; `[]`: the start). Any other key
+    /// is refused, with its line. `workriver template show development --yaml` is an example.
+    Add {
+        /// The YAML file.
+        file: String,
+    },
+    /// Remove a template of the user's; one of a built-in's name brings the built-in back.
+    /// Units made with it keep their steps.
+    Remove { name: String },
 }
 
 #[derive(Subcommand)]

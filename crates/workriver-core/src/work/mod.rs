@@ -206,6 +206,60 @@ pub struct Task {
     /// What the user answered from the page in its agent's terminal (`agent.keys`), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<TerminalAnswer>,
+    /// Placed from its unit's template: which step it is. What is shown of a placed task
+    /// reads this, never `by` (its author: workriver, then whoever filled it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placed: Option<Placed>,
+}
+
+impl Task {
+    /// Task `n` of `kind` as recorded by `by` at `at`: still to do, held by nobody, asking
+    /// nothing yet.
+    pub(crate) fn blank(n: u32, intent: &str, kind: TaskKind, by: &str, at: &str) -> Task {
+        Task {
+            n,
+            intent: intent.to_string(),
+            kind,
+            title: String::new(),
+            text: String::new(),
+            inputs: vec![],
+            causes: vec![],
+            agent: None,
+            reviewer: None,
+            gate: None,
+            steps: vec![],
+            plans: vec![],
+            blind: false,
+            blocks: None,
+            choice: None,
+            // A gate opens (waits for the user) once what it follows is done.
+            state: TaskState::Todo,
+            by: by.to_string(),
+            at: at.to_string(),
+            started: None,
+            model: None,
+            done: None,
+            note: String::new(),
+            evidence: vec![],
+            findings: vec![],
+            result: None,
+            selected: vec![],
+            delivery: None,
+            amended: None,
+            read_before: vec![],
+            waiting_since: None,
+            attachments: vec![],
+            dropped: None,
+            notes: vec![],
+            answers: vec![],
+            placed: None,
+        }
+    }
+
+    /// A step placed from a template that nobody filled yet.
+    pub fn unfilled(&self) -> bool {
+        self.placed.as_ref().is_some_and(|p| !p.filled)
+    }
 }
 
 /// `u1#3` -> ("u1", 3).

@@ -33,6 +33,8 @@ repository, branch or code layer, never merged ("Ready to close" where a code un
 "Ready to merge"; its manager closes it). A **spike** is an experiment kept as code: a unit
 with a `spike/` branch, shown like a code unit (commits, code layer) with a small "Spike" tag
 in its rail line and heading, never merged ("Ready to close", no squash or merge reminder).
+Every unit is made with a **template**, the user's list of steps for its kind of unit, whose
+steps are placed in it as tasks to fill (`templates.md`).
 
 The rail is project → workspace → intent → unit.
 
@@ -54,6 +56,7 @@ anything in `frontend/`.
 | [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (what is picked and attached goes with a message), past questions, discussing a delivered result with its agent, agents asking each other |
 | [`operations.md`](docs/design/ui/operations.md) | Running a command as the user, Machines, other machines, stopped workers, machine alerts, Settings (with its list of workspaces), the jobs `workriver status` lists, opening a terminal |
 | [`attachments.md`](docs/design/ui/attachments.md) | Attachments and the viewer; the attachment rule (its routes and what a file that went looks like) |
+| [`templates.md`](docs/design/ui/templates.md) | A unit's template and the steps it places: the Templates page (the library, one template, editing its text, removing), a placed task and a gate's list of the steps |
 | [`presentation.md`](docs/design/ui/presentation.md) | Colour, type, space and shape, the river lines, states, loading |
 
 Where each section of this file went when it was split (moved whole, word for word but for

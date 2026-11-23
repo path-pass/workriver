@@ -235,6 +235,32 @@ export interface Task {
   delivered?: string;
   /** Dropped as no longer needed: when, by whom ("user", or an agent's name), why. */
   dropped?: { at: string; by: string; reason: string };
+  /** Placed from its unit's template: which step, what kind of step it is, whether the
+   *  manager (or the user) filled it yet. */
+  step?: { id: string; description: string; filled?: boolean };
+  /** A gate of a unit with placed steps: what it lists of them (the service works it out). */
+  gateSteps?: GateSteps;
+}
+
+/** A step placed from a template, as a gate lists it: done by whom ("user", or an agent's
+ *  name), or left out by whom and why. */
+export interface StepMark {
+  id: string;
+  /** Its task's number in the unit. */
+  n: number;
+  by?: string;
+  reason?: string;
+}
+
+/** What a gate lists of its unit's placed steps: a placed gate those before it, one added by
+ *  hand all of them; gates are never "not done". */
+export interface GateSteps {
+  template: string;
+  /** The user's template, not the built-in. */
+  users?: boolean;
+  done: StepMark[];
+  leftOut: StepMark[];
+  notDone: StepMark[];
 }
 
 /** What is picked inside a unit: one piece of work, or one finding (by its id) of a review. */

@@ -1,6 +1,6 @@
 import type { Repo } from '@/code/types'
 import type { Chore } from '@/work/types'
-import type { Project, BacklogFinding, Intent } from '@/planning/types'
+import type { Project, BacklogFinding, Intent, Template } from '@/planning/types'
 import type { Space, Session } from '@/agents/types'
 import type { MachineAlert, Machine } from '@/machines/types'
 import type { ManagerMessage } from '@/conversations/types'
@@ -35,4 +35,6 @@ export interface Workspace {
   messages?: ManagerMessage[];
   /** The commands the user ran from the page, newest first (the user's view only). */
   runs?: RecentRun[];
+  /** The templates a unit can be made with: the user's, then each built-in the user has none of. */
+  templates?: Template[];
 }

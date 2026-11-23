@@ -23,6 +23,9 @@ local GET /api/events  anonymous 401  agent 403  user 200
 local POST /api/append  anonymous 401  agent 200  user 200
 local POST /api/decide  anonymous 401  agent 403  user 422
 local POST /api/task/drop  anonymous 401  agent 403  user 422
+local GET /api/template?name=development  anonymous 401  agent 200  user 200
+local POST /api/template  anonymous 401  agent 403  user 200
+local POST /api/template/remove  anonymous 401  agent 403  user 422
 local POST /api/gate  anonymous 401  agent 403  user 422
 local POST /api/chore-done  anonymous 401  agent 403  user 422
 local POST /api/backlog/merge  anonymous 401  agent 422  user 422
@@ -62,6 +65,7 @@ local HEAD /api/state  anonymous 401  agent 200  user 200
 local HEAD /api/task?task=u1%231  anonymous 401  agent 200  user 200
 local HEAD /api/status  anonymous 200  agent 200  user 200
 local HEAD /api/events  anonymous 401  agent 403  user 200
+local HEAD /api/template?name=development  anonymous 401  agent 200  user 200
 local HEAD /api/agent/screen?agent=s-boss  anonymous 401  agent 403  user 200
 local HEAD /api/agent/view?agent=nobody-here  anonymous 401  agent 403  user 404
 local HEAD /api/run/r9  anonymous 401  agent 403  user 404

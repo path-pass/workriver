@@ -33,6 +33,17 @@ pub(super) struct Plan {
 /// The delivery an event calls for, if any.
 /// `home`: the data directory, where stored attachments are listed from.
 pub(super) fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Option<Plan> {
+    let mut p = planned(state, live, home, e)?;
+    // A notice for the manager (not the agent waiting on a gate) ends with the unit's steps
+    // still to fill.
+    let manager = state.intent_of(&p.unit).and_then(|i| state.manager_of(i));
+    if !p.unit.is_empty() && p.to.as_ref().map_or(true, |to| Some(to.as_str()) == manager) {
+        p.message = and_to_fill(state, &p.unit, p.message);
+    }
+    Some(p)
+}
+
+fn planned(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Option<Plan> {
     let files = |unit: &str, n: u32, finding: Option<&str>| files(state, home, unit, n, finding);
     let on = |unit: &str, task: u32, finding: Option<String>, to, message| Plan { unit: unit.into(), task, finding, chore: None, to, message };
     let intent_of = |unit: &str| state.intent_of(unit).map(str::to_string);
@@ -265,7 +276,7 @@ pub(super) fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -
     }
     if let Some(m) = state.intent_of(unit).and_then(|i| state.manager_of(i)) {
         let agent = t.agent.as_deref().map(|a| format!(" Its agent {} was told to stop.", who(state, a))).unwrap_or_default();
-        out.push((m.to_string(), format!("[workriver] {by} dropped {what} as no longer needed; what follows it no longer waits on it.{agent} Re-plan if anything still needs doing. {} {why}", details(unit, *task))));
+        out.push((m.to_string(), and_to_fill(state, unit, format!("[workriver] {by} dropped {what} as no longer needed; what follows it no longer waits on it.{agent} Re-plan if anything still needs doing. {} {why}", details(unit, *task)))));
     }
     out.retain(|(to, _)| to != &e.actor);
     out.dedup_by(|a, b| a.0 == b.0);
@@ -281,7 +292,7 @@ pub(super) fn told(state: &State, e: &Event) -> Vec<(String, String)> {
     let by = who(state, &e.actor);
     vec![(
         m.to_string(),
-        format!("[workriver] {by} tells you about {}. {} {}", label(state, unit, t), details(unit, *task), quoted(&format!("Quoted from {by}"), text)),
+        and_to_fill(state, unit, format!("[workriver] {by} tells you about {}. {} {}", label(state, unit, t), details(unit, *task), quoted(&format!("Quoted from {by}"), text))),
     )]
 }
 
@@ -387,6 +398,11 @@ pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) 
         (Some(c), None) => format!("[workriver] {what}: {c}"),
         (None, Some(s)) => format!("[workriver] {what}. {s}"),
         (Some(c), Some(s)) => format!("[workriver] {what}: {c} {s}"),
+    };
+    // A unit merged or closed over steps nobody filled: named like in any notice.
+    let message = match &e.body {
+        Body::UnitMerged { unit, .. } | Body::UnitDone { unit, .. } => and_to_fill(state, unit, message),
+        _ => message,
     };
     vec![(m.to_string(), message)]
 }

@@ -73,7 +73,7 @@ fn a_file_of_two_intents_follows_the_later_close() {
     let mut s = Records::default();
     seeded(&mut s);
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Other"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "More", "repo": "/r", "branch": "feat/more", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "More", "repo": "/r", "branch": "feat/more", "base": "main", "template": "bare"}})).unwrap();
     add(&mut s, "user", json!({"kind": "task.created", "body": {"unit": "u2", "kind": "implement", "title": "x"}})).unwrap();
     add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": A, "name": "a.png", "type": "image/png", "size": 3, "unit": "u1", "task": 1}})).unwrap();
     add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": A, "name": "a.png", "type": "image/png", "size": 3, "unit": "u2", "task": 1}})).unwrap();

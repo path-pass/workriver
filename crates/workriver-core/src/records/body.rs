@@ -309,7 +309,30 @@ pub enum Body {
         machine: Option<String>,
         #[serde(default, skip_serializing_if = "UnitKind::is_default")]
         kind: UnitKind,
+        /// The template it was made with (required of a new unit; none before templates).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        template: String,
+        /// The user's template's revision (the sequence of its `template.set`); none: built
+        /// in. Filled in here, as `placed` is: what the request says is thrown away.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        revision: Option<u64>,
+        /// The template's steps as placed: one task each, numbered from 1.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        placed: Vec<TemplateStep>,
     },
+    /// The user saves a template in the library: the whole of it each time, and the text it
+    /// was read from (kept for the user to edit, comments included; never in the state).
+    /// Recorded only by the action that reads the text, so the two cannot differ.
+    #[serde(rename = "template.set")]
+    TemplateSet {
+        #[serde(flatten)]
+        template: Template,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        source: String,
+    },
+    /// The user removes a template of theirs; one of a built-in's name brings it back.
+    #[serde(rename = "template.removed")]
+    TemplateRemoved { name: String },
     /// Finished without a merge.
     #[serde(rename = "unit.done")]
     UnitDone {
@@ -326,6 +349,31 @@ pub enum Body {
     },
     #[serde(rename = "task.created")]
     TaskCreated(NewTask),
+    /// A task placed from a template given what it asks (`workriver task fill`), once, by the
+    /// intent's manager or the user, who becomes its author. Its kind, reviewer, gate and step
+    /// are the template's: a fill cannot say them. `inputs` are added to those it was placed
+    /// with.
+    #[serde(rename = "task.filled")]
+    TaskFilled {
+        unit: String,
+        task: u32,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        agent: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        inputs: Vec<Input>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        plans: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        steps: Vec<Step>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        blind: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        choice: Option<Choice>,
+    },
     #[serde(rename = "task.started")]
     TaskStarted {
         unit: String,
@@ -698,7 +746,7 @@ impl Body {
             QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             IntentWorkspaceSet { intent, .. } | IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | IntentMerged { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
-            ProjectAdded { .. } | ProjectRenamed { .. } => (None, None, None),
+            ProjectAdded { .. } | ProjectRenamed { .. } | TemplateSet { .. } | TemplateRemoved { .. } => (None, None, None),
             FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
             FindingAdded { intent, .. } => (intent.clone(), None, None),
             WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } | WorkspaceManagerStarted { .. } | ManagerStartSeated { .. } | ManagerStartEnded { .. } => (None, None, None),
@@ -708,6 +756,7 @@ impl Body {
             CommitLinked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             TaskCreated(t) => ((!t.intent.is_empty()).then(|| t.intent.clone()), Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
+            | TaskFilled { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
             | TaskDropped { unit, task: n, .. }
             | TaskAmended { unit, task: n, .. }

@@ -32,7 +32,7 @@ fn designs_their_gates_and_their_revisions() {
     };
     let found = |n: u32| json!({"kind": "task.delivered", "body": {"unit": "u1", "task": n, "findings": [{"severity": "P2", "problem": "x", "impact": "y", "where": ["a"]}]}});
     put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
-    put(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
+    put(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
     put(&mut s, "boss", task("design", &["start"], json!({}))); // 1: an older design, unrelated
     put(&mut s, "boss", task("design", &["1"], json!({}))); // 2
     put(&mut s, "boss", task("review", &["2"], json!({"reviewer": "architecture-review"}))); // 3: of the design
@@ -169,7 +169,7 @@ fn deferred_batches() {
     assert_eq!(st.backlog[0].finding.state, FindingState::Scheduled);
     assert_eq!(st.backlog[0].intent.as_deref(), Some("i1"));
     // One cleanup unit, one task with both as causes; delivering it finishes them.
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Cleanup", "repo": "/r", "branch": "chore/c", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "Cleanup", "repo": "/r", "branch": "chore/c", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u2", "kind": "implement", "title": "Fix both", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}, {"task": 0, "findings": ["f1"]}]}})).unwrap();
     assert_eq!(s.state().task("u2", 1).unwrap().inputs[0].from, "start", "causes in other units are not inputs");
     add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u2", "task": 1}})).unwrap();
@@ -233,7 +233,7 @@ fn findings_grow_after_they_are_decided() {
 fn a_gate_waits_only_once_what_it_follows_is_done() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs", "inputs": [{"from": "start"}]}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "1"}, {"from": "2", "primary": false}]}})).unwrap();
@@ -263,7 +263,7 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
 fn a_task_added_to_a_done_unit_opens_it_again() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
     add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
     add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
@@ -287,7 +287,7 @@ fn a_task_added_to_a_done_unit_opens_it_again() {
 fn a_blocker_is_put_before_a_running_task() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
     add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
     add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
@@ -320,7 +320,7 @@ fn a_blocker_is_put_before_a_running_task() {
 fn a_task_gets_added_requirements() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     managed(&mut s, "boss", "i1");
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build", "text": "Build the adapter", "agent": "w"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}], "agent": "rev", "blind": true}})).unwrap();
@@ -374,7 +374,7 @@ fn a_task_gets_added_requirements() {
 fn a_task_no_longer_needed_is_dropped() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     managed(&mut s, "boss", "i1");
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build", "agent": "w"}})).unwrap();
     add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
@@ -464,7 +464,7 @@ fn a_later_task_says_what_it_follows() {
     assert_eq!(inputs(&s, "u1", 4), ["2"]);
     // A research unit the same: the first starts at the start, the next must say; a cause in
     // another unit is not one of its tasks.
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Look around", "kind": "research"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare-research", "intent": "i1", "title": "Look around", "kind": "research"}})).unwrap();
     add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Look"}))).unwrap();
     assert_eq!(inputs(&s, "u2", 1), ["start"]);
     let e = add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}]}))).unwrap_err();
@@ -486,7 +486,7 @@ fn a_results_gate_is_found_through_its_reviews() {
         json!({"kind": "task.created", "body": b})
     };
     put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
-    put(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
+    put(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
     put(&mut s, "boss", task("design", &["start"], json!({}))); // 1
     put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
     put(&mut s, "boss", task("gate", &["2"], json!({"gate": "decide"}))); // 3
@@ -518,7 +518,7 @@ fn reviews_that_read_an_earlier_delivery() {
         json!({"kind": "task.created", "body": b})
     };
     put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
-    put(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
+    put(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare-research", "intent": "i1", "title": "Survey", "kind": "research"}}));
     put(&mut s, "boss", task("research", &["start"], json!({"agent": "r"}))); // 1
     put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
     put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "security-review"}))); // 3
@@ -615,7 +615,7 @@ fn a_choice_gate_is_answered_and_unlocks_nothing() {
 fn a_task_keeps_the_model_its_agent_started_it_with() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     for title in ["Build", "Check"] {
         add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": title, "inputs": [{"from": "start"}]}})).unwrap();
     }
@@ -639,7 +639,7 @@ fn a_task_keeps_the_model_its_agent_started_it_with() {
 fn a_model_is_said_only_by_the_agent_that_starts_its_own_task() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     for title in ["Build", "Check", "Ship"] {
         add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": title, "agent": "w", "inputs": [{"from": "start"}]}})).unwrap();
     }

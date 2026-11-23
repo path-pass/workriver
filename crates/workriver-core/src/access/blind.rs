@@ -47,6 +47,8 @@ impl State {
             agents: self.agents.iter().map(|a| if a.session == session { a.clone() } else { Agent { cwd: String::new(), machine: None, ..a.clone() } }).collect(),
             attachments: self.attachments.iter().filter(|a| a.by == session || added.contains(&a.id)).cloned().collect(),
             projects: self.projects.clone(),
+            // The library says nothing of anyone's work.
+            templates: self.templates.clone(),
             // A seat is an agent's machine and folder: cleared like any other agent's.
             workspaces: self.workspaces.iter().map(|w| Workspace { manager: w.manager.as_ref().map(|m| if m.session == session { m.clone() } else { Seat { machine: None, folder: String::new(), ..m.clone() } }), ..w.clone() }).collect(),
             reduced: true,

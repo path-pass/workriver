@@ -165,4 +165,31 @@ export interface Unit {
   /** Open: the files it changes that another open unit of its project, in the same
    *  repository, changes too, with those units (the service compares their changes). */
   overlaps?: { path: string; units: string[] }[];
+  /** The template it was made with (absent: made before templates); `builtin`: the one built
+   *  in, its words workriver's, not the user's. */
+  template?: { name: string; builtin?: boolean };
+}
+
+/** One step of a template: what kind of task it places, after which steps (absent: the one
+ *  before; empty: the unit's start), and what kind of step it is. */
+export interface TemplateStep {
+  id: string;
+  kind: 'implement' | 'review' | 'tests' | 'gate' | 'design' | 'research';
+  description: string;
+  reviewer?: string;
+  gate?: 'deploy' | 'test' | 'decide';
+  after?: string[];
+}
+
+/** A template of the library, as the service gives it: the user's (with the revision that
+ *  saved it and when) or one built in. The page keeps no copy of the built-ins. */
+export interface Template {
+  name: string;
+  description: string;
+  /** The kind of unit it is for. */
+  unit: 'code' | 'research' | 'spike';
+  steps: TemplateStep[];
+  revision?: number;
+  at?: string;
+  builtin?: boolean;
 }

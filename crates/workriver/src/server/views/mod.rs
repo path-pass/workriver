@@ -451,7 +451,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .map(|c| chore(c, &names, Some(state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_default())))
         .collect();
     let messages = messages(state, live, &names);
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, chores, alerts: vec![], messages, runs: vec![] }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, chores, alerts: vec![], messages, runs: vec![], templates: state.library() }
 }
 
 /// Whether a unit is work to coordinate with: not merged, not closed, and its intent neither
@@ -526,7 +526,19 @@ fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names:
         overdue: None,
         threads: threads(state, live, names, &u.id, 0),
         overlaps: vec![],
+        template: template_of(u),
     }
+}
+
+/// The template a unit was made with, as the page shows it.
+fn template_of(u: &core::Unit) -> Option<TemplateOut> {
+    (!u.template.is_empty()).then(|| TemplateOut { name: u.template.clone(), builtin: u.revision.is_none() })
+}
+
+/// What gate `n` of unit `u` lists of its placed steps, with whoever did each by name.
+fn gate_steps(state: &core::State, names: &Names, u: &core::Unit, n: u32) -> Option<core::GateSteps> {
+    let named = |l: Vec<core::StepMark>| l.into_iter().map(|m| core::StepMark { by: m.by.map(|b| if b == "user" { b } else { names.of(&b) }), ..m }).collect();
+    state.gate_steps(&u.id, n).map(|g| core::GateSteps { done: named(g.done), left_out: named(g.left_out), not_done: named(g.not_done), ..g })
 }
 
 fn repo(machine: Option<&str>, path: &str, cache: &mut Cache) -> Repo {
@@ -689,6 +701,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         }),
         threads: threads(state, live, names, &u.id, 0),
         overlaps: vec![],
+        template: template_of(u),
     }
 }
 
@@ -812,6 +825,8 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         stalled: None,
         trace: None,
         discuss: discussable(state, &u.id, t),
+        step: t.placed.as_ref().map(|p| StepOut { id: p.id.clone(), description: p.description.clone(), filled: p.filled }),
+        gate_steps: gate_steps(state, names, u, t.n),
     }
 }
 
@@ -849,6 +864,8 @@ fn unregistered(c: &scan::Commit) -> Task {
         stalled: None,
         trace: None,
         discuss: None,
+        step: None,
+        gate_steps: None,
     }
 }
 

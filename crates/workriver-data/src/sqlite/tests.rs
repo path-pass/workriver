@@ -17,13 +17,14 @@ fn agent_a() -> Principal {
 /// Who records a seeded event: an active intent is the user's to add, and so is a unit of
 /// an intent with no manager; the rest agent-a's.
 fn by(b: &Body) -> Principal {
-    if matches!(b, Body::IntentCreated { .. } | Body::UnitCreated { .. }) { Principal::User } else { agent_a() }
+    if matches!(b, Body::TemplateSet { .. } | Body::IntentCreated { .. } | Body::UnitCreated { .. }) { Principal::User } else { agent_a() }
 }
 
 fn seed() -> Vec<Body> {
     let steps = [
+        json!({"kind": "template.set", "body": {"name": "bare", "description": "Nothing placed.", "steps": []}}),
         json!({"kind": "intent.created", "body": {"title": "Chat v2"}}),
-        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main"}}),
+        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main", "template": "bare"}}),
         json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}),
         json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}),
         json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "npm test", "result": "passed", "summary": "6 passed"}]}}),
@@ -49,7 +50,7 @@ fn replay_rebuilds_the_same_state() {
     };
     let again = Store::open(&path).unwrap();
     assert_eq!(again.state(), &before);
-    assert_eq!(again.count().unwrap(), 7);
+    assert_eq!(again.count().unwrap(), 8);
 }
 
 #[test]

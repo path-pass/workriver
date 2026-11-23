@@ -34,6 +34,28 @@ pub struct Workspace {
     /// The commands the user ran from the page, newest first: for the user only.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub runs: Vec<RunOut>,
+    /// The templates a unit can be made with: the user's, then each built-in the user has none
+    /// of (marked built in). The page shows what it is given and keeps no copy.
+    pub(crate) templates: Vec<core::LibraryTemplate>,
+}
+
+/// The template a unit was made with: its name, and whether it was the built-in one (its
+/// words workriver's) or the user's.
+#[derive(Serialize)]
+pub(crate) struct TemplateOut {
+    pub(crate) name: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) builtin: bool,
+}
+
+/// A task placed from its unit's template: the step, what kind of step it is, whether it was
+/// filled.
+#[derive(Serialize)]
+pub(crate) struct StepOut {
+    pub(crate) id: String,
+    pub(crate) description: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) filled: bool,
 }
 
 /// A command the user ran from the page, as the Run section lists it; never its output.
@@ -462,6 +484,9 @@ pub(crate) struct Unit {
     /// repository, changes too: by path.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) overlaps: Vec<Overlap>,
+    /// The template it was made with; none: made before templates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) template: Option<TemplateOut>,
 }
 
 /// A file two or more open units change (`Unit::overlaps`): its path and the other units.
@@ -554,6 +579,13 @@ pub(crate) struct Task {
     /// ("open"), its agent is gone ("gone"), or its gate was submitted ("over").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) discuss: Option<&'static str>,
+    /// Placed from its unit's template: which step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) step: Option<StepOut>,
+    /// A gate of a unit with placed steps: those it lists, done (by whom, by name), left out
+    /// (who, why) and not done (`State::gate_steps`); the page computes nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) gate_steps: Option<core::GateSteps>,
 }
 
 #[derive(Serialize)]

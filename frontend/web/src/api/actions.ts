@@ -4,7 +4,7 @@
 import { MOCK, MOCK_CHANGED } from '@/workspace/source'
 import type { Decision, GateResult, Finding, Task } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
-import type { Intent, IntentText, IntentVersion, Unit } from '@/planning/types'
+import type { Intent, IntentText, IntentVersion, Template, Unit } from '@/planning/types'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
 import type { Answer, AskContext, Sent } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
@@ -337,6 +337,25 @@ export type StartDelivery = Omit<Sent, 'toManager'>
 export async function startIntent(intent: string, workspace: string, manager?: string): Promise<StartDelivery> {
   if (MOCK) return manager ? { step: 'delivered', to: manager, message: '' } : { step: 'not-delivered', to: null, reasonCode: 'no-manager', message: '' }
   return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace })).delivery
+}
+
+/** One template and the text it is edited as: the user's as saved, else the built-in's. The
+ *  sample has none. */
+export async function templateText(name: string): Promise<{ template: Template; text: string }> {
+  if (MOCK) throw new Error('the sample has no templates to edit')
+  return read(`/api/template?name=${encodeURIComponent(name)}`)
+}
+
+/** Saves a template from its text: the service reads it and refuses it with the line at fault. */
+export async function saveTemplate(text: string): Promise<void> {
+  if (MOCK) throw new Error('the sample saves no templates')
+  await call('/api/template', { text })
+}
+
+/** Removes a template of the user's; one of a built-in's name brings the built-in back. */
+export async function removeTemplate(name: string): Promise<void> {
+  if (MOCK) throw new Error('the sample removes no templates')
+  await call('/api/template/remove', { name })
 }
 
 /**

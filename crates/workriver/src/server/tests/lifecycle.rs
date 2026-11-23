@@ -309,7 +309,7 @@ impl Setup {
     /// An active intent with a research unit and its task, `u1#1`, whose text is `text`.
     fn work(&self, text: &str) {
         self.d.append("", "intent.created", json!({ "title": "Work" })).unwrap();
-        self.d.append("", "unit.created", json!({ "intent": "i1", "title": "Look", "kind": "research" })).unwrap();
+        self.d.append("", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "Look", "kind": "research" })).unwrap();
         self.d.append("", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Look", "text": text })).unwrap();
     }
 

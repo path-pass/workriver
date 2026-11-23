@@ -1,5 +1,6 @@
 // Intents, projects and workspaces through the service: starting an intent from the page,
-// merging planned ones, and the project folder a caller's place stands for.
+// merging planned ones, the project folder a caller's place stands for, and the user's
+// templates (templates.rs).
 use axum::extract::State;
 use axum::{Extension, Json};
 use serde::Deserialize;
@@ -12,8 +13,10 @@ use crate::server::app::*;
 use crate::server::http::*;
 
 mod start;
+mod templates;
 
 pub(in crate::server) use start::{start_get, start_set};
+pub(in crate::server) use templates::{template_remove, template_save, template_show};
 
 #[derive(Deserialize)]
 pub(super) struct Merge {

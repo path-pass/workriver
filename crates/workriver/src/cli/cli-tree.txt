@@ -218,10 +218,16 @@ workriver help task
 workriver help task add
 workriver help task deliver
 workriver help task drop
+workriver help task fill
 workriver help task note
 workriver help task session
 workriver help task show
 workriver help task start
+workriver help template
+workriver help template add
+workriver help template list
+workriver help template remove
+workriver help template show
 workriver help unit
 workriver help unit add
 workriver help unit done
@@ -423,10 +429,24 @@ workriver task drop
 workriver task drop  arg help --help -h num=0 action=Help
 workriver task drop  arg reason --reason value=["REASON"] num=1 action=Set required
 workriver task drop  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver task fill
+workriver task fill  arg after --after value=["N"] num=1 action=Append
+workriver task fill  arg agent --agent value=["AGENT"] num=1 action=Set
+workriver task fill  arg blind --blind value=["BLIND"] num=0 default=["false"] action=SetTrue
+workriver task fill  arg go --go value=["GO"] num=0 default=["false"] action=SetTrue
+workriver task fill  arg help --help -h num=0 action=Help
+workriver task fill  arg option --option value=["ID=LABEL"] num=1 action=Append
+workriver task fill  arg plan --plan value=["PLAN"] num=1 action=Append
+workriver task fill  arg require_note --require-note value=["ID"] num=1 action=Append
+workriver task fill  arg step --step value=["STEP"] num=1 action=Append
+workriver task fill  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver task fill  arg text --text value=["TEXT"] num=1 default=[""] action=Set
+workriver task fill  arg title --title value=["TITLE"] num=1 default=[""] action=Set
 workriver task help
 workriver task help add
 workriver task help deliver
 workriver task help drop
+workriver task help fill
 workriver task help help
 workriver task help note
 workriver task help session
@@ -449,6 +469,27 @@ workriver task start  arg agent --agent value=["AGENT"] num=1 action=Set
 workriver task start  arg help --help -h num=0 action=Help
 workriver task start  arg model --model value=["MODEL"] num=1 action=Set
 workriver task start  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver template
+workriver template  arg help --help -h num=0 action=Help
+workriver template add
+workriver template add  arg file index=1 value=["FILE"] num=1 action=Set required
+workriver template add  arg help --help -h num=0 action=Help
+workriver template help
+workriver template help add
+workriver template help help
+workriver template help list
+workriver template help remove
+workriver template help show
+workriver template list
+workriver template list  arg help --help -h num=0 action=Help
+workriver template list  arg unit --unit value=["UNIT"] num=1 one-of=["code", "research", "spike"] action=Set
+workriver template remove
+workriver template remove  arg help --help -h num=0 action=Help
+workriver template remove  arg name index=1 value=["NAME"] num=1 action=Set required
+workriver template show
+workriver template show  arg help --help -h num=0 action=Help
+workriver template show  arg name index=1 value=["NAME"] num=1 action=Set required
+workriver template show  arg yaml --yaml value=["YAML"] num=0 default=["false"] action=SetTrue
 workriver unit
 workriver unit  arg help --help -h num=0 action=Help
 workriver unit add
@@ -460,6 +501,7 @@ workriver unit add  arg kind --kind value=["KIND"] num=1 one-of=["code", "resear
 workriver unit add  arg machine --machine value=["LABEL"] num=1 action=Set
 workriver unit add  arg purpose --purpose value=["PURPOSE"] num=1 default=[""] action=Set
 workriver unit add  arg repo --repo value=["REPO"] num=1 action=Set
+workriver unit add  arg template --template value=["NAME"] num=1 action=Set
 workriver unit add  arg title --title value=["TITLE"] num=1 action=Set required
 workriver unit done
 workriver unit done  arg help --help -h num=0 action=Help

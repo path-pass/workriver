@@ -133,6 +133,10 @@ pub(crate) enum Cmd {
     /// Units: pieces of an intent, each on its own branch.
     #[command(subcommand)]
     Unit(UnitCmd),
+    /// Templates: the steps a unit is made with, placed as tasks to fill. The user keeps the
+    /// library; whoever makes a unit picks one by its description.
+    #[command(subcommand)]
+    Template(TemplateCmd),
     /// Tasks: work in a unit, handed to an agent or (a gate) to the user.
     #[command(subcommand)]
     Task(TaskCmd),
@@ -301,7 +305,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     // Who records, and in which intent, the service finds from the place this process runs in.
     // Which intent matters to these when none is given: the current one of the caller's workspace.
     let needs_place = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. }));
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Message(MessageCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Message(MessageCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Template(TemplateCmd::List { .. } | TemplateCmd::Show { .. }) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks who it is and
     // which workspace is its own (by the records: its seat, else its tasks') for the commands
     // that need that workspace's current intent.
@@ -369,7 +373,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             Some(out) => out,
             None => return Ok(()),
         },
-        Cmd::Workspace(_) | Cmd::Project(_) | Cmd::Backlog(_) | Cmd::Intent(_) | Cmd::Unit(_) | Cmd::Manager(ManagerCmd::Here { .. }) => match planning::run(cli.cmd, &cx)? {
+        Cmd::Workspace(_) | Cmd::Project(_) | Cmd::Backlog(_) | Cmd::Intent(_) | Cmd::Unit(_) | Cmd::Template(_) | Cmd::Manager(ManagerCmd::Here { .. }) => match planning::run(cli.cmd, &cx)? {
             Some(out) => out,
             None => return Ok(()),
         },
@@ -397,8 +401,14 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
 pub(crate) fn made(out: &serde_json::Value) -> String {
     let b = &out["body"];
     match out["kind"].as_str() {
-        Some("task.created") => format!("{}#{}", b["unit"].as_str().unwrap_or("?"), b["n"]),
-        Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
+        // A gate added ahead of steps not done: the warning on the next line.
+        Some("task.created") => format!("{}#{}{}", b["unit"].as_str().unwrap_or("?"), b["n"], warned(out)),
+        Some("task.filled") => format!("filled {}#{}{}", b["unit"].as_str().unwrap_or("?"), b["task"], warned(out)),
+        Some("unit.done") => format!("{} done{}", b["unit"].as_str().unwrap_or("?"), warned(out)),
+        Some("unit.created") => placed_text(b),
+        Some("template.set") => format!("saved template {} ({} steps); a change touches only units made after it", b["name"].as_str().unwrap_or("?"), b["steps"].as_array().map_or(0, Vec::len)),
+        Some("template.removed") => format!("removed template {}", b["name"].as_str().unwrap_or("?")),
+        Some("intent.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
         Some("finding.added") => b["finding"]["id"].as_str().unwrap_or("?").to_string(),
         Some("unit.relocated") => format!("{} is now {}{}, branch {} from {}", b["unit"].as_str().unwrap_or("?"), b["machine"].as_str().map(|m| format!("on {m}: ")).unwrap_or_default(), b["repo"].as_str().unwrap_or("?"), b["branch"].as_str().unwrap_or("?"), b["base"].as_str().unwrap_or("?")),
         Some("commit.linked") => format!("{} is now part of {}#{}", b["hash"].as_str().unwrap_or("?").chars().take(9).collect::<String>(), b["unit"].as_str().unwrap_or("?"), b["task"]),
@@ -434,6 +444,12 @@ pub(crate) fn made(out: &serde_json::Value) -> String {
         }
         _ => "recorded".into(),
     }
+}
+
+/// The warning a command's answer carries (steps of a template not done), on a line of its
+/// own; empty when there is none.
+fn warned(out: &serde_json::Value) -> String {
+    out["warning"].as_str().map(|w| format!("\n{w}")).unwrap_or_default()
 }
 
 #[cfg(test)]

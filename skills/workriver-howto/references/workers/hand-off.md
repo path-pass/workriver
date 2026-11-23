@@ -9,8 +9,12 @@ started by typing `claude` in a pane has none): others reach a worker by its nam
     workriver guide worker                 # the worker's instructions: paste them whole
     herdr agent prompt <name> "<one paragraph>"
 
-Requirements go into the task's `--text` when you add it (short Markdown: see `units`), not
-into the message. The
+Requirements go into the task's `--text` when you add it, or fill it (`task fill`, for a
+step its unit's template placed: `templates`; short Markdown: see `units`), not into the
+message. A step not filled yet cannot be started: fill it before you hand it off. Its `task
+show` begins with "Step <id> of template <name> (built in | the user's): <what kind of step
+it is>", above what it asks: the step says what kind of work this is; what to do is your
+text. The
 message stays short, one paragraph: the ref (`u1#3`), its goal in one line, the machine,
 the unit's worktree and branch (`units`: "work in <repo>.worktrees/u1 on feat/x"; never the
 repository's own folder), "run `workriver task show

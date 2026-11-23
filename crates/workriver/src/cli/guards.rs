@@ -40,6 +40,7 @@ const TOPICS: &[&str] = &[
     "spike",
     "stalled",
     "start-intent",
+    "templates",
     "units",
     "units-other-machine",
     "updating",

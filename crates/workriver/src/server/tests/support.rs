@@ -7,6 +7,23 @@ use serde_json::json;
 
 use crate::cli::Daemon;
 
+/// The templates of no steps the user saved for the tests, one per kind of unit: a unit made
+/// with one has no task placed, so the tests number their own tasks from 1.
+pub(in crate::server) const BARE: [(&str, &str); 3] = [("bare", "code"), ("bare-research", "research"), ("bare-spike", "spike")];
+
+/// The store at `db`, with the user's templates of no steps (`BARE`) saved in it once.
+pub(in crate::server) fn opened(db: &std::path::Path) -> workriver_data::Store {
+    use workriver_core::ports::WorkStore;
+    let mut store = workriver_data::Store::open(db).unwrap();
+    for (name, unit) in BARE {
+        if store.state().templates.iter().all(|t| t.template.name != name) {
+            let body = serde_json::from_value(json!({"kind": "template.set", "body": {"name": name, "description": "Nothing placed: for the tests.", "unit": unit, "steps": []}})).unwrap();
+            store.record(&workriver_core::Principal::User, body).unwrap();
+        }
+    }
+    store
+}
+
 pub(super) fn git(dir: &std::path::Path, args: &[&str]) {
     let ok = Command::new("git")
         .arg("-C")
@@ -651,7 +668,7 @@ pub(super) fn daemon_with(fake: std::sync::Arc<Fake>, db: &std::path::Path, wait
 
 /// The same, with what its service believes of processes.
 pub(super) fn daemon_and(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::server::Waits) -> (Daemon, Kernel) {
-    let store = workriver_data::Store::open(db).unwrap();
+    let store = opened(db);
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -740,7 +757,7 @@ impl workriver_core::ports::WorkStore for Flaky {
 /// kernel, and what the test may make fail.
 pub(super) fn flaky_service(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::server::Waits) -> (Daemon, Kernel, std::sync::Arc<Faults>) {
     let faults = std::sync::Arc::new(Faults::default());
-    let store = Flaky { inner: workriver_data::Store::open(db).unwrap(), faults: faults.clone() };
+    let store = Flaky { inner: opened(db), faults: faults.clone() };
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -886,7 +903,7 @@ pub(super) fn http(port: u16, method: &str, path: &str, headers: &[(&str, &str)]
 /// Starts a daemon over `runtime` as it runs for real (no `--as`), on a free port; its port
 /// and what it believes of processes.
 pub(super) fn daemon_over(runtime: std::sync::Arc<dyn workriver_core::runtime::Runtime>, machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>, db: &std::path::Path) -> (u16, Kernel) {
-    let store = workriver_data::Store::open(db).unwrap();
+    let store = opened(db);
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -953,7 +970,7 @@ pub(super) fn at_place(d: &Daemon, place: &str) -> Daemon {
 /// A service as it runs for real (no `--as`, a terminal asked for) over `fake`; its port and
 /// what it believes of processes.
 pub(super) fn real_service(fake: std::sync::Arc<Fake>, home: &std::path::Path) -> (u16, Kernel) {
-    let store = workriver_data::Store::open(&home.join("w.db")).unwrap();
+    let store = opened(&home.join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -990,7 +1007,7 @@ pub(super) struct Aged {
 
 impl Aged {
     pub(super) fn new(db: &std::path::Path, aging: std::sync::Arc<Aging>) -> Aged {
-        Aged { inner: workriver_data::Store::open(db).unwrap(), aging }
+        Aged { inner: opened(db), aging }
     }
 }
 

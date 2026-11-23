@@ -311,14 +311,56 @@ fn followed<'a>(state: &'a State, unit: &str, t: &Task) -> Option<&'a Task> {
     state.task(unit, from).ok()
 }
 
-/// How a task reads in a message: `u1#2 "title"`, or `u1#4 (code review of u1#2 "title")`.
+/// How a task reads in a message: `u1#2 "title"`, or `u1#4 (code review of u1#2 "title")`;
+/// a step of a template nobody filled yet, `u1#3 (step confirm)`.
 pub(in crate::server) fn label(state: &State, unit: &str, t: &Task) -> String {
     let of = || followed(state, unit, t).map(|f| format!(" of {}", label(state, unit, f))).unwrap_or_default();
+    if let Some(p) = t.placed.as_ref().filter(|_| t.title.is_empty() && t.unfilled()) {
+        return format!("{unit}#{} (step {})", t.n, p.id);
+    }
     match t.kind {
         TaskKind::Review => format!("{unit}#{} ({}{})", t.n, t.reviewer.map(|r| name(&r).replace('-', " ")).unwrap_or_default(), of()),
         TaskKind::Tests => format!("{unit}#{} (tests{})", t.n, of()),
         _ => format!("{unit}#{} \"{}\"", t.n, quote::name(&t.title)),
     }
+}
+
+/// What ends every notice the manager gets about a unit whose template placed steps nobody
+/// filled or dropped yet: those steps, by number and id (an id is `[a-z0-9-]`: no one's
+/// words). None when there are none.
+pub(in crate::server) fn to_fill(state: &State, unit: &str) -> Option<String> {
+    let left = state.steps_to_fill(unit);
+    let list: Vec<String> = left.iter().map(|m| format!("#{} {}", m.n, m.id)).collect();
+    (!left.is_empty()).then(|| format!("Steps of {unit} still to fill: {} (`workriver task fill {unit}#<n>`, or `workriver task drop {unit}#<n> --reason \"...\"`).", list.join(", ")))
+}
+
+/// `text` with the steps of `unit` still to fill after it, if there are any.
+pub(super) fn and_to_fill(state: &State, unit: &str, text: String) -> String {
+    match to_fill(state, unit) {
+        Some(line) => format!("{text} {line}"),
+        None => text,
+    }
+}
+
+/// What the command that added or filled gate `n` of `unit`, or closed `unit` (`n` none),
+/// answers besides what it recorded: the placed steps the gate goes ahead of, or the unit
+/// closes over, not done. A warning, not a refusal: the gate lists them to the user as not
+/// done; a drop says why. None when there are none, or the unit has no steps placed.
+pub(in crate::server) fn steps_warning(state: &State, unit: &str, n: Option<u32>) -> Option<String> {
+    let u = state.unit(unit).ok()?;
+    let (list, what) = match n {
+        Some(n) => (state.gate_steps(unit, n)?.not_done, format!("gate {unit}#{n} lists them to the user as not done")),
+        None => (state.steps_not_done(unit), format!("{unit} is closed without them")),
+    };
+    let first = list.first()?;
+    let names: Vec<String> = list.iter().map(|m| format!("{} (#{})", m.id, m.n)).collect();
+    Some(format!(
+        "Steps of template {} not done: {}; {what}. Fill each (`workriver task fill {unit}#{}`), or drop it with the reason the user will read there (`workriver task drop {unit}#{} --reason \"...\"`).",
+        u.template,
+        names.join(", "),
+        first.n,
+        first.n
+    ))
 }
 
 /// `was`: the user changes a decision already made (the manager's, or their own).

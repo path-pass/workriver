@@ -192,7 +192,10 @@ moves code keeps the guards of `docs/design/guards.md` green without editing the
   (none that holds a seat or has a task). No agent event sets a seat, a workspace or a
   project; a new kind that does is `Body::user_only`, or `Body::service_only` under a rule
   of `prepare` that ties it to a user's event. `workspace.manager_started` is recorded only
-  by the start action (`/api/append` refuses it). The service adds to a seating only what
+  by the start action (`/api/append` refuses it), and `template.set` only by the action that
+  reads the template's text (`/api/template`; `/api/append` refuses it too), so a template's
+  steps and its text cannot differ; a unit's steps are placed by the rules from the template
+  as it is, never from the request. The service adds to a seating only what
   it reads of the runtime, for the user's own event (`App::seating`: the one root the
   session's machine shows it at; its machine and folder; the pin), never a seat, but the
   seat of a start the user recorded, which it names and the rules check; a start's seating

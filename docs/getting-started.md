@@ -180,21 +180,36 @@ The manager, from its terminal:
 
 ```sh
 workriver backlog list                 # the roadmap: i1 "Mentions" (active, started by you) ...
-workriver unit add --title "Mentions" --branch feat/mention   # its own branch: feat/, fix/ or chore/
-workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
+workriver template list --unit code    # the templates a code unit can be made with
+workriver unit add --title "Mentions" --branch feat/mention --template development   # its own branch: feat/, fix/ or chore/
+workriver task fill u1#4 --title "Notify the people mentioned, with unit tests" --agent finder
 ```
 
+Every unit is made with a **template**: a named list of steps for one kind of unit. Its
+steps are placed in the unit as tasks nobody holds yet, so the flow still due is on the
+board, not in the manager's memory. Three are built in: `research` (research, then your
+`direction` gate), `development` (a design, its architecture review, your `confirm` gate,
+the implementation, a code, a security and an architecture review, your `go` gate) and
+`spike` (an experiment and what it showed). The manager picks one by its description and
+fills each step when its turn comes (`workriver task fill`), or leaves it out with a reason
+(`workriver task drop u1#6 --reason "..."`). Every gate of the unit lists the steps to you:
+done (by whom), left out (who, why), not done. The library is yours: the Templates page (at
+the foot of the rail) shows each template, and you add, change or remove one there or with
+`workriver template add FILE` / `workriver template remove NAME` from your own terminal. A
+template you save under a built-in's name replaces it; removing yours brings the built-in
+back. A change touches only units made after it.
+
 Then it starts the worker `finder` in the runtime and gives it the task: its id, its goal
-in a line, where to work, "run workriver task show u1#1", and the text of `workriver guide
+in a line, where to work, "run workriver task show u1#4", and the text of `workriver guide
 worker` (the commands under Herdr: [runtimes/herdr.md](runtimes/herdr.md#workspaces-and-managers)).
 
 The worker records its own work:
 
 ```sh
-workriver task show u1#1                          # the task in full: what it asks, its causes, notes
-workriver task start u1#1 --model claude-opus-5-5  # the model it works with, if it knows
-git commit -m "Find mentions" -m "Task: u1#1"     # the trailer links the commit to the task
-workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
+workriver task show u1#4                          # the task in full: what it asks, its causes, notes
+workriver task start u1#4 --model claude-opus-5-5  # the model it works with, if it knows
+git commit -m "Find mentions" -m "Task: u1#4"     # the trailer links the commit to the task
+workriver task deliver u1#4 --evidence 'npm test => passed: 6 passed'
 ```
 
 The manager splits little: an intent is one unit unless work must land separately (another
@@ -265,7 +280,7 @@ other.
 
 A unit is recorded where its work happens: an agent over there
 records it there as usual; a manager on this machine names the machine, with the path and
-branch as they are there (`workriver unit add --machine box --repo /home/me/app --branch
+branch as they are there (`workriver unit add --template development --machine box --repo /home/me/app --branch
 feat/queue`), and a unit recorded in the wrong place is moved with `workriver unit move u1
 --machine box --repo … --branch …`. The same command follows a branch that was renamed, or
 rebased onto a new branch (`workriver unit move u1 --branch feat/queue-2 [--base main-2]`): the

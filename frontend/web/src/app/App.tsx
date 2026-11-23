@@ -29,6 +29,7 @@ import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
 import { IntentPage } from '@/planning/IntentPage'
+import { openTemplates, TemplatesDialog } from '@/planning/Templates'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { blockedAgents, inbox } from '@/attention/select'
 import { soundWanted, useRowSound } from '@/attention/sound'
@@ -526,6 +527,12 @@ export default function App() {
                   <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} />
                   <Progress unit={unit} />
                   {unit.squash && unit.progress === 'ready' && <Squashed unit={unit} />}
+                  {/* The template it was made with: to it in Templates. */}
+                  {unit.template && (
+                    <button type="button" className="tag font-normal tracking-normal" title={t('template.chipTip')} onClick={() => openTemplates(unit.template!.name)}>
+                      {t('template.chip', { name: unit.template.name })}
+                    </button>
+                  )}
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(unit.purpose)}>{unit.purpose}</p>}
                 {/* Rebased onto a new branch, or renamed: the same unit, said quietly. */}
@@ -563,6 +570,7 @@ export default function App() {
       <StartIntent ws={ws} intent={starting} onClose={() => setStarting(null)} onStarted={(i, w) => setEdits(e => ({ ...e, starts: { ...e.starts, [i]: w } }))} />
       <SeatDialog ws={ws} />
       <AddProjectDialog />
+      <TemplatesDialog ws={ws} />
       <RunDialog ask={running} onClose={() => setRunning(null)} />
       {ws && <Gate ws={ws} s={gate && (liveOf(gate) ?? gate)} onClose={() => setGate(null)} onOpen={open} onView={setTerm} />}
       <Notes />
