@@ -194,7 +194,7 @@ fn a_dropped_task_is_told_to_its_agent_and_the_manager() {
     assert_eq!(to.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(), ["worker", "boss"]);
     assert!(to[1].1.starts_with("[workriver] The user dropped u1#2 \"Emoji\" as no longer needed; what follows it no longer waits on it. Its agent worker was told to stop.") && to[1].1.ends_with("The user wrote: «not needed»"), "{}", to[1].1);
     // A gate has no agent: only the manager; the same when the runtime is down (the message
-    // is held until it can be given: `For::Duty`).
+    // is held until it can be given: `App::hand`).
     let e = at(&mut s, "user", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 3, "reason": "asked again"}}));
     assert_eq!(told(&s, &e).iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(), ["boss"]);
     assert_eq!(dropped(s.state(), None, &e).iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(), ["boss"]);

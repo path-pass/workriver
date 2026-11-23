@@ -12,6 +12,14 @@ Newest first. A manager that was already running reads this once after an update
   for files its text names that went. Do not ask for one again unless the work needs it. A
   file someone else must read is attached to a task or named in its text, never only typed
   into a terminal. (`attachments`)
+- **What workriver types into you waits instead of failing** (managers and workers): a
+  decision's or result's message, an answer to your question, a requirement added to your
+  task, a worker's `manager tell`, and every other notice now wait while you are at a dialog
+  in your terminal, starting, or not running, and arrive once you can take them; before, some
+  were "not delivered" or lost. A decision's message shows "Held" with why meanwhile; a
+  requirement added answers "not told yet: …". A question for an agent at work is typed in
+  as it would be the first time. Nothing held for a manager reaches another session once the
+  user seats one. (`not-delivered`, `blocked`)
 - **A name is read again on every machine** (managers): `task add --agent impl` and `task
   start --agent impl` read the machines workriver follows again first, for up to a second,
   so a second `impl` that just started on one is seen (refused, both listed). A machine

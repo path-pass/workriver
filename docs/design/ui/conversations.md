@@ -235,11 +235,11 @@ For the conclusion: amend first if the result must change, then `workriver answe
 --conclusion`. What it points at (the user's files) is named as for a question.
 
 **What the manager hears** (`delivery::discussed`), never each round, only what it must act
-on. It is given through `hand` as a duty (`For::Duty`): held while the manager is on a blind
-task in progress, waits for a person in its terminal, is not listed or cannot be sent to,
-and given once it can take it; never dropped while the service runs (a restart loses one
-still held, as every held notice). The same held kind gives every other notice an agent must
-act on: a worker's `workriver manager tell`, a dropped task's "stop" to its agent and the
+on. It is given through `hand` as a notice (`For::Notice`): held while the manager is on a
+blind task in progress, waits for a person in its terminal, is not listed or cannot be sent
+to, and given once it can take it; never dropped while the service runs and the appointment
+it was handed under lasts (a restart loses one still held, as every held notice with no
+record of its own). The same kind gives every other notice an agent must act on: a worker's `workriver manager tell`, a dropped task's "stop" to its agent and the
 news to the manager, work over (a unit merged or done, an intent done) to the manager, and an
 addition to a finding to the agents of the work it led to and the manager
 (`App::deliver`).
@@ -423,9 +423,9 @@ then the user's text quoted. For example:
   machine is disconnected), so that nothing was typed, is no reason to give up: the message
   waits and is tried again at each poll until the manager takes it, or is gone (not
   delivered). That holds from the first try: a runtime whose agents cannot be read as the
-  message is first given (`App::tell_manager`) holds it too. It is typed into the session
-  found, by that session alone (`send_by_session`, then `type_at`: its place from
-  `place_of`, `send_at` there; a seated manager only at the place its seat is held to, on
+  message is first given (`App::hand`) holds it too. It is typed into the session found, by
+  that session alone (`App::give`, then `type_at`: its place from `place_of`, `send_at`
+  there; a seated manager only at the place its seat is held to, on
   the seat's machine, never resolved, and not while another place shows its session too:
   not delivered, as gone), its screen read at that place first under
   the agent's writer (a dialog there holds the message, as a blocked manager does),

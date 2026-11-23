@@ -383,17 +383,6 @@ impl App {
         Ok(w.and_then(|w| w.manager).map(|m| m.machine))
     }
 
-    /// Whether `to` is a session as recorded: one that holds a seat, or an agent's that was
-    /// ever seen. Then it is found by that session alone, never by an agent's name. Records
-    /// that cannot be read: taken to be one, so no name stands in for it.
-    pub(in crate::server) fn names_a_session(&self, to: &str) -> bool {
-        let read = got(self.store.lock().unwrap().agent(to));
-        match read {
-            Ok(Some(Some(_))) | Err(_) => true,
-            Ok(_) => self.seat_machine(to).map_or(true, |seat| seat.is_some()),
-        }
-    }
-
     /// The place on `machine` (none: this one) that holds `session` now: the one answer for
     /// whatever types into or presses at a session's terminal. A session that holds a seat is
     /// at the place it is held to and nowhere else (`see_roots_on`: its pin, while that root
@@ -428,12 +417,6 @@ impl App {
     /// already has the seat from the records it read.
     pub(in crate::server) fn place_as_read(&self, session: &str, seat: Option<&str>, machine: Option<&str>) -> Result<String, RuntimeError> {
         seat_answer(session, seat, machine, self.seats.lock().unwrap().get(session))
-    }
-
-    /// Whether the last read of its seat's machine found `session`'s seat lost (no read of
-    /// its own): what goes to its manager is not delivered, at once.
-    pub(in crate::server) fn seat_found_lost(&self, session: &str) -> bool {
-        self.seat_machine(session).ok().flatten().is_some_and(|m| matches!(self.seat_place(session, m.as_deref()), Some(Err(RuntimeError::NoAgent(_)))))
     }
 
     /// Where a session the user seats is, read now on its own machine (this one or another

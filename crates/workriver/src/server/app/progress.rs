@@ -2,39 +2,70 @@
 // deliveries watched for their pick-up, and the reminders the poll runs.
 use super::*;
 
-/// A question's message (or the user's message to a manager) held for its agent, which
-/// waits for a person in its terminal; or what workriver tells an agent on a blind task in
-/// progress (`App::tell`), held until that task is delivered.
-// ponytail: in memory; after a restart the question fails as `restarted`, like any open one.
+/// Something to type into an agent that may have to wait (`App::hand`, `App::give`): held
+/// while it cannot be given, and tried again at each poll.
+// ponytail: in memory; a restart ends what has a record of its own (`recover`), and loses a
+// notice with none (the user accepted it: what it says is readable where it came from).
 pub(in crate::server) struct Held {
-    /// The question's id; the user's message's; or the run's whose command is to be reviewed.
+    /// The question's id; the user's message's; the run's whose command is to be reviewed; a
+    /// task note's task (`u1#3`).
     pub(in crate::server) question: String,
     pub(in crate::server) kind: For,
-    /// The session or live name it goes to, and the name to say.
+    /// The session it goes to (a temporary agent's question: the name workriver gave it),
+    /// and the name to say.
     pub(in crate::server) to: String,
     pub(in crate::server) name: String,
     pub(in crate::server) text: String,
     /// A new agent not ready for a prompt: retried at each poll until then; after it, it may
     /// sit on a prompt the runtime does not report and waits for the user like a blocked one.
     pub(in crate::server) not_ready: Option<std::time::Instant>,
-    /// A notice that is a planned delivery: recorded where it is once given (`App::told`).
+    /// A notice that is a planned delivery: recorded where it is (held, delivered or not).
     pub(in crate::server) about: Option<delivery::Plan>,
+    /// The seat `to` held when this was handed, from the records read that built the text:
+    /// its workspace and the appointment's `since`. Nothing goes on past that appointment.
+    pub(in crate::server) seat: Option<(String, u64)>,
+    /// A planned delivery was recorded held (`App::park`, once, before it first waits).
+    pub(in crate::server) recorded_held: bool,
 }
 
 impl Held {
-    /// What a receiver must act on (`For::Duty`), to `agent`.
-    pub(in crate::server) fn duty(agent: String, text: String) -> Held {
-        Held { question: String::new(), kind: For::Duty, to: agent.clone(), name: agent, text, not_ready: None, about: None }
+    /// For `to`, as `all` (the records read that built `text`) has it: the seat it holds there.
+    pub(in crate::server) fn new(all: &core::State, kind: For, question: &str, to: &str, text: String, about: Option<delivery::Plan>) -> Held {
+        let seat = all.seat_of(to).filter(|w| !w.closed).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)));
+        let name = all.name_of(to).unwrap_or(to).to_string();
+        Held { question: question.into(), kind, to: to.into(), name, text, not_ready: None, about, seat, recorded_held: false }
+    }
+
+    /// For a temporary agent workriver started (a question, a review), by the name it gave
+    /// it: it holds no seat.
+    pub(in crate::server) fn temporary(kind: For, question: &str, name: String, text: String) -> Held {
+        Held { question: question.into(), kind, to: name.clone(), name, text, not_ready: None, about: None, seat: None, recorded_held: false }
+    }
+
+    /// What workriver tells an agent (`For::Notice`).
+    pub(in crate::server) fn notice(all: &core::State, to: &str, text: String, about: Option<delivery::Plan>) -> Held {
+        Held::new(all, For::Notice, "", to, text, about)
     }
 
     /// Which copy of a user's message it is: to every manager, its manager's; else none.
     pub(in crate::server) fn copy(&self) -> &str {
         if self.kind == For::Broadcast { &self.to } else { "" }
     }
+
+    /// Whether it has a record of its own, where what came of it is written: all but a notice
+    /// that is no planned delivery and a task note. One with none is never dropped while it is
+    /// still wanted.
+    pub(in crate::server) fn recorded(&self) -> bool {
+        match self.kind {
+            For::Notice => self.about.is_some(),
+            For::Note => false,
+            _ => true,
+        }
+    }
 }
 
 /// What a held message is for.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(in crate::server) enum For {
     Question,
     /// The user's message to a manager.
@@ -43,25 +74,41 @@ pub(in crate::server) enum For {
     Broadcast,
     /// A command for its review agent (`App::review_run`).
     Review,
-    /// What workriver tells an agent (an answer, a delivery's message, an escalation), held
-    /// while the agent is on a blind task in progress (`App::tell`).
+    /// What workriver tells an agent: an answer, a delivery's message, an escalation, what it
+    /// must act on.
     Notice,
-    /// The user's question in a discussion, to the task's own agent: held while it works too,
-    /// and while it is on a blind task in progress or not listed; never timed out.
+    /// The user's question in a discussion, to the task's own agent.
     Discussion,
-    /// What a manager must act on (a discussed result amended while its gate waits, the
-    /// conclusion): held like a notice, and also while the manager is not listed or a send
-    /// fails, until it is given; never dropped while the service runs.
-    Duty,
+    /// A requirement added to a task, for the task's agent.
+    Note,
+}
+
+/// What differs by kind (the rest is one rule, `App::give`).
+#[derive(Debug, PartialEq)]
+pub(in crate::server) struct Policy {
+    /// Found by its session alone, never by a name: all but a temporary agent's question and
+    /// review, which go by the name workriver gave it.
+    pub(in crate::server) by_session: bool,
+    /// Typed into an agent at work: all but a discussion's question, which is also not ended
+    /// by a read that does not list it (only `discussions_gone` ends it, from a complete read).
+    pub(in crate::server) working: bool,
 }
 
 impl For {
-    /// A notice and the user's message (or a copy of it) are for a session: an agent that only
-    /// goes by it as a name is not it (any agent may take a seated manager's session id as its
-    /// name). A duty and a discussion's question are when their `to` is one (`App::by_session`).
-    pub(in crate::server) fn by_session(self) -> bool {
-        matches!(self, For::Notice | For::Message | For::Broadcast)
+    pub(in crate::server) fn policy(self) -> Policy {
+        let temporary = matches!(self, For::Question | For::Review);
+        Policy { by_session: !temporary, working: self != For::Discussion }
     }
+}
+
+/// What a try came to.
+#[derive(Debug, PartialEq)]
+pub(in crate::server) enum Outcome {
+    Given,
+    /// Held, with why in the service's words.
+    Held(String),
+    /// It will not be given; why.
+    Ended(String),
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
@@ -119,9 +166,11 @@ impl App {
             was != now
         };
         for (to, text, escalate) in tell {
-            // The worker hears of its own task; its manager, like every manager, not while blind.
-            let sent = if escalate { self.tell(&to, &text, None) } else { Ok(self.send(&to, &text)) };
-            if let Ok(Err(e)) = sent {
+            // The worker is reminded once, a try of its own; its manager is told as every notice
+            // is, held until it can take it (`hand`).
+            if escalate {
+                self.hand(Held::notice(&state, &to, text, None));
+            } else if let Err(e) = self.send(&to, &text) {
                 tracing::warn!("cannot tell {to} of a stopped worker: {e}");
             }
         }
@@ -254,5 +303,23 @@ impl App {
                 tracing::warn!("cannot write {}: {e}", path.display());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{For, Policy};
+
+    /// What differs by kind, cell by cell: found by session, typed while at work.
+    #[test]
+    fn the_policy_table() {
+        let p = |by_session, working| Policy { by_session, working };
+        assert_eq!(For::Question.policy(), p(false, true));
+        assert_eq!(For::Review.policy(), p(false, true));
+        assert_eq!(For::Message.policy(), p(true, true));
+        assert_eq!(For::Broadcast.policy(), p(true, true));
+        assert_eq!(For::Discussion.policy(), p(true, false));
+        assert_eq!(For::Notice.policy(), p(true, true));
+        assert_eq!(For::Note.policy(), p(true, true));
     }
 }

@@ -23,6 +23,7 @@ use crate::server::access::auth::Auth;
 use crate::server::access::caller::Callers;
 use crate::server::access::pins::Pins;
 use crate::server::delivery;
+pub(in crate::server) use crate::server::delivery::named;
 use crate::server::files;
 use crate::server::machines::metrics::Metrics;
 use crate::server::views::{self, Cache};
@@ -51,12 +52,8 @@ pub(super) struct App {
     pub(super) pending: Mutex<Vec<Pending>>,
     /// Questions waiting for their temporary agent's answer, with when they give up.
     pub(super) deadlines: Mutex<Vec<(String, std::time::Instant)>>,
-    /// Questions whose agent waits for a person in its terminal: given once it is free.
+    /// What waits until its receiver can take it (`App::hand`, `App::give`): tried at each poll.
     pub(super) held: Mutex<Vec<Held>>,
-    /// Requirements added to tasks whose agent is not told yet (it is on a blind task): the
-    /// event, and the agent it is for. Looked at again at each poll (`App::give_notes`).
-    // ponytail: in memory, like `held`; after a restart the agent reads it at `task show`.
-    pub(super) notes: Mutex<Vec<(core::Event, delivery::Receiver)>>,
     /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
     pub(super) idle: Mutex<Vec<(String, String, std::time::Instant)>>,
     pub(super) waits: Waits,
@@ -72,7 +69,7 @@ pub(super) struct App {
     /// it holds `appointing` or a writer.
     pub(in crate::server) discussing: Mutex<()>,
     /// Orders every send `App::hand` makes but a discussion's (the user's message's last check
-    /// of its appointment, and every notice, duty, question or review) against a seat change's
+    /// of its appointment, and every notice, note, question or review) against a seat change's
     /// record: whichever comes first, the other sees it (`App::hand`, `App::record`). The send
     /// finds its place under it (`App::place_of`, which for a seat on another machine reads
     /// over ssh), so a seat change waits for a send under way, a slow machine's too. Taken
@@ -222,38 +219,18 @@ impl App {
     }
 
     /// Sends a message to an agent, given by its session or by its name: one try, nothing
-    /// kept. One on another machine cannot open files of this machine: paths into the
-    /// attachment store become links through its tunnel (`type_at`).
-    ///
-    /// A session is decided before any name (`names_a_session`): an agent that takes a
-    /// session id as its name is not it (`send_by_session`). Only a `to` the records know no
-    /// session by is a name, turned into its session in a fresh read: exactly one live agent
-    /// by it (`named`).
+    /// kept. Found as everything given is (`App::receiver`): a session the records know by
+    /// that session alone (an agent that takes a session id as its name is not it), anything
+    /// else as a name, exactly one live agent by it; read now. One on another machine cannot
+    /// open files of this machine: paths into the attachment store become links through its
+    /// tunnel (`type_at`).
     pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
-        if self.names_a_session(to) {
-            return self.send_by_session(to, text);
-        }
         let live = self.runtime.agents().map_err(untyped)?;
-        match named(&live, to)[..] {
-            [a] => self.type_at(&a.session, a.machine.as_deref(), text),
-            [] => Err(RuntimeError::NoAgent(to.into())),
-            ref more => Err(RuntimeError::Ambiguous(format!("{} live agents are {to}", more.len()))),
-        }
-    }
-
-    /// Sends a message to the agent with session `to`, found by that session alone: a seated
-    /// one at its seat's place on the seat's machine (`place_of`), any other on the one
-    /// machine that lists it now. One that is not listed is not replaced by an agent going by
-    /// its name; one listed on two machines gets nothing (which is meant cannot be told).
-    pub(in crate::server) fn send_by_session(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
-        if let Some(machine) = self.seat_machine(to)? {
-            return self.type_at(to, machine.as_deref(), text);
-        }
-        let live = self.runtime.agents().map_err(untyped)?;
-        match live.iter().filter(|a| a.session == to).collect::<Vec<_>>()[..] {
-            [a] => self.type_at(to, a.machine.as_deref(), text),
-            [] => Err(RuntimeError::NoAgent(to.into())),
-            ref more => Err(RuntimeError::Ambiguous(format!("{to} is listed on {} machines", more.len()))),
+        let read = got(self.store.lock().unwrap().recorded());
+        let all = read.map_err(|Unread(why)| RuntimeError::Unreachable(why))?.ok_or_else(|| RuntimeError::Unreachable("the records cannot be read now".into()))?;
+        match self.receiver(&all, to, true, &live)? {
+            Some(a) => self.type_at(&a.session, a.machine.as_deref(), text),
+            None => Err(RuntimeError::NoAgent(to.into())),
         }
     }
 
@@ -283,13 +260,6 @@ pub(in crate::server) fn untyped(e: RuntimeError) -> RuntimeError {
         RuntimeError::Failed(why) => RuntimeError::Unreachable(why),
         e => e,
     }
-}
-
-/// The live agents `agent` names: those with this session, else those of this name. Each
-/// caller says what none and several mean to it.
-pub(in crate::server) fn named<'a>(live: &'a [RuntimeAgent], agent: &str) -> Vec<&'a RuntimeAgent> {
-    let exact: Vec<&RuntimeAgent> = live.iter().filter(|a| a.session == agent).collect();
-    if exact.is_empty() { live.iter().filter(|a| a.name == agent).collect() } else { exact }
 }
 
 /// Refuses a name several running agents have, listing them by session.
