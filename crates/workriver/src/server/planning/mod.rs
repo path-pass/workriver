@@ -4,7 +4,6 @@ use axum::extract::State;
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
-use workriver_core::runtime::RuntimeError;
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode};
 
 use crate::server::delivery;
@@ -47,24 +46,26 @@ pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): E
         let e = app.record(&who, Body::IntentStateChanged { intent: s.intent.clone(), state: core::IntentState::Active, reason: None, workspace: Some(s.workspace.clone()) })?;
         let live = app.runtime.agents().ok();
         // The intent is started from here on: a store that cannot be read now does not make
-        // this a failed request. Its manager is then not told, and the answer says so.
+        // this a failed request. Its manager is then not told, and the answer says so. Like
+        // every notice to a manager: given now, or held until it can take it (`hand`).
         let read = got(app.store.lock().unwrap().recorded());
-        let (plan, names) = match read {
-            Ok(Some(all)) => (delivery::started(&all, live.as_deref(), &s.intent), Some(all)),
-            Ok(None) => (Err((ReasonCode::RuntimeError, "cannot read the records".to_string())), None),
-            Err(Unread(why)) => (Err((ReasonCode::RuntimeError, why)), None),
-        };
-        // An agent with no name on record goes by its session, as everywhere.
-        let name = |to: &str| names.as_ref().and_then(|all| all.name_of(to)).unwrap_or(to).to_string();
-        // Like every notice to a manager: not while it is on a blind task (then held, and the
-        // answer says so in the service's words; it is given once that task is delivered).
-        let delivery = match plan {
-            Ok((to, message)) => match app.tell(&to, &message, None) {
-                Ok(Ok(())) => Delivery { step: DeliveryStep::Delivered, to: Some(name(&to)), reason_code: None, reason: None, message },
-                Ok(Err(err)) => Delivery { step: DeliveryStep::NotDelivered, to: Some(name(&to)), reason_code: Some(if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }), reason: Some(err.to_string()), message },
-                Err(why) => Delivery { step: DeliveryStep::Held, to: Some(name(&to)), reason_code: None, reason: Some(why), message },
+        let not = |(code, reason): (ReasonCode, String)| Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(code), reason: Some(reason), message: String::new() };
+        let delivery = match read {
+            Ok(Some(all)) => match delivery::started(&all, live.as_deref(), &s.intent) {
+                Ok((to, message)) => {
+                    let h = Held::notice(&all, &to, message.clone(), None);
+                    let to = Some(h.name.clone());
+                    drop(all);
+                    match app.hand(h) {
+                        Outcome::Given => Delivery { step: DeliveryStep::Delivered, to, reason_code: None, reason: None, message },
+                        Outcome::Held(why) => Delivery { step: DeliveryStep::Held, to, reason_code: None, reason: Some(why), message },
+                        Outcome::Ended(why) => Delivery { step: DeliveryStep::NotDelivered, to, reason_code: Some(ReasonCode::SeatChanged), reason: Some(why), message },
+                    }
+                }
+                Err(no) => not(no),
             },
-            Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(code), reason: Some(reason), message: String::new() },
+            Ok(None) => not((ReasonCode::RuntimeError, "cannot read the records".into())),
+            Err(Unread(why)) => not((ReasonCode::RuntimeError, why)),
         };
         // As the page names a delivery's fields.
         let delivery = json!({ "step": delivery.step, "to": delivery.to, "reasonCode": delivery.reason_code, "reason": delivery.reason, "message": delivery.message });
