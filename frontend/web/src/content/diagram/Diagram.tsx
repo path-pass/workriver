@@ -7,7 +7,7 @@
 // Its own file apart from draw.ts: its tests fake the drawing by replacing that module.
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useT } from '@/i18n'
-import { drawable } from './bounds'
+import { BOUNDS, refusal } from './bounds'
 import { drawDiagram, MermaidError, type Picture } from './draw'
 
 const darkSystem = () => matchMedia('(prefers-color-scheme: dark)')
@@ -25,11 +25,11 @@ function watchTheme(changed: () => void) {
 }
 
 export function Diagram({ code }: { code: string }) {
-  const { t } = useT()
+  const { t, num } = useT()
   const dark = useSyncExternalStore(watchTheme, isDark, () => false)
   // For this code: what was drawn last (kept while it is drawn again in the other theme), or failed.
   const [got, setGot] = useState<{ code: string; picture?: Picture; error?: string }>()
-  const refused = useMemo(() => !drawable(code), [code])
+  const refused = useMemo(() => refusal(code), [code])
   useEffect(() => {
     if (refused) return
     const shown = new AbortController()
@@ -50,11 +50,18 @@ export function Diagram({ code }: { code: string }) {
       </div>
     )
   }
+  let note: string | undefined
+  if (refused?.reason === 'kind') {
+    note = t('attach.mdDiagramUnsupported')
+  } else if (refused) {
+    const keys = { chars: 'attach.mdDiagramChars', word: 'attach.mdDiagramWord', weight: 'attach.mdDiagramWeight' } as const
+    note = t(keys[refused.reason], { actual: num(refused.actual), limit: num(BOUNDS[refused.reason]) })
+  } else if (now?.error !== undefined) {
+    note = now.error || t('attach.mdDiagramFailed')
+  }
   return (
     <>
-      {(refused || now?.error !== undefined) && (
-        <p className={now?.error ? 'md-note font-mono' : 'md-note'}>{now?.error || t('attach.mdDiagramFailed')}</p>
-      )}
+      {note && <p className={now?.error ? 'md-note font-mono' : 'md-note'}>{note}</p>}
       <pre><code className="language-mermaid">{`${code}\n`}</code></pre>
     </>
   )

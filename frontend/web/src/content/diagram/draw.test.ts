@@ -2,19 +2,20 @@
 // change: strict security, no HTML labels, and a page that may fetch nothing.
 import { describe, expect, it } from 'vitest'
 import mermaid from 'mermaid'
+import attributedEr from './__fixtures__/attributed-er.mmd?raw'
 import relationships from './__fixtures__/relationships.mmd?raw'
 import { FRAME, inTurn, size } from './draw'
-import { BOUNDS, drawable, withoutSettings } from './bounds'
+import { BOUNDS, refusal, withoutSettings } from './bounds'
 import { mermaidConfig } from './config'
 
 const later = () => new Promise(r => setTimeout(r))
 
-it('accepts ER self-relations, quoted Unicode relationship labels and keyed attributes', async () => {
-  expect(drawable(relationships)).toBe(true)
-  const text = withoutSettings(relationships)
+it.each([['self-relations and quoted labels', relationships], ['14 relations and 44 attributes', attributedEr]])('draws ER diagrams with %s', async (_, code) => {
+  const text = withoutSettings(code)
   mermaid.initialize(mermaidConfig(false, Object.keys(mermaid.mermaidAPI.defaultConfig)))
   expect(mermaid.detectType(text)).toBe('er')
   await expect(mermaid.parse(text)).resolves.toMatchObject({ diagramType: 'er' })
+  expect(refusal(code)).toBeUndefined()
 })
 
 describe('drawing one diagram at a time', () => {

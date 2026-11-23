@@ -3,7 +3,7 @@
 // shows the SVG only as an image (Diagram.tsx).
 // Its own file: a separate build entry that acts on import, and the only one to import mermaid.
 import mermaid from 'mermaid'
-import { drawable, withoutSettings } from './bounds'
+import { refusal, withoutSettings } from './bounds'
 import { mermaidConfig } from './config'
 
 /** Mermaid's SVG is HTML text (an `xlink:href` with its prefix undeclared, say); an image
@@ -19,12 +19,6 @@ function asXml(svg: string): string {
 /** Mermaid's names for the kinds drawn (bounds.ts). */
 const KINDS = new Set(['flowchart-v2', 'sequence', 'classDiagram', 'stateDiagram', 'er'])
 
-function diagnostic(error: unknown): string | undefined {
-  if (error instanceof Error) return error.message
-  if (typeof error === 'string') return error
-  if (error && typeof error === 'object' && 'str' in error && typeof error.str === 'string') return error.str
-}
-
 let n = 0
 addEventListener('message', async (e: MessageEvent<{ id: number; code: string; dark: boolean }>) => {
   if (e.source !== parent || e.origin !== origin) return
@@ -32,13 +26,13 @@ addEventListener('message', async (e: MessageEvent<{ id: number; code: string; d
   try {
     // The page refuses these already; nothing of another kind or too heavy reaches mermaid
     // in any case, and the kind is the one mermaid itself finds.
-    if (!drawable(code)) throw new Error('not drawn here')
+    if (refusal(code)) throw new Error('not drawn here')
     // Mermaid is never given a block's own settings (front matter, directives): ours stand.
     const text = withoutSettings(code)
     mermaid.initialize(mermaidConfig(dark, Object.keys(mermaid.mermaidAPI.defaultConfig)))
     if (!KINDS.has(mermaid.detectType(text))) throw new Error('not drawn here')
     const result = await mermaid.render(`d${n++}`, text).catch((error: unknown) => {
-      parent.postMessage({ id, error: diagnostic(error) }, origin)
+      parent.postMessage({ id, error: error instanceof Error ? error.message : undefined }, origin)
     })
     if (!result) return
     const { svg } = result

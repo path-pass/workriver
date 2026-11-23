@@ -42,6 +42,17 @@ export const BOUNDS = { weight: 80, chars: 10_000, word: 1_000 }
 
 const LINK = /[<>|}{*ox]{0,2}(?:--|==|-\.|\.\.|->|~~~)[-=.>]*[>ox|{}*]{0,2}/g
 
+const ER_NAME = /[\w.*\u0080-\uFFFF-]+/
+const ER_ALIAS = /(?:[ \t]*\[(?:[ \t]*"[^"]*"[ \t]*|[^\]\r\n"]+)\])?/
+const ER_CLASSES = new RegExp(`(?:[ \\t]*:::[ \\t]*${ER_NAME.source}(?:[ \\t]*,[ \\t]*${ER_NAME.source})*)?`)
+const ER_ENTITY = new RegExp(`[ \\t]*(?:(erDiagram)[ \\t]+)?(?:"[^"]*"|${ER_NAME.source})${ER_ALIAS.source}${ER_CLASSES.source}[ \\t]*\\{`)
+// Mermaid takes a generic through the last tilde on its line. The capture and backreference
+// keep the match from backtracking into shorter generic tokens.
+const ER_ATTRIBUTES = /(?:"[^"]*"|`[^`]*`|^[ \t]*%%[^\n]*\n|(?=(?<generic>~[^\r\n]*~))\k<generic>|[^{}"`%~]|%(?!%))*\}/
+const ER_DESCRIPTION_OR_COMMENT = /[ \t]*accDescr[ \t]*\{[^}]*\}|^[ \t]*%%[^\n]*/
+const ER_LINE = /(?:[^"\r\n;]|"[^"]*")+/
+const ER_STATEMENTS = new RegExp(`${ER_DESCRIPTION_OR_COMMENT.source}|(${ER_ENTITY.source}${ER_ATTRIBUTES.source})|${ER_LINE.source}`, 'gim')
+
 /**
  * Edges and items, as a block's text gives them, statement by statement (lines, or parts
  * between `;`): its links, with `a & b --> c & d` joining every one on each side (at most a
@@ -49,7 +60,12 @@ const LINK = /[<>|}{*ox]{0,2}(?:--|==|-\.|\.\.|->|~~~)[-=.>]*[>ox|{}*]{0,2}/g
  * diagram's row of blocks); at least one. Labels, strings and text after a `:` set apart by
  * a space (a message, a task's dates) cost little and could look like links: they are left out first.
  */
-export function weight(code: string): number {
+export function weight(code: string, diagramKind = kind(code)): number {
+  if (diagramKind === 'er') {
+    // Only a complete entity block is collapsed. Match quoted text before treating its
+    // braces as delimiters, and leave relationship markers and descriptions intact.
+    code = code.replace(ER_STATEMENTS, (statement, entity, header) => entity ? `${header ?? ''}\nentity\n` : statement)
+  }
   let total = 0
   for (const raw of code.split(/[\n;]/)) {
     const s = raw.trim()
@@ -65,9 +81,16 @@ export function weight(code: string): number {
   return total
 }
 
-/** Whether a block is drawn here: a kind drawn, within the bounds. */
-export function drawable(code: string): boolean {
-  if (code.length > BOUNDS.chars || !kind(code)) return false
-  for (const word of code.matchAll(/\S+/g)) if (word[0].length > BOUNDS.word) return false
-  return weight(code) <= BOUNDS.weight
+type Refusal = { reason: 'kind' } | { reason: keyof typeof BOUNDS; actual: number }
+
+/** The first reason this block cannot be sent to Mermaid, if any. */
+export function refusal(code: string): Refusal | undefined {
+  if (code.length > BOUNDS.chars) return { reason: 'chars', actual: code.length }
+  const diagramKind = kind(code)
+  if (!diagramKind) return { reason: 'kind' }
+  let longest = 0
+  for (const word of code.matchAll(/\S+/g)) longest = Math.max(longest, word[0].length)
+  if (longest > BOUNDS.word) return { reason: 'word', actual: longest }
+  const total = weight(code, diagramKind)
+  if (total > BOUNDS.weight) return { reason: 'weight', actual: total }
 }

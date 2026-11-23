@@ -2,9 +2,9 @@
 // never handed to it: mermaid shares the page's thread and cannot be stopped once started.
 import { describe, expect, it } from 'vitest'
 import reviewed from './__fixtures__/reviewed.mmd?raw'
-import { BOUNDS, drawable, kind, weight, withoutSettings } from './bounds'
+import { BOUNDS, kind, refusal, weight, withoutSettings } from './bounds'
 
-const tooHeavy = (code: string) => !drawable(code)
+const tooHeavy = (code: string) => !!refusal(code)
 
 const body = (s: string) => weight(s)
 
@@ -38,6 +38,26 @@ describe("a block's weight", () => {
   it('skips comments and blank lines; any other statement weighs one at least', () => {
     expect(body('%% a -- b -- c\n\n   \nA')).toBe(1)
     expect(body('graph TD\nA\nB')).toBe(4)
+  })
+
+  it('counts ER entities and their relations without charging for attributes', () => {
+    expect(body(`erDiagram
+      PROJECT ||--o{ CONTRACT : "契約"
+      "PROJECT"["项目"]:::active { uuid id PK text code UK "管理; {確認}" }
+      CONTRACT {
+        text reference UK "管理番号 }"
+        %% Ignore braces in a comment: }
+        uuid project_id FK
+      }
+      CONTRACT }o--|| CATEGORY : "区分"
+      CONTRACT }o--o{ PROJECT : "所属"`)).toBe(6)
+    expect(body('erDiagram PROJECT { uuid `id } value` PK }CONTRACT[项目] { uuid id PK }')).toBe(3)
+    expect(body('erDiagram\naccDescr {\n  PROJECT {\n  brief meaning\n}')).toBe(8)
+    expect(body('erDiagram\n  PROJECT { uuid id } CONTRACT }|--|| CATEGORY : "区分"')).toBe(6)
+  })
+
+  it('keeps counting state composite declarations and transitions', () => {
+    expect(body('stateDiagram-v2\nstate S {\n  A --> B\n}\nS --> T')).toBe(7)
   })
 })
 
@@ -83,9 +103,9 @@ describe('the kinds drawn', () => {
   })
 
   it("a review's block, packet and gantt inputs are not drawn", () => {
-    expect(drawable('block-beta\n  columns 3\n  a space:20000 b\n')).toBe(false)
-    expect(drawable('packet-beta\n  0-3999999: "x"\n')).toBe(false)
-    expect(drawable('gantt\n  dateFormat YYYY-MM-DD\n  excludes weekends\n  section s\n' + '  t0 :2024-01-01, 12000d\n'.repeat(70))).toBe(false)
+    expect(refusal('block-beta\n  columns 3\n  a space:20000 b\n')).toEqual({ reason: 'kind' })
+    expect(refusal('packet-beta\n  0-3999999: "x"\n')).toEqual({ reason: 'kind' })
+    expect(refusal('gantt\n  dateFormat YYYY-MM-DD\n  excludes weekends\n  section s\n' + '  t0 :2024-01-01, 12000d\n'.repeat(70))).toEqual({ reason: 'kind' })
   })
 })
 
@@ -113,6 +133,23 @@ describe('too heavy to draw', () => {
     expect(weight(edges(10)) - 10).toBe(2)
     expect(tooHeavy(edges(BOUNDS.weight - 2))).toBe(false)
     expect(tooHeavy(edges(BOUNDS.weight - 1))).toBe(true)
+  })
+
+  it('bounds long ER attributes by source size and longest word', () => {
+    const entity = (comment: string) => `erDiagram\n  PROJECT {\n    text description " ${comment} "\n  }`
+    expect(tooHeavy(entity('word '.repeat(2_000)))).toBe(true)
+    expect(tooHeavy(entity('x'.repeat(1_001)))).toBe(true)
+  })
+
+  it.each([
+    ['multiple classes', 'A:::red,blue', 'text'],
+    ['a Unicode class', 'A:::区分', 'text'],
+    ['a spaced alias', 'A[ "hello" ]', 'text'],
+    ['a generic type with braces', 'A', 'Map~{A,B}~'],
+    ['a nested generic type with braces', 'A', 'Map~List~{A, B}~~'],
+  ])('draws an ER entity with %s and 42 attributes', (_, name, type) => {
+    const attrs = Array.from({ length: 42 }, (_, i) => `${type} field${i}`).join('\n')
+    expect(refusal(`erDiagram\n${name} {\n${attrs}\n}`)).toBeUndefined()
   })
 
   it('not the diagrams agents write: a flowchart and a sequence diagram of a usual size', () => {

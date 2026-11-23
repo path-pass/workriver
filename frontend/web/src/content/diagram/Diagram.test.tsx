@@ -75,21 +75,18 @@ describe('a mermaid block in Markdown', () => {
     expect(host.querySelectorAll('img')).toHaveLength(1)
   })
 
-  it('too heavy to draw is never handed to mermaid: its code shows, under a note', async () => {
-    const heavy = 'graph TD\n' + Array.from({ length: 150 }, (_, i) => `N0-->N${i + 1}`).join('\n')
-    await show('```mermaid\n' + heavy + '\n```')
+  it.each([
+    ['weight', 'graph TD\n' + Array.from({ length: 150 }, (_, i) => `N0-->N${i + 1}`).join('\n'), /weight of 152.*limit of 80/],
+    ['character count', `graph TD\n  A["${'word '.repeat(2_000)}"]`, /10,016 characters.*limit of 10,000/],
+    ['longest word', `graph TD\n  A[" ${'a'.repeat(1_001)} ${'b'.repeat(1_201)} "]`, /longest word.*1,201 characters.*limit of 1,000/],
+    ['unsupported kind', 'gantt\n  excludes weekends\n  t0 :2024-01-01, 12000d', /kind of Mermaid diagram is not supported/i],
+  ])('shows its refusal for %s above the source without handing it to Mermaid', async (_, source, reason) => {
+    await show('```mermaid\n' + source + '\n```')
     expect(draw.calls).toEqual([])
     expect(host.querySelector('img')).toBeNull()
-    expect(host.querySelector('pre code')?.textContent).toBe(heavy + '\n')
-    expect(host.textContent).toContain('This diagram could not be drawn; its text is below.')
-  })
-
-  it('of a kind not drawn here (a gantt chart) is never handed to mermaid: its code shows, under a note', async () => {
-    const gantt = 'gantt\n  excludes weekends\n  t0 :2024-01-01, 12000d'
-    await show('```mermaid\n' + gantt + '\n```')
-    expect(draw.calls).toEqual([])
-    expect(host.querySelector('pre code')?.textContent).toBe(gantt + '\n')
-    expect(host.textContent).toContain('This diagram could not be drawn; its text is below.')
+    expect(host.querySelector('pre code')?.textContent).toBe(source + '\n')
+    expect(host.querySelectorAll('.md-note')).toHaveLength(1)
+    expect(host.querySelector('pre')?.previousElementSibling?.textContent).toMatch(reason)
   })
 
   it("that mermaid cannot draw shows mermaid's diagnostic as plain text above its code", async () => {
