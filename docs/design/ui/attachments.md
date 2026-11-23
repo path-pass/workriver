@@ -130,8 +130,9 @@ do what.
   "pictures", minMb: 0–50000 (0: any size, an empty file too), target?: { kind:
   "folder", path } }`. `keep` is the default and is not written while it is. `target` is
   read only for `move`; the folder must be absolute, exist, be a folder, be neither the
-  data directory nor inside it (by what the folders are, not by the spelling of their
-  paths), and be writable; it is saved canonical, and the service never makes it. A rule
+  data directory, the store's folder or its inbox (each followed through its links) nor
+  inside one of them (by what the folders are, not by the spelling of their paths), and be
+  writable; it is saved canonical, and the service never makes it. A rule
   out of range in the file is never brought into range: it runs nothing and says why.
 - **When a file goes**: once every record that names it (as an attachment, or by its id in
   any text) is closed: its intent done or dropped, its workspace with no active intent, a

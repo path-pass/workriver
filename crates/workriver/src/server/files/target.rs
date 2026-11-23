@@ -35,16 +35,26 @@ fn matches(id: &str, bytes: &[u8]) -> bool {
     store::id(bytes) == id
 }
 
-/// Whether folder `dir` (canonical) is the data directory or inside it, by what the folders
-/// are (device and inode), not by how their paths are spelled: one folder can have several
-/// names that `canonicalize` keeps apart (on macOS the data volume's firmlink,
-/// `/System/Volumes/Data/…`; a bind mount elsewhere).
+/// Whether folder `dir` (canonical) is workriver's own, or inside it: the data directory,
+/// the store's folder and its inbox, each as it is once its links are followed (either may
+/// be a link to another disk). Compared by what the folders are (device and inode), not by
+/// how their paths are spelled: one folder can have several names that `canonicalize`
+/// keeps apart (on macOS the data volume's firmlink, `/System/Volumes/Data/…`; a bind mount
+/// elsewhere). A store folder or inbox not made yet is nowhere to be inside.
 fn inside(dir: &Path, home: &Path) -> Result<bool, String> {
     use std::os::unix::fs::MetadataExt;
-    let data = std::fs::metadata(home).map_err(|e| format!("the data directory cannot be read: {e}"))?;
+    let store = crate::common::home::attachments_dir(home);
+    let mut own = vec![];
+    for (folder, must) in [(home.to_path_buf(), true), (store.join(crate::common::home::INBOX), false), (store, false)] {
+        match std::fs::metadata(&folder) {
+            Ok(m) => own.push((m.dev(), m.ino())),
+            Err(e) if !must && e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{} cannot be read: {e}", folder.display())),
+        }
+    }
     for d in dir.ancestors() {
         let m = std::fs::metadata(d).map_err(|e| format!("the folder {} cannot be read: {e}", d.display()))?;
-        if (m.dev(), m.ino()) == (data.dev(), data.ino()) {
+        if own.contains(&(m.dev(), m.ino())) {
             return Ok(true);
         }
     }

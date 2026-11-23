@@ -585,3 +585,66 @@ fn a_due_file_with_no_bytes_does_not_fail_every_move() {
     let (_, ran) = s.run();
     assert_eq!((ran["ok"].clone(), ran["words"].clone()), (json!(true), json!("nothing due")), "{ran}");
 }
+
+/// A store folder that cannot be listed (no permission here; in the service also too many
+/// open files, the system's privacy rules, a disk not mounted) is a failed run with nothing
+/// recorded, never an empty store: under a move rule its files would be recorded as having
+/// no bytes, and the next run's sweep would delete them. The next run that can list it
+/// moves the file as ever.
+#[test]
+fn a_store_that_cannot_be_listed_fails_the_run_and_records_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = setup(vec![lifecycle::JOB]);
+    let out = tempfile::tempdir().unwrap();
+    let a = s.store("a.png", b"picture a");
+    assert_eq!(s.rule(json!({ "after": "move", "days": 1, "target": folder(out.path()) })).0, 200);
+    s.age(2);
+    let dir = crate::common::home::attachments_dir(&s.home);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o300)).unwrap();
+    let listed = std::fs::read_dir(&dir).is_ok();
+    let (_, ran) = s.run();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    if listed {
+        eprintln!("the folder can be listed without its read permission here (root?): nothing to probe");
+        return;
+    }
+    assert_eq!(ran["ok"], false, "{ran}");
+    assert!(ran["words"].as_str().unwrap().contains("cannot list"), "{ran}");
+    assert!(s.removals().is_empty(), "nothing recorded: {:?}", s.removals());
+    assert_eq!(s.stored(), [format!("{a}.png")]);
+    let (_, ran) = s.run();
+    assert_eq!((ran["ok"].clone(), ran["detail"]["how"].clone(), ran["detail"]["files"].clone()), (json!(true), json!("moved"), json!(1)), "{ran}");
+    assert_eq!(std::fs::read(out.path().join(format!("{a}.png"))).unwrap(), b"picture a");
+    assert_eq!(s.read(&a).0, 200);
+}
+
+/// The store's folder, or its inbox, may be a link to a folder elsewhere (a bigger disk):
+/// that folder, named plainly, is the store all the same and is refused as a target, or a
+/// move would write each file over itself and then delete it.
+#[test]
+fn the_store_linked_elsewhere_is_not_a_target() {
+    let s = setup(vec![lifecycle::JOB]);
+    let disk = s.files.parent().unwrap().join("bigdisk");
+    let elsewhere = disk.join("workriver-attachments");
+    let staging = disk.join("workriver-inbox");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::create_dir_all(&staging).unwrap();
+    let store = crate::common::home::attachments_dir(&s.home);
+    std::os::unix::fs::symlink(&elsewhere, &store).unwrap();
+    std::os::unix::fs::symlink(&staging, store.join("inbox")).unwrap();
+    let a = s.store("a.png", b"picture a");
+    for target in [&elsewhere, &staging] {
+        let (code, said) = s.rule(json!({ "after": "move", "days": 1, "target": folder(target) }));
+        assert_eq!(code, 422, "{}: {said}", target.display());
+        assert!(said.as_str().unwrap().contains("workriver's data directory"), "{said}");
+    }
+    // A folder beside them on that disk is a target like any other.
+    let beside = disk.join("moved");
+    std::fs::create_dir_all(&beside).unwrap();
+    assert_eq!(s.rule(json!({ "after": "move", "days": 1, "target": folder(&beside) })).0, 200);
+    s.age(2);
+    let (_, ran) = s.run();
+    assert_eq!(ran["ok"], true, "{ran}");
+    assert_eq!(std::fs::read(beside.canonicalize().unwrap().join(format!("{a}.png"))).unwrap(), b"picture a");
+    assert!(std::fs::read_dir(&elsewhere).unwrap().flatten().all(|e| e.file_name() == "inbox" || !e.file_type().unwrap().is_file()));
+}

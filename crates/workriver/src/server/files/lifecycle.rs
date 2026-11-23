@@ -60,7 +60,11 @@ pub(in crate::server) fn run(app: &App) -> Report {
         Ok(s) => s,
         Err(why) => return failed(why),
     };
-    let mut local = local_files(&app.home);
+    // A folder that cannot be listed is not an empty store: nothing is decided from it.
+    let mut local = match local_files(&app.home) {
+        Ok(l) => l,
+        Err(why) => return failed(format!("{why}; nothing was moved or deleted")),
+    };
     sweep(app, &state, &mut local, &mut done);
     if rule.after != After::Keep && !done.stopped {
         take(app, &rule, &state, &mut local, &mut done);
@@ -82,11 +86,21 @@ fn stopping(app: &App) -> bool {
 }
 
 /// The store's files by id: every regular file named `<id>` or `<id>.<anything>` (one look
-/// at the folder per run; the inbox is a folder and is passed over).
-fn local_files(home: &Path) -> HashMap<String, Vec<PathBuf>> {
+/// at the folder per run; the inbox is a folder and is passed over). A folder, or an entry
+/// of it, that cannot be read is an error, never fewer files; only a store folder that was
+/// never made (no entry at all, not a link that leads nowhere) holds none.
+fn local_files(home: &Path) -> Result<HashMap<String, Vec<PathBuf>>, String> {
+    let dir = crate::common::home::attachments_dir(home);
+    let cannot = |e: std::io::Error| format!("cannot list the store {}: {e}", dir.display());
     let mut out: HashMap<String, Vec<PathBuf>> = HashMap::new();
-    for e in std::fs::read_dir(crate::common::home::attachments_dir(home)).into_iter().flatten().flatten() {
-        if !e.file_type().is_ok_and(|t| t.is_file()) {
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && std::fs::symlink_metadata(&dir).is_err_and(|m| m.kind() == std::io::ErrorKind::NotFound) => return Ok(out),
+        Err(e) => return Err(cannot(e)),
+    };
+    for e in entries {
+        let e = e.map_err(cannot)?;
+        if !e.file_type().map_err(cannot)?.is_file() {
             continue;
         }
         let name = e.file_name().to_string_lossy().into_owned();
@@ -95,7 +109,19 @@ fn local_files(home: &Path) -> HashMap<String, Vec<PathBuf>> {
             out.entry(id.to_string()).or_default().push(e.path());
         }
     }
-    out
+    Ok(out)
+}
+
+/// Whether a file the listing found no bytes of has none, looked at by its own name under
+/// the upload's lock: only "not there" is none; a file there after all, or one that cannot
+/// be looked at, is a failure of that file (left for the next run).
+fn none_of(home: &Path, a: &Attachment) -> Result<(), String> {
+    let Some(at) = store::path(home, &a.id, &a.name) else { return Ok(()) };
+    match std::fs::symlink_metadata(&at) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: cannot look at {}: {e}", a.id, at.display())),
+        Ok(_) => Err(format!("{}: {} is in the store after all; left for the next run", a.id, at.display())),
+    }
 }
 
 /// The bytes of a stored file: its file of the recorded name, else any of its id's.
@@ -195,7 +221,14 @@ fn take(app: &App, rule: &Rule, state: &State, local: &mut HashMap<String, Vec<P
     let still = |list: &[&Attachment]| -> Vec<String> { list.iter().filter(|a| still.contains(&a.id.as_str())).map(|a| a.id.clone()).collect() };
     // What has no bytes is taken only while it still has none (an upload under this lock
     // has stored it again, and named it, so it is not due any more anyway).
-    let gone_empty: Vec<String> = still(&empty).into_iter().filter(|id| local.get(id).is_none_or(Vec::is_empty)).collect();
+    let taken = still(&empty);
+    let mut gone_empty: Vec<String> = vec![];
+    for a in empty.iter().filter(|a| taken.contains(&a.id) && local.get(&a.id).is_none_or(Vec::is_empty)) {
+        match none_of(&app.home, a) {
+            Ok(()) => gone_empty.push(a.id.clone()),
+            Err(why) => done.failed.push(why),
+        }
+    }
     if !gone_empty.is_empty() {
         let body = Body::AttachmentRemoved { ids: gone_empty.clone(), how: Removed::Deleted, to: None, rule: conditions };
         match app.record(&Principal::Service, body) {
