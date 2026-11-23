@@ -182,7 +182,7 @@ export const en = {
     themes: { system: 'System', light: 'Light', dark: 'Dark' },
     notify: 'Notify me when an agent or a machine needs me',
     notifyDenied: 'The browser does not allow notifications for this page.',
-    notifyStays: 'A notification stays until you click it. On macOS, set this browser’s notification style to Alerts (System Settings → Notifications), or it goes away by itself.',
+    notifyStays: 'Blocking notifications stay until you click them. On macOS, set this browser’s notification style to Alerts (System Settings → Notifications), or they go away by themselves.',
     sound: 'Play a sound when something new comes into Needs you',
     soundMissed: 'The browser did not let this page play the sound; a click on the page lets it.',
     loading: 'Loading…',

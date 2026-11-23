@@ -70,9 +70,9 @@ function Mine({ who, at, children }: { who: ReactNode; at?: string; children: Re
 }
 
 /** The other side: left, an agent's words. */
-function Theirs({ who, at, children }: { who?: ReactNode; at?: string; children: ReactNode }) {
+function Theirs({ who, at, question, children }: { who?: ReactNode; at?: string; question?: string; children: ReactNode }) {
   return (
-    <li className="msg" data-side="theirs">
+    <li className="msg" data-side="theirs" data-question={question} tabIndex={question ? -1 : undefined}>
       {who && <Head who={who} at={at} />}
       <div className="bubble">{children}</div>
     </li>
@@ -369,7 +369,7 @@ export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswe
     <>
       {/* One the manager started: its words alone, nothing of the user's above them. */}
       {m.byManager
-        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /><Question q={m} onAnswer={answer(0)} /></Theirs>
+        ? <Theirs who={<Named name={m.manager} manager />} at={m.at} question={m.open ? `${m.id}:0` : undefined}><Prose text={m.text} fold={false} /><Question q={m} onAnswer={answer(0)} /></Theirs>
         : (
           <Mine who={t('ask.you')} at={m.at}>
             {m.answer?.selected.map(v => <Chose key={v} choice={asked(m.answer!)} value={v} />)}
@@ -381,7 +381,7 @@ export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswe
           </Mine>
         )}
       {replies.map((r, j) => (
-        <Theirs key={j} who={<>{<Named name={r.by} manager />}{r.place && <span className="min-w-0 truncate">{r.place}</span>}</>} at={r.at}>
+        <Theirs key={j} who={<>{<Named name={r.by} manager />}{r.place && <span className="min-w-0 truncate">{r.place}</span>}</>} at={r.at} question={'k' in r && r.open ? `${m.id}:${r.k}` : undefined}>
           <Prose text={r.text} fold={false} />
           {/* A reply to every manager asks nothing to choose (the service refuses one). */}
           {'k' in r && <Question q={r} onAnswer={answer(r.k)} />}

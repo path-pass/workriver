@@ -32,7 +32,7 @@ import { NavigateContext } from '@/content/navigation'
 import { IntentPage } from '@/planning/IntentPage'
 import { openTemplates, TemplatesDialog } from '@/planning/Templates'
 import { MOCK, watchWorkspace } from '@/workspace/source'
-import { inbox, type InboxRow } from '@/attention/select'
+import { inbox, managerQuestions, type InboxRow } from '@/attention/select'
 import { blockingNews, noticeOf } from '@/attention/notice'
 import { NeedsBar } from '@/attention/NeedsBar'
 import { soundWanted, useRowSound } from '@/attention/sound'
@@ -452,7 +452,8 @@ export default function App() {
 
   // The Manager section's chips: the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} needs={<NeedsBar rows={box?.blocking ?? []} onOpen={open} />} /> }
+  const needs = <NeedsBar rows={[...(box?.blocking ?? []), ...managerQuestions(ws?.messages ?? [])]} onOpen={open} onTalk={setTalkTo} />
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} needs={needs} /> }
 
   // A gate or chore of a research unit has no work tree: it runs in the intent's project folder.
   const run = useCallback((a: RunAsk) => {

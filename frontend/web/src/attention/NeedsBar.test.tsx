@@ -44,7 +44,7 @@ beforeEach(() => { host = document.createElement('div'); document.body.append(ho
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
 function show(w: Workspace) {
-  const bar = <NeedsBar rows={inbox(w).blocking} onOpen={(u, p) => opened.push([u, p])} />
+  const bar = <NeedsBar rows={inbox(w).blocking} onOpen={(u, p) => opened.push([u, p])} onTalk={() => {}} />
   act(() => root.render(
     <TooltipProvider>
       <AgentContext.Provider value={{ answer: a => answered.push(a), view: () => {} }}>

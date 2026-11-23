@@ -179,7 +179,7 @@ export const zhCN: OneForm<typeof en> = {
     themes: { system: '跟随系统', light: '浅色', dark: '深色' },
     notify: 'agent 或机器需要我时通知我',
     notifyDenied: '浏览器不允许这个页面发通知。',
-    notifyStays: '通知会一直留着，直到你点它。macOS 上要把这个浏览器的通知样式设为“提醒”（系统设置 → 通知），否则它会自己消失。',
+    notifyStays: '“卡住了”分组的通知会一直留着，直到你点击。macOS 上要把这个浏览器的通知样式设为“提醒”（系统设置 → 通知），否则通知会自动消失。',
     sound: '“需要你”里有新内容时播放提示音',
     soundMissed: '浏览器没有让这个页面播放提示音；在页面上点一下就可以了。',
     loading: '正在读取…',

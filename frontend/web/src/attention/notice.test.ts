@@ -69,9 +69,14 @@ describe('a browser notification', () => {
   })
   afterEach(() => { vi.unstubAllGlobals(); localStorage.clear() })
 
-  it('stays until clicked, one per thing it is about', () => {
-    notify('ja-impl is waiting for you', 'Japanese copy', 'agent:s1')
+  it('keeps a Blocking notification until clicked, one per thing it is about', () => {
+    notify('ja-impl is waiting for you', 'Japanese copy', 'agent:s1', () => {})
     expect(made).toEqual([{ title: 'ja-impl is waiting for you', options: { body: 'Japanese copy', tag: 'workriver:agent:s1', requireInteraction: true } }])
+  })
+
+  it('uses the browser’s default persistence for a machine alert', () => {
+    notify('This machine: Swap 5.2 GB', 'Warning: over 4 GB', 'alert:box:swap:0:warn')
+    expect(made).toEqual([{ title: 'This machine: Swap 5.2 GB', options: { body: 'Warning: over 4 GB', tag: 'workriver:alert:box:swap:0:warn' } }])
   })
 
   it('is not shown while the user has not asked for it', () => {

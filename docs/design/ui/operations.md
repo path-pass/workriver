@@ -167,9 +167,9 @@ its sections went.
 
 - **Settings** (the gear at the rail's foot) is a dialog that shows one group at a time, as
   tabs, in this order: General (language, theme, notifications and the sound: under the
-  notifications switch one quiet line says a notification stays until clicked and that on
-  macOS the browser's notification style must be Alerts, or it goes by itself; when the
-  browser refuses, that line says so instead), Stopped
+  notifications switch one quiet line says Blocking notifications stay until clicked and that
+  on macOS the browser's notification style must be Alerts for them to stay. If the
+  browser refuses notifications, that line says so), Stopped
   workers, Workspaces, Starting managers, Machine alerts, Other machines. The tab names the group, so
   a group has no heading of its own. A group with nothing to set has no tab: Workspaces
   while there is none, Other machines on the sample
