@@ -130,6 +130,9 @@ impl Kernel {
 /// A line typed into a new shell: machine, group, dir, line.
 type Typed = (Option<String>, String, String, String);
 
+/// A harness started in a place: place, harness, name, args.
+type StartedIn = (String, String, String, Vec<String>);
+
 /// A runtime of our own: agents by place, every send kept, states set by the test.
 #[derive(Default)]
 pub(in crate::server) struct Fake {
@@ -207,6 +210,47 @@ pub(in crate::server) struct Fake {
     pub(super) locate_down: std::sync::atomic::AtomicBool,
     /// Called with the place as the runtime is asked why it calls an agent blocked.
     pub(super) on_why: std::sync::Mutex<Option<Look>>,
+    /// Places opened for a manager's start or a try: (group, dir, place), in order.
+    pub(super) opened: std::sync::Mutex<Vec<(String, String, String)>>,
+    /// Harnesses started in a place: (place, harness, name, args), in order.
+    pub(super) started_in: std::sync::Mutex<Vec<StartedIn>>,
+    /// What a start in a place brings up (by default an agent with a session of its own).
+    pub(super) bring: std::sync::Mutex<Bring>,
+    /// The harnesses this runtime has; none set: claude and codex, installed and integrated.
+    pub(super) harness_states: std::sync::Mutex<Option<Vec<workriver_core::runtime::HarnessState>>>,
+    /// What a place shows once a harness was started in it (none: nothing).
+    pub(super) start_screen: std::sync::Mutex<Option<String>>,
+    /// This many reads of what is at one named place fail, as when the runtime cannot read a
+    /// pane's processes for a moment.
+    pub(super) place_fails: std::sync::atomic::AtomicUsize,
+}
+
+/// What a start in a place brings up.
+#[derive(Default, Clone)]
+pub(super) enum Bring {
+    /// An agent idle at the place, with its own session `s-<name>`, started in its folder.
+    #[default]
+    Session,
+    /// An agent blocked at the place with no session yet (it goes by `pending:<place>`); the
+    /// start is answered not ready. The test gives it a session (`give_session`).
+    Pending,
+    /// Nothing shows up; the start is answered as if it went well.
+    Nothing,
+    /// An agent with its own session `s-<name>` that is still launching (not ready); the test
+    /// makes it ready.
+    Launching,
+    /// The runtime refuses the start, in these words.
+    Refuse(String),
+}
+
+impl Fake {
+    /// The agent that has no session yet at `place` gets `session`, and is idle.
+    pub(super) fn give_session(&self, place: &str, session: &str) {
+        for (_, a) in self.agents.lock().unwrap().iter_mut().filter(|(p, _)| p == place) {
+            a.session = session.into();
+            a.state = workriver_core::runtime::AgentState::Idle;
+        }
+    }
 }
 
 /// An open view of the fake runtime: counted while it lives.
@@ -255,8 +299,12 @@ pub(super) fn nobody() -> u32 {
 impl Fake {
     /// As Herdr's implementation: only a place that is there, in the runs' group, a plain shell.
     fn run_shell_at(&self, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
-        assert_eq!(group, crate::server::commands::shell::GROUP);
-        if !self.screens.lock().unwrap().contains_key(place) || self.not_shells.lock().unwrap().iter().any(|p| p == place) {
+        let opened = self.opened.lock().unwrap().iter().any(|(g, _, p)| g == group && p == place);
+        if !opened {
+            assert_eq!(group, crate::server::commands::shell::GROUP);
+        }
+        let agent = self.agents.lock().unwrap().iter().any(|(p, _)| p == place);
+        if agent || !self.screens.lock().unwrap().contains_key(place) || self.not_shells.lock().unwrap().iter().any(|p| p == place) {
             return Err(workriver_core::runtime::RuntimeError::NoPlace(format!("{place} is no longer a shell in {group}")));
         }
         Ok(())
@@ -319,6 +367,9 @@ impl workriver_core::runtime::Runtime for Fake {
     fn roots(&self, _: Option<&str>, place: Option<&str>) -> Result<Vec<workriver_core::runtime::Root>, workriver_core::runtime::RuntimeError> {
         if self.down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::None);
+        }
+        if place.is_some() && self.place_fails.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            return Err(workriver_core::runtime::RuntimeError::Failed("herdr pane.process_info: the connection ended".into()));
         }
         let mut places: Vec<String> = self.agents.lock().unwrap().iter().map(|(p, _)| p.clone()).chain(self.plain.lock().unwrap().clone()).collect();
         if let Some(p) = place.filter(|p| !places.iter().any(|x| x == p) && !self.gone.lock().unwrap().iter().any(|x| x == p)) {
@@ -448,7 +499,59 @@ impl workriver_core::runtime::Runtime for Fake {
     fn shell_processes(&self, _: Option<&str>, group: &str, place: &str) -> Result<(u32, Vec<u32>), workriver_core::runtime::RuntimeError> {
         self.looked.lock().unwrap().push(place.into());
         self.run_shell_at(group, place)?;
+        // An opened place's shell is its root, as `roots` gives it.
+        if self.opened.lock().unwrap().iter().any(|(_, _, p)| p == place) {
+            return Ok((root(place), vec![root(place)]));
+        }
         Ok(self.procs.lock().unwrap().get(place).cloned().unwrap_or((nobody(), vec![nobody()])))
+    }
+    fn open_place(&self, _: Option<&str>, group: &str, dir: &str) -> Result<String, workriver_core::runtime::RuntimeError> {
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::None);
+        }
+        let mut opened = self.opened.lock().unwrap();
+        let place = format!("opened-{}", opened.len() + 1);
+        opened.push((group.into(), dir.into(), place.clone()));
+        self.plain.lock().unwrap().push(place.clone());
+        self.screens.lock().unwrap().insert(place.clone(), String::new());
+        Ok(place)
+    }
+    fn start_in(&self, _: Option<&str>, place: &str, harness: &str, name: &str, args: &[String]) -> Result<(), workriver_core::runtime::RuntimeError> {
+        use workriver_core::runtime::{AgentState, RuntimeError};
+        self.started_in.lock().unwrap().push((place.into(), harness.into(), name.into(), args.to_vec()));
+        let dir = self.opened.lock().unwrap().iter().find(|(_, _, p)| p == place).map(|(_, d, _)| d.clone()).unwrap_or_default();
+        // As Herdr: a live agent's name is unique across the runtime.
+        if self.agents.lock().unwrap().iter().any(|(_, a)| a.name == name) {
+            return Err(RuntimeError::Failed(format!("herdr agent.start: agent name {name} is already used (agent_name_taken)")));
+        }
+        let bring = self.bring.lock().unwrap().clone();
+        let (session, state) = match bring {
+            Bring::Refuse(words) => return Err(RuntimeError::Failed(words)),
+            Bring::Nothing => return Ok(()),
+            Bring::Session => (format!("s-{name}"), AgentState::Idle),
+            Bring::Launching => (format!("s-{name}"), AgentState::Unknown),
+            Bring::Pending => (format!("pending:{place}"), AgentState::Blocked),
+        };
+        if let Some(screen) = self.start_screen.lock().unwrap().clone() {
+            self.screens.lock().unwrap().insert(place.into(), screen);
+        }
+        let agent = workriver_core::runtime::RuntimeAgent { harness: harness.into(), cwd: dir, ..live(&session, name, "w1", state) };
+        self.plain.lock().unwrap().retain(|p| p != place);
+        self.agents.lock().unwrap().push((place.into(), agent));
+        match state {
+            AgentState::Blocked => Err(RuntimeError::NotReady(format!("herdr agent.start: agent {name} was blocked during startup and is not ready for prompts (agent_not_ready)"))),
+            _ => Ok(()),
+        }
+    }
+    fn has_session(&self, agent: &workriver_core::runtime::RuntimeAgent) -> bool {
+        !agent.session.starts_with("pending:")
+    }
+    fn harnesses(&self, _: Option<&str>) -> Result<Vec<workriver_core::runtime::HarnessState>, workriver_core::runtime::RuntimeError> {
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::None);
+        }
+        let all = || ["claude", "codex"].map(|kind| workriver_core::runtime::HarnessState { kind: kind.into(), installed: true, integrated: true }).to_vec();
+        Ok(self.harness_states.lock().unwrap().clone().unwrap_or_else(all))
     }
     fn close_shell(&self, _: Option<&str>, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         self.close_tried.lock().unwrap().push(place.into());
@@ -458,6 +561,11 @@ impl workriver_core::runtime::Runtime for Fake {
         }
         self.closed_places.lock().unwrap().push(place.into());
         self.screens.lock().unwrap().remove(place);
+        // An opened place is gone once closed.
+        if self.opened.lock().unwrap().iter().any(|(_, _, p)| p == place) {
+            self.plain.lock().unwrap().retain(|p| p != place);
+            self.gone.lock().unwrap().push(place.into());
+        }
         Ok(())
     }
 }

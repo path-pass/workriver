@@ -82,8 +82,10 @@ impl Herdr {
     }
 
     /// The roots of `place`, or of every pane (`agents`: of every pane that holds an agent).
-    /// A pane whose root cannot be asked is left out, except an agent's pane when `agents`:
-    /// it still shows its session, with no known shell (rule 5 then pins nobody there).
+    /// A pane Herdr no longer has is left out. Of every pane, one whose root cannot be asked
+    /// is left out too, except an agent's pane when `agents`: it still shows its session, with
+    /// no known shell (rule 5 then pins nobody there). The pane `place` names, when its root
+    /// cannot be asked, is a failure: not read is not gone.
     pub(super) fn roots_of(&self, place: Option<&str>, agents: bool) -> Result<Vec<Root>, RuntimeError> {
         let (snap, list) = self.read()?;
         let mut panes: Vec<&str> = snap.panes.iter().map(|p| p.pane_id.as_str()).collect();
@@ -101,6 +103,8 @@ impl Herdr {
             let r = match self.call("pane.process_info", json!({ "pane_id": pane })) {
                 Ok(r) => r,
                 Err(_) if agents => json!({}),
+                Err(RuntimeError::Failed(w)) if w.ends_with("(pane_not_found)") => continue,
+                Err(e) if place.is_some() => return Err(e),
                 Err(_) => continue,
             };
             let info = &r["process_info"];

@@ -242,6 +242,8 @@ impl App {
     /// their wait, temporary agents nobody will hear (start-up, in this order).
     pub(in crate::server) fn recover(self: &Arc<Self>) {
         let app = self;
+        // A manager's start a previous run waited on has lost its wait: ended, never seated.
+        app.end_left_starts();
         // Messages delivered before a restart are watched again; whether their receiver was seen
         // idle since is lost, so it must be seen not working first.
         let now = std::time::Instant::now();

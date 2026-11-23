@@ -103,8 +103,9 @@ paths made whole and "see …" naming the file):
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
 - No loading state (the code layer is simply not there until its texts are read). The one empty state: with no units recorded, the main area is a short
-  start guide (add the project, which comes with its first workspace; start a coding agent; seat
-  it as the workspace's manager, in the rail or with `workriver workspace manager`; start a goal from
+  start guide (add the project, "Add project" or `workriver project add`, which comes with its
+  first workspace; start its manager, "Start manager" on the workspace in the rail; or seat an
+  agent started by hand, in the rail or with `workriver workspace manager`; start a goal from
   the roadmap, after which the manager starts that project's; the commands copyable; the commit trailer; the import skill
   for an existing backlog file). An intent with no units yet keeps its
   rail group, open, with a quiet "No units yet".

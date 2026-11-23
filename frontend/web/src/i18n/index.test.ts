@@ -23,9 +23,9 @@ describe('the language of content', () => {
 const flat = (o: object, at = ''): [string, string][] =>
   Object.entries(o).flatMap(([k, v]) => (typeof v === 'string' ? [[at + k, v] as [string, string]] : flat(v, `${at}${k}.`)))
 
-describe('the texts of answering an agent from the page', () => {
+describe('the texts of answering an agent, adding a project and starting a manager from the page', () => {
   it('are there in English, Chinese and Japanese, none empty', () => {
-    for (const section of ['screen', 'answer', 'view'] as const) {
+    for (const section of ['screen', 'answer', 'view', 'project', 'launch'] as const) {
       const keys = flat(en[section]).map(([k]) => k)
       for (const lang of [zhCN, ja]) {
         expect(flat(lang[section]).map(([k]) => k)).toEqual(keys)

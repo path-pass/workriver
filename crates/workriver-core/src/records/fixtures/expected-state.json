@@ -18,6 +18,11 @@
           "harness": "claude",
           "name": "impl-i",
           "session": "s-i"
+        },
+        {
+          "harness": "claude",
+          "name": "ws4-manager-120",
+          "session": "s-new"
         }
       ],
       "attachments": [],
@@ -140,6 +145,32 @@
           },
           "name": "search",
           "project": "p1"
+        },
+        {
+          "id": "ws4",
+          "manager": {
+            "session": "s-new",
+            "since": 122
+          },
+          "name": "started",
+          "project": "p1",
+          "start": {
+            "at": "2025-12-03T16:03:00Z",
+            "ended": {
+              "at": "2025-12-03T16:03:05Z",
+              "reason": "runtime",
+              "words": "agent_not_ready"
+            },
+            "folder": "/r/chat",
+            "harness": "codex",
+            "name": "ws4-manager-123",
+            "place": "w9-2",
+            "seq": 123,
+            "shell": {
+              "pid": 4343,
+              "start": 1764777780
+            }
+          }
         }
       ]
     },
@@ -1566,6 +1597,79 @@
         "unit": "u2"
       },
       "kind": "task.started"
+    },
+    {
+      "body": {
+        "id": "ws4",
+        "name": "started",
+        "project": "p1"
+      },
+      "kind": "workspace.created"
+    },
+    {
+      "body": {
+        "folder": "/r/chat",
+        "harness": "claude",
+        "model": "opus",
+        "place": "w9-1",
+        "replaces": null,
+        "shell": {
+          "pid": 4242,
+          "start": 1764777660
+        },
+        "workspace": "ws4"
+      },
+      "kind": "workspace.manager_started"
+    },
+    {
+      "body": {
+        "cwd": "/r/chat",
+        "harness": "claude",
+        "name": "ws4-manager-120",
+        "session": "s-new"
+      },
+      "kind": "agent.seen"
+    },
+    {
+      "body": {
+        "folder": "/r/chat",
+        "harness": "claude",
+        "place": "w9-1",
+        "session": "s-new",
+        "shell": {
+          "pid": 4242,
+          "start": 1764777660
+        },
+        "start": 120,
+        "workspace": "ws4"
+      },
+      "kind": "workspace.manager_start_seated"
+    },
+    {
+      "body": {
+        "folder": "/r/chat",
+        "harness": "codex",
+        "place": "w9-2",
+        "replaces": {
+          "session": "s-new",
+          "since": 122
+        },
+        "shell": {
+          "pid": 4343,
+          "start": 1764777780
+        },
+        "workspace": "ws4"
+      },
+      "kind": "workspace.manager_started"
+    },
+    {
+      "body": {
+        "reason": "runtime",
+        "start": 123,
+        "words": "agent_not_ready",
+        "workspace": "ws4"
+      },
+      "kind": "workspace.manager_start_ended"
     }
   ],
   "managers": {
@@ -1741,6 +1845,12 @@
         "harness": "claude",
         "name": "impl-i",
         "session": "s-i"
+      },
+      {
+        "cwd": "/r/chat",
+        "harness": "claude",
+        "name": "ws4-manager-120",
+        "session": "s-new"
       }
     ],
     "attachments": [
@@ -2811,6 +2921,33 @@
         },
         "name": "search",
         "project": "p1"
+      },
+      {
+        "id": "ws4",
+        "manager": {
+          "folder": "/r/chat",
+          "session": "s-new",
+          "since": 122
+        },
+        "name": "started",
+        "project": "p1",
+        "start": {
+          "at": "2025-12-03T16:03:00Z",
+          "ended": {
+            "at": "2025-12-03T16:03:05Z",
+            "reason": "runtime",
+            "words": "agent_not_ready"
+          },
+          "folder": "/r/chat",
+          "harness": "codex",
+          "name": "ws4-manager-123",
+          "place": "w9-2",
+          "seq": 123,
+          "shell": {
+            "pid": 4343,
+            "start": 1764777780
+          }
+        }
       }
     ]
   }

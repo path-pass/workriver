@@ -16,6 +16,7 @@ import { MachineChip, alertLimit, alertValue, topLine } from '@/machines/format'
 import { CopyButton } from '@/ui/CopyButton'
 import { Start, StartIntent } from '@/planning/Start'
 import { SeatDialog } from '@/planning/Seat'
+import { AddProjectDialog } from '@/planning/AddProject'
 import { runs, Spaces } from '@/planning/spaces'
 import type { Space } from '@/agents/types'
 import { mockWhere, RunDialog } from '@/commands/Run'
@@ -561,6 +562,7 @@ export default function App() {
       )}
       <StartIntent ws={ws} intent={starting} onClose={() => setStarting(null)} onStarted={(i, w) => setEdits(e => ({ ...e, starts: { ...e.starts, [i]: w } }))} />
       <SeatDialog ws={ws} />
+      <AddProjectDialog />
       <RunDialog ask={running} onClose={() => setRunning(null)} />
       {ws && <Gate ws={ws} s={gate && (liveOf(gate) ?? gate)} onClose={() => setGate(null)} onOpen={open} onView={setTerm} />}
       <Notes />

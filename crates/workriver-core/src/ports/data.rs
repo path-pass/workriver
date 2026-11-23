@@ -282,6 +282,11 @@ pub trait WorkStore: Send {
         Ok(out)
     }
 
+    /// The starts of a manager still pending, by workspace: its id and the start's sequence.
+    fn pending_starts(&self) -> Result<Vec<(String, u64)>, DataError> {
+        Ok(self.recorded()?.workspaces.iter().filter_map(|w| Some((w.id.clone(), w.start.as_ref().filter(|s| s.ended.is_none())?.seq))).collect())
+    }
+
     /// The names of the temporary agents threads were last answered by.
     fn thread_agents(&self) -> Result<Vec<String>, DataError> {
         Ok(self.recorded()?.threads.iter().filter_map(|t| t.name.clone()).collect())

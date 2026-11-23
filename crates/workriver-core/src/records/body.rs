@@ -142,6 +142,49 @@ pub enum Body {
         workspace: String,
         session: String,
     },
+    /// The user starts a manager for a workspace (the page's Start manager): the harness and
+    /// model they chose, and the place the service has just opened for it with its shell.
+    /// `folder` is filled in by the rules (the project's folder); the agent goes by a name of
+    /// the start's own (`ManagerStart::name_of`).
+    /// What it brings up is seated by `ManagerStartSeated`, which names it by its sequence.
+    /// Recorded only by the start action, never through `/api/append`.
+    #[serde(rename = "workspace.manager_started")]
+    WorkspaceManagerStarted {
+        workspace: String,
+        harness: String,
+        /// Empty: the harness's own default.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        model: String,
+        #[serde(default)]
+        folder: String,
+        place: String,
+        shell: Shell,
+        #[serde(default)]
+        replaces: Option<SeatRef>,
+    },
+    /// The end of the user's start: the session it brought up is seated, as the service read it
+    /// at the start's place and shell. workriver's own (`Body::service_only`); the rules accept
+    /// it only for the workspace's pending start (`start`: its sequence).
+    #[serde(rename = "workspace.manager_start_seated")]
+    ManagerStartSeated {
+        workspace: String,
+        start: u64,
+        session: String,
+        harness: String,
+        folder: String,
+        place: String,
+        shell: Shell,
+    },
+    /// The user's start ended without a seating: why, and the runtime's words when it said
+    /// any. workriver's own, for the workspace's pending start only.
+    #[serde(rename = "workspace.manager_start_ended")]
+    ManagerStartEnded {
+        workspace: String,
+        start: u64,
+        reason: StartEnd,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        words: String,
+    },
     /// A deferred finding from outside workriver's tasks, into a project's backlog.
     #[serde(rename = "finding.added")]
     FindingAdded {
@@ -640,7 +683,7 @@ impl Body {
             ProjectAdded { .. } | ProjectRenamed { .. } => (None, None, None),
             FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
             FindingAdded { intent, .. } => (intent.clone(), None, None),
-            WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } => (None, None, None),
+            WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } | WorkspaceManagerStarted { .. } | ManagerStartSeated { .. } | ManagerStartEnded { .. } => (None, None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
             UnitMerged { unit, .. } | UnitDone { unit, .. } | UnitRelocated { unit, .. } | CommitUnlinked { unit, .. } => (None, Some(unit.clone()), None),

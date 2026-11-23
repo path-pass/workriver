@@ -10,6 +10,8 @@ export interface Option {
   lang?: string
   /** Shown instead of the label when it is a UI sentence with content in it (a Slot). */
   content?: ReactNode
+  /** Shown greyed and not pickable (its label says why). */
+  disabled?: boolean
 }
 
 /**
@@ -56,7 +58,7 @@ export function Choice({ value, onChange, options, groups = [], label, tone = 'p
         )}
       >
         {options.map(o => (
-          <SelectItem key={o.value} value={o.value} className={item}>
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled} className={item}>
             {o.content ?? <span lang={o.lang}>{o.label}</span>}
           </SelectItem>
         ))}

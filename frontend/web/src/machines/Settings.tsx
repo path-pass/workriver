@@ -7,8 +7,9 @@ import { Switch } from '@/ui/primitives/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/primitives/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { MOCK } from '@/workspace/source'
-import { machines as loadMachines, metrics as loadMetrics, notifyWanted, setMachine, setSpace, setStallMinutes, setThresholds, stallMinutes, wantNotify, type SpaceAct } from '@/api/actions'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, setMachine, setSpace, setStallMinutes, setStartSettings, setThresholds, stallMinutes, wantNotify, type SpaceAct } from '@/api/actions'
 import { openSeat } from '@/planning/Seat'
+import { HarnessFields, modelOk, useStartSettings } from '@/planning/StartManager'
 import type { Levels, Machine, Thresholds } from './types'
 import type { Workspace } from '@/workspace/types'
 import { Trans } from 'react-i18next'
@@ -262,6 +263,42 @@ function Stall() {
   )
 }
 
+/**
+ * The harness and model a start of a manager takes unless the user changes them there: the
+ * same controls and greying as the start, and Save. Whether a model works shows on a start
+ * (its harness's own words when it reports a problem).
+ */
+function StartDefault() {
+  const { t } = useT()
+  const { settings, setSettings, unread } = useStartSettings()
+  const [harness, setHarness] = useState('')
+  const [model, setModel] = useState('')
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+  useEffect(() => { if (settings) { setHarness(settings.harness); setModel(settings.model) } }, [settings])
+  if (!settings) return <Unread error={unread} />
+  const words = (e: unknown) => (e instanceof Error ? e.message : String(e))
+  const offered = settings.harnesses.some(h => h.kind === harness && !h.why)
+  const changed = harness !== settings.harness || model !== settings.model
+  const ready = offered && modelOk(model)
+  const edit = (f: () => void) => { f(); setSaved(false); setError('') }
+  const save = () => setStartSettings(harness, model).then(s => { setSettings(s); setSaved(true); setError('') }, e => setError(t('settings.start.failed', { error: words(e) })))
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-ink-2">{t('settings.start.lead')}</p>
+      <HarnessFields
+        offers={settings.harnesses} harness={harness} model={model}
+        onHarness={k => edit(() => { setHarness(k); setModel(k === settings.harness ? settings.model : '') })} onModel={m => edit(() => setModel(m))}
+      />
+      {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {saved && !changed && <span role="status" className="text-xs text-ink-2">{t('settings.start.saved')}</span>}
+        <Button type="button" size="sm" disabled={!ready || !changed} onClick={save}>{t('settings.start.save')}</Button>
+      </div>
+    </div>
+  )
+}
+
 /** The sound for a new row in Needs you. Turning it on plays it once, so the user hears it
  *  (and the browser lets the page play it). Mounted when Settings opens, so what it says about
  *  a sound that could not play is fresh. */
@@ -320,7 +357,7 @@ function General() {
 }
 
 /** Settings' groups, one tab each, in this order: the person's own first. */
-export const GROUPS = ['general', 'workers', 'workspaces', 'alerts', 'machines'] as const
+export const GROUPS = ['general', 'workers', 'workspaces', 'start', 'alerts', 'machines'] as const
 export type SettingsGroup = (typeof GROUPS)[number]
 
 /** The tab last picked, kept in this browser. */
@@ -345,6 +382,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
     general: t('settings.general'),
     workers: t('settings.stall.title'),
     workspaces: t('spaces.title'),
+    start: t('settings.start.title'),
     alerts: t('alerts.title'),
     machines: t('machines.title'),
   }
@@ -377,6 +415,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
           <TabsContent value="general" className="min-h-0 overflow-y-auto pt-1"><General /></TabsContent>
           <TabsContent value="workers" className="min-h-0 overflow-y-auto pt-1"><Stall /></TabsContent>
           <TabsContent value="workspaces" className="min-h-0 overflow-y-auto pt-1"><Workspaces ws={ws} /></TabsContent>
+          <TabsContent value="start" className="min-h-0 overflow-y-auto pt-1"><StartDefault /></TabsContent>
           <TabsContent value="alerts" className="min-h-0 overflow-y-auto pt-1"><MachineAlerts /></TabsContent>
           {!MOCK && <TabsContent value="machines" className="min-h-0 overflow-y-auto pt-1"><Machines ws={ws} /></TabsContent>}
         </Tabs>

@@ -98,9 +98,11 @@ Decide findings as the user, submit gates, finish chores, do deferred findings t
 drop them, end a conversation, discuss a delivered research or design result with the agent
 that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, read, answer or watch an agent's terminal from the page (below), start a planned intent in a
 workspace from the page (`/api/intent/start`), run a command (below), add projects, make,
-rename, close and open workspaces, seat a workspace's manager or empty its seat, move an
-intent to another workspace (`/api/workspaces`), add or
-enable machines, set when the machines alert (`/api/metrics/thresholds`).
+rename, close and open workspaces, seat a workspace's manager or empty its seat, start a
+manager for a workspace (below, "Starting a manager"), move an intent to another workspace
+(`/api/workspaces`), add or enable machines, set when the machines alert
+(`/api/metrics/thresholds`), set the default harness and model of a start
+(`/api/settings/start`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
 `workriver machine load`) the user and an agent of this machine may; an agent on another
 machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and
@@ -142,7 +144,8 @@ are read, so that no request holds workriver up while it is checked.
 
 Since these rules go by the intent's state and by its workspace, three
 facts are held as well: the **project** an intent belongs to, the **workspace** it runs in,
-and its **manager**. Each is set only by you, or by a start the rules checked. No other
+and its **manager**. Each is set only by you, or by a start the rules checked (an intent's
+start; for the manager, the end of a start of one that you made). No other
 event sets them, no name a request carries, and nothing the agent runtime says: all three
 are checked by the event rules against what is recorded, when the event is recorded.
 
@@ -174,9 +177,12 @@ are checked by the event rules against what is recorded, when the event is recor
   another workspace, or becomes the manager of another project's intent, by starting it.
 - **Its manager** is whoever holds the seat of the workspace it runs in, or last ran in. An
   intent whose workspace's seat is empty has no manager, and you act for it.
-- **A manager is seated by you, never by an agent.** One event sets a seat, and it is yours
-  alone: in the page (the workspace's line, Manager) or `workriver workspace manager <ws>
-  <agent>` from your own terminal. Nobody becomes a manager by saying so, by running in some group of the runtime, or by naming a workspace.
+- **A manager is seated by you, never by an agent.** A seat is set by your seating, in the
+  page (the workspace's line, Manager) or `workriver workspace manager <ws> <agent>` from
+  your own terminal, or by the end of a start of a manager that you made on the page (below,
+  "Starting a manager"): workriver seats what that start brought up, and the event rules
+  accept that only as the end of your start. Nobody becomes a manager by saying so, by
+  running in some group of the runtime, or by naming a workspace.
   What is kept of a seat is the session, its machine and the folder it was started in (to
   reach its terminal), and the *appointment*: the seating itself. A session holds one seat.
   You may seat over a manager that still runs (the page asks once; that one is told it no
@@ -213,6 +219,61 @@ are checked by the event rules against what is recorded, when the event is recor
   its own machine. An agent on another machine works in a workspace through the tasks it is
   given, and a manager on another machine holds a
   seat like any other.
+
+### Starting a manager
+
+workriver starts a working agent (one that takes a seat) only on your own act, never on an
+agent's, and schedules none: which worker gets which task stays the manager's. The temporary
+agents that answer a question or review a command are workriver's own, as before.
+
+- **Who.** You only: the route asks for you, the start event (`workspace.manager_started`)
+  is yours alone in the event rules, it is not on a machine's listener, and it is recorded
+  only by the start action (recording it any other way, `/api/append` included, is
+  refused). The two events that end a start, its seating and its end with why, are
+  workriver's alone: no request records them, yours neither.
+- **Built from records.** The request names a workspace, a harness, a model and the seat you
+  were shown, nothing else. The folder is the recorded project's (filled in by the rules);
+  the harness and how a model is given to it are workriver's own table (Claude Code and
+  Codex; a model is your default, the harness's own alias, or one name of letters, digits
+  and `. _ : / @ [ ] -`, never starting with `-`); the agent's name comes from the
+  workspace's id and the start's number; the place is the one the service just opened. No path, command, argument,
+  environment, machine or place is taken from the request, and the arguments go to the
+  runtime as a list, never as a line of shell. A harness is offered only when its command is
+  on the machine and the runtime's integration for it is current.
+- **The late seating.** The start is recorded with the place the service opened and that
+  place's shell, before the harness starts. What shows up there is seated by workriver, and
+  the event rules accept that seating only for that workspace's start still pending: when no
+  event touched the seat since your click (by sequence, never by the seat's value: a seat
+  emptied and filled and emptied again, or a workspace closed and opened again, ends the
+  start), at the recorded place and shell, in the project's folder, with the harness
+  started, and for a session the records did not know before the start (one seen before,
+  one that holds a seat, one that has a task is refused). So no other workspace loses its
+  manager by a start. One start per workspace is pending at a time (a second is refused,
+  409). What shows up is seated only once it is ready, with a session, and its screen shows
+  no problem the harness reported as it started (a model it does not know). A start ends by
+  a seat event, by a failure, by such a problem (the agent is left running, unseated, and
+  the page shows the screen's words), after ten minutes with no session, or when the service
+  restarts (recorded before it serves): an ended start seats nobody. Anything refused is not
+  seated and waits for a click in the select. The seating takes the same order as every seat
+  change: the seat before is read under the same lock as the seating is written (when it
+  cannot be read, nothing is seated and the start ends), the one replaced is told it no
+  longer manages, and what was queued for its appointment is not delivered.
+- **What stays the service's word.** That the session was read at the recorded place and
+  shell, and the ten minutes: the rules have no clock and do not see the runtime. Both are
+  in the records (the place on both events, the end of an expired start).
+- **Before it is seated** the agent is an agent with no seat and no task: it reads what every
+  agent reads (no workspace's conversation) and is refused what a manager does. workriver
+  types nothing to it until it is seated.
+- **What it runs as.** Your account, your harness configuration and whatever the project's
+  folder holds for the harness (instructions, settings, hooks), as when you start it there
+  by hand. Which folders can be started in is yours: only you add projects. The harness's
+  own trust question in a new folder is yours to answer (in its terminal, or from the page
+  like any agent waiting in its terminal).
+- **Projects** you add on the page are checked as from the CLI: a whole path (from `/` or
+  `~/`, the service's home; anything else would be read against the folder the service was
+  started in), a folder (not a file), not a project already, not inside a project and
+  holding none (a project added inside another would change the project of intents already
+  recorded there). Projects already nested in an older store stay as they were.
 
 What these do not hold, since the runtime's own interface is your account's, is under
 [What this does not protect against](#what-this-does-not-protect-against): the bait for
@@ -456,7 +517,14 @@ determined program on your machine:
     give that session. This holds for the agent Needs you proposes too: a program that
     reports the seated session's id from another folder is offered as "a new terminal
     reports this session", with both folders shown, and your confirming it is a new
-    appointment. A wrong pick is yours to seat again.
+    appointment. A wrong pick is yours to seat again. A manager you start from the page is
+    not picked from what programs report: you saw the workspace, the project's folder, the
+    harness and the model, and the session seated is one the records never knew, at the
+    place the service opened. Not held: a program with the runtime's socket can type into
+    that new terminal before the seating, as into a seated manager's after it, and so bring
+    up there a session the records never knew (one it made itself); that one is seated. It
+    is new to workriver as the started one would be, and it is that program's either way.
+    A session workriver knew is refused.
   - **Closing the manager's terminal** through the runtime stops that workspace's
     deliveries. Nobody gains them.
   - **Renaming, creating or closing the runtime's own workspaces changes nothing recorded.**

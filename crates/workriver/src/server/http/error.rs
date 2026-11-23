@@ -14,8 +14,7 @@ impl From<DataError> for ApiError {
     fn from(e: DataError) -> Self {
         match e {
             // A seat that changed since the user was shown it: look again (409), not a bad request.
-            DataError::Rejected(r) if r.0.starts_with(core::SEAT_CHANGED) => ApiError(StatusCode::CONFLICT, r.0),
-            DataError::Rejected(r) => bad(r.0),
+            DataError::Rejected(r) => r.into(),
             e => ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         }
     }
@@ -23,6 +22,11 @@ impl From<DataError> for ApiError {
 
 impl From<core::Rejected> for ApiError {
     fn from(r: core::Rejected) -> Self {
+        // A seat that changed since the user was shown it, or a start already pending: look
+        // again (409), not a bad request.
+        if r.0.starts_with(core::SEAT_CHANGED) || r.0.starts_with(core::START_PENDING) {
+            return ApiError(StatusCode::CONFLICT, r.0);
+        }
         bad(r.0)
     }
 }

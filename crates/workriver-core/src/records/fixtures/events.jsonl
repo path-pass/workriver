@@ -116,3 +116,9 @@
 {"seq":116,"at":"2025-12-03T15:01:00Z","actor":"workriver","kind":"agent.seen","body":{"session":"s-i","name":"impl-i","harness":"claude","cwd":"/r/chat"}}
 {"seq":117,"at":"2025-12-03T15:02:00Z","actor":"s-boss2","kind":"task.created","body":{"unit":"u2","intent":"i2","n":6,"kind":"implement","title":"Tidy","inputs":[{"from":"4","primary":true}],"agent":"s-i"}}
 {"seq":118,"at":"2025-12-03T15:03:00Z","actor":"s-i","kind":"task.started","body":{"unit":"u2","task":6,"model":"claude-opus-5-5"}}
+{"seq":119,"at":"2025-12-03T16:00:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws4","name":"started","project":"p1"}}
+{"seq":120,"at":"2025-12-03T16:01:00Z","actor":"user","kind":"workspace.manager_started","body":{"workspace":"ws4","harness":"claude","model":"opus","folder":"/r/chat","place":"w9-1","shell":{"pid":4242,"start":1764777660},"replaces":null}}
+{"seq":121,"at":"2025-12-03T16:01:30Z","actor":"workriver","kind":"agent.seen","body":{"session":"s-new","name":"ws4-manager-120","harness":"claude","cwd":"/r/chat"}}
+{"seq":122,"at":"2025-12-03T16:02:00Z","actor":"workriver","kind":"workspace.manager_start_seated","body":{"workspace":"ws4","start":120,"session":"s-new","harness":"claude","folder":"/r/chat","place":"w9-1","shell":{"pid":4242,"start":1764777660}}}
+{"seq":123,"at":"2025-12-03T16:03:00Z","actor":"user","kind":"workspace.manager_started","body":{"workspace":"ws4","harness":"codex","folder":"/r/chat","place":"w9-2","shell":{"pid":4343,"start":1764777780},"replaces":{"session":"s-new","since":122}}}
+{"seq":124,"at":"2025-12-03T16:03:05Z","actor":"workriver","kind":"workspace.manager_start_ended","body":{"workspace":"ws4","start":123,"reason":"runtime","words":"agent_not_ready"}}

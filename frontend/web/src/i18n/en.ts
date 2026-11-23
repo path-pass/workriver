@@ -153,12 +153,12 @@ export const en = {
     }
   },
   start: {
-    seat: 'Seat it as the workspace’s manager: “Manager…” on the workspace in the rail, or from your own terminal (it is told in its terminal, with where its role is written):',
-    project: 'Add your project, from a terminal of your own in its folder. It comes with its first workspace:',
+    seat: 'Or seat an agent you started yourself in {{runtime}}: “Manager…” on the workspace in the rail, or from your own terminal (it is told in its terminal, with where its role is written):',
+    project: 'Add your project: “Add project”, or from a terminal of your own in its folder. It comes with its first workspace:',
     title: 'Start here',
     lead: 'Nothing is recorded yet. Agents record their work themselves; each workspace has one manager agent that plans it, and you say which.',
     leadProject: 'Nothing is recorded in {{project}} yet. Agents record their work themselves; each workspace has one manager agent that plans it, and you say which.',
-    agent: 'Start a coding agent in {{runtime}} to be the manager.',
+    agent: 'Start its manager: “Start manager” on the workspace in the rail starts a coding agent in the project’s folder and seats it.',
     begin: 'Start a goal: “Start” on a goal in the roadmap on the left. The manager then starts its project’s next goals itself; it reads the roadmap with:',
     import: 'Have an existing backlog file? Ask an agent to import it with the import skill:',
     work: 'It splits the goal into units and tasks and hands them to worker agents; their work shows up here.',
@@ -191,6 +191,13 @@ export const en = {
       sentence: 'Remind an agent idle on a running task after <minutes/> min; still idle half that again later, tell its manager and show it here.',
       minutes: 'Minutes an agent may be idle on a running task',
       failed: 'Could not save: {{error}}'
+    },
+    start: {
+      title: 'Starting managers',
+      lead: 'What “Start a new one” in the manager select takes unless you change it there.',
+      save: 'Save',
+      saved: 'Saved.',
+      failed: 'Not saved: {{error}}'
     }
   },
   alerts: {
@@ -325,7 +332,7 @@ export const en = {
   },
   plan: {
     goAnyway: 'Start without a manager',
-    noWorkspaceAny: 'There is no open workspace yet. Add a project first (`workriver project add <folder>`): it comes with its first workspace.',
+    noWorkspaceAny: 'There is no open workspace yet. Add a project first (“Add project”, or `workriver project add <folder>`): it comes with its first workspace.',
     optionProject: '{{label}} · {{project}}',
     title: 'Start “{{title}}”',
     pickLabel: 'Start it in',
@@ -369,6 +376,49 @@ export const en = {
     close: 'Fold the panel',
     resize: 'Panel width (drag, or arrow keys; double-click for the default)'
   },
+  project: {
+    add: 'Add project',
+    title: 'Add a project',
+    lead: 'A folder on the machine workriver runs on, holding one or more repositories. It comes with its first workspace.',
+    folder: 'Folder',
+    folderHint: 'Its whole path, from / or ~/ (the home of the account workriver runs as).',
+    folderPlaceholder: '~/code/my-project',
+    name: 'Title',
+    titlePlaceholder: 'Optional: the folder’s name',
+    whole: 'Give the folder’s whole path, from / or ~/.',
+    failed: 'Not added: {{error}}'
+  },
+  launch: {
+    section: 'Start a new one',
+    lead: 'Starts the harness in a new terminal in the project’s folder, and seats it once it has a session.',
+    harness: 'Harness',
+    model: 'Model',
+    modelPlaceholder: 'your default',
+    modelHint: 'Empty: your default. Or a name the harness knows:',
+    alias: 'Model {{model}}',
+    modelBad: 'A model is one word of letters, digits and . _ : / @ [ ] -, at most 100, not starting with -.',
+    names: { claude: 'Claude Code', codex: 'Codex' },
+    why: { not_installed: 'not installed', not_integrated: '{{runtime}}’s hook is not installed or not current', runtime: 'the runtime cannot be asked' },
+    unavailable: '{{harness}}: {{why}}',
+    none: 'No harness can be started here.',
+    go: 'Start and seat',
+    goOver: 'Yes, start and seat',
+    over: '{{old}} runs and is the manager now. Start a new one to take its seat once it runs? The one replaced is then told it no longer manages this workspace.',
+    pending: 'A manager is being started here: wait for it, or seat one above.',
+    failed: 'Not started: {{error}}',
+    startNow: 'Start manager',
+    starting: 'starting a manager…',
+    waiting: 'starting a manager… waiting for you in its terminal',
+    ended: 'Manager not started: {{reason}}',
+    reason: {
+      runtime: 'the runtime refused to start it',
+      no_agent: 'nothing started in its terminal (is the harness installed?), or it left before it had a session',
+      no_session: 'no session to seat within 10 minutes; its terminal is left open: seat it here once it runs',
+      refused: 'what it brought up could not be seated',
+      restarted: 'workriver restarted while it was starting',
+      startup_error: 'it reported a problem as it started (below); it is left running in its terminal, not seated'
+    }
+  },
   seat: {
     title: 'Manager of {{workspace}}',
     lead: 'A workspace of {{project}}. Its manager splits the work of the intents that run here and hands it out. Only you seat one; the agent is told in its terminal.',
@@ -379,7 +429,7 @@ export const en = {
     moved: 'A new terminal reports the session of {{name}}; anything can report a session id. It is not where the manager was seated, so confirming it is a new appointment: questions the earlier one asked close, and what was queued for it is not delivered.',
     movedOld: 'Seated in: {{folder}} on {{machine}} (gone)',
     movedNew: 'Shows now in: {{folder}} on {{machine}}',
-    nobody: 'No agent is running now. Start one in {{runtime}}, then seat it here.',
+    nobody: 'No agent is running now. Start a new one below, or start one in {{runtime}} yourself and seat it here.',
     noneHere: 'No agent runs in this project’s folder; all agents running now are listed.',
     showAll: 'Show all agents ({{count, number}})',
     pick: 'The agent to seat',

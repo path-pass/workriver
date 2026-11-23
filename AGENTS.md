@@ -2,8 +2,10 @@
 
 A local, always-on tool that lets one person keep track of twenty or more coding agents
 working in parallel: what each is doing now, how a piece of work came to be the way it is,
-and which parts of the code it reached. It records and shows; it does not start or
-schedule agents.
+and which parts of the code it reached. It records and shows; it starts a working agent
+(one that takes a seat) only on the user's own act, never on an agent's, and schedules none:
+which worker gets which task stays the manager's. The temporary agents that answer a
+question or review a command are its own, as before.
 
 Status: first version usable. The daemon, the event store, the git scan, the CLI, the
 Herdr runtime, delivery of the user's decisions to agents, the manager skill
@@ -48,14 +50,17 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
   an agent needs travel inside the task message the manager sends it. MCP is not used
   for now; add it only if a harness that cannot run shell commands has to be supported.
 - Each workspace has one manager agent, seated by the user (the page, or `workriver
-  workspace manager` from the user's terminal; never by an agent). It splits the work of
+  workspace manager` from the user's terminal; never by an agent), or started by the user
+  from the page (a harness of workriver's own table in the project's folder, through the
+  runtime), which seats what that start brings up. It splits the work of
   the intents that run there into units and tasks, hands tasks to agents through the
   runtime, and receives the user's accepted findings. workriver records and delivers; the
   manager schedules.
 - Who is running, where, in what state, and delivering a message to an agent come from
   the agent runtime, not from per-harness hooks. The core defines a small runtime
   interface in workriver's own terms (agent, session, state, working directory, send a
-  message, wait for a state); Herdr (through its socket API) is the first and only
+  message, wait for a state, open a place and start a harness in it); Herdr (through its
+  socket API) is the first and only
   implementation, kept in one place so it can be replaced. No Herdr names (pane, tab)
   outside that implementation; workspace is workriver's own word and record, never the
   runtime's (the runtime's group of a terminal is shown as a hint only: no record holds
@@ -172,16 +177,27 @@ moves code keeps the guards of `docs/design/guards.md` green without editing the
   agent. No harness is named in code or in a refusal; what a harness needs is in the
   `hand-off` recipe. Text written by agents or the user goes
   into messages only through `quote.rs`. An intent's project, the workspace it runs in and
-  its manager are set only by the user or by a start the rules checked (`docs/security.md`),
+  its manager are set only by the user or by an intent's start the rules checked, the
+  manager also by the end of the user's own start of one (`docs/security.md`),
   and all three are checked in core's `prepare`, against the store, when the event is
   recorded: a workspace is found by its id (`ws1`), never by anything the runtime says of
   its groups, and never taken from the request's word alone (it exists, is open, is of the
   intent's project, and for a manager's start is the one it holds the seat of, which the
-  rules fill in). A manager's seat is set by one event, the user's only
-  (`workspace.manager_set`): no agent event sets a seat, a workspace or a project, and a
-  new kind that does one of these is `Body::user_only`. The service adds to a seating only
-  what it reads of the runtime, for the user's own event (`App::seating`: the one root the
-  session's machine shows it at; its machine and folder; the pin), never a seat. A seated
+  rules fill in). A manager's seat is set by the user's event (`workspace.manager_set`) or
+  by the end of the user's own start: `workspace.manager_started` is the user's alone and
+  names the place the service made; `workspace.manager_start_seated` is workriver's alone
+  and core's `prepare` accepts it only for that workspace's pending start, when no event
+  touched the seat since (by sequence, never by the seat's value), at the recorded place and
+  shell, in the project's folder, for a session the records did not know before the start
+  (none that holds a seat or has a task). No agent event sets a seat, a workspace or a
+  project; a new kind that does is `Body::user_only`, or `Body::service_only` under a rule
+  of `prepare` that ties it to a user's event. `workspace.manager_started` is recorded only
+  by the start action (`/api/append` refuses it). The service adds to a seating only what
+  it reads of the runtime, for the user's own event (`App::seating`: the one root the
+  session's machine shows it at; its machine and folder; the pin), never a seat, but the
+  seat of a start the user recorded, which it names and the rules check; a start's seating
+  goes through `App::record` in the same order as every seat change (`appointing`, the
+  seat before, `tell_of_seat`). A seated
   session's root is kept (`App::one_place`, `see_roots`): it comes back by itself only on
   the seat's machine and in its folder, anything else is refused until the user seats it.
   What is sent to or asked under one appointment (`Seat.since`) never reaches another

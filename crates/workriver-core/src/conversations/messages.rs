@@ -14,6 +14,10 @@ pub struct Agent {
     pub cwd: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+    /// The sequence of the event it was first seen at: whether the records knew it before a
+    /// manager's start. Rebuilt on every replay, never stored (0: known before anything).
+    #[serde(skip)]
+    pub first: u64,
 }
 
 /// The user's message to a workspace's manager (or to every manager), and what it answered.
@@ -404,9 +408,12 @@ impl State {
         let at = &e.at;
         match &e.body {
             AgentSeen { session, name, harness, cwd, machine } => {
-                let seen = Agent { session: session.clone(), name: name.clone(), harness: harness.clone(), cwd: cwd.clone(), machine: machine.clone() };
+                let mut seen = Agent { session: session.clone(), name: name.clone(), harness: harness.clone(), cwd: cwd.clone(), machine: machine.clone(), first: e.seq as u64 };
                 match self.agents.iter_mut().find(|a| &a.session == session) {
-                    Some(a) => *a = seen,
+                    Some(a) => {
+                        seen.first = a.first;
+                        *a = seen
+                    }
                     None => self.agents.push(seen),
                 }
             }

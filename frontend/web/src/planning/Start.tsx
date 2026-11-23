@@ -1,6 +1,9 @@
 // What to do first, shown in the main area while nothing is recorded yet; and starting one
-// planned intent in an open workspace of its project (workriver never starts agents: a
-// workspace whose manager does not run shows the manager select, to seat one that does).
+// planned intent in an open workspace of its project (a workspace whose manager does not run
+// shows the manager select, to seat one that does or start one). workriver starts a working
+// agent (one that takes a seat) only on the user's own act, never on an agent's, and
+// schedules none: which worker gets which task stays the manager's. The temporary agents
+// that answer a question or review a command are as before.
 import { useEffect, useState } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/ui/primitives/dialog'
@@ -16,6 +19,7 @@ import { Input } from '@/ui/primitives/input'
 import { runs } from './spaces'
 import { SeatPicker } from './Seat'
 import { Icon } from '@/ui/Icon'
+import { AddProjectButton } from './AddProject'
 
 /** `project`: the title of the project shown, when only it has nothing yet. */
 export function Start({ project }: { project?: string }) {
@@ -26,7 +30,7 @@ export function Start({ project }: { project?: string }) {
       <p className="text-sm text-ink-2">{project ? <Slot text={t('start.leadProject', { project: SLOT })}><Content text={project} /></Slot> : t('start.lead')}</p>
       <Steps
         steps={[
-          { text: t('start.project'), command: 'workriver project add .' },
+          { text: t('start.project'), action: <AddProjectButton />, command: 'workriver project add .' },
           { text: t('start.agent') },
           { text: t('start.seat'), command: 'workriver workspace manager ws1 <agent>' },
           { text: t('start.begin'), command: 'workriver backlog list' },
@@ -108,6 +112,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
             ) : !places.length ? (
               <>
                 <DialogDescription>{project ? t('plan.noWorkspace') : t('plan.noWorkspaceAny')}</DialogDescription>
+                {!project && <AddProjectButton className="self-start" />}
                 {project && (
                   <form className="flex gap-2" onSubmit={e => { e.preventDefault(); add() }}>
                     <Input value={name} onChange={e => setName(e.target.value)} placeholder={t('rail.spaceName')} aria-label={t('rail.spaceName')} className="h-8 flex-1 text-sm md:text-sm" />

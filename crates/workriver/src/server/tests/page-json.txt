@@ -482,5 +482,12 @@ workspace.workspaces[].manager.state: string
 workspace.workspaces[].manager: object
 workspace.workspaces[].name: string
 workspace.workspaces[].project: string
+workspace.workspaces[].start.harness: string
+workspace.workspaces[].start.model: string
+workspace.workspaces[].start.name: string
+workspace.workspaces[].start.reason: string
+workspace.workspaces[].start.since: string
+workspace.workspaces[].start.words: string
+workspace.workspaces[].start: object
 workspace.workspaces[]: object
 workspace: object

@@ -4,6 +4,21 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-23
 
+- **The user can start a manager from the page** (managers): the workspace's line, "Start
+  manager": workriver opens a terminal in the project's folder, starts the harness the user
+  picked (Claude Code or Codex, with a model) and seats it once it is ready with a session
+  and its screen shows no problem it reported as it started (a model it does not know: then
+  it is left running, unseated, and the page shows why); it is told
+  `[workriver] The user made you the manager of workspace ws1 …` as for any seating, and the
+  one it replaces is told it no longer manages. workriver starts a working agent only on the
+  user's own act, never on an agent's: when the user asks you for a manager for another
+  workspace, point them at that button or `workriver workspace manager`; do not start one
+  yourself. Recording `workspace.manager_started` any other way is refused ("a manager is
+  started only by the start action …"). (`seat`)
+- **A project is added on the page too** (managers): "Add project". The folder must be a
+  whole path (from `/` or `~/`), a folder (not a file), and not inside a registered project
+  nor hold one: such a `workriver project add` is refused now ("… is inside project p1 …: a
+  project holds no other"). Ask the user to add a project; an agent cannot. (`seat`)
 - **A worker named by two running agents is refused** (managers): `task add --agent impl`
   and `task start --agent impl`, when two running agents are named `impl`, used to take
   the one in your own Herdr workspace (or the first one) and now are refused with "several

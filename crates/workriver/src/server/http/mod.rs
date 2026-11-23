@@ -50,6 +50,7 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/metrics/history", get(metrics_history))
         .route("/api/metrics/thresholds", post(metrics_thresholds))
         .route("/api/settings/stall", get(stall_get).post(stall_set))
+        .route("/api/settings/start", get(start_get).post(start_set))
         .route("/api/workspace", get(workspace))
         .route("/api/unit/{id}/code", get(unit_code))
         .route("/api/intent/{id}/history", get(intent_history))

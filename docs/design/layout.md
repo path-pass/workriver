@@ -64,10 +64,13 @@ workriver/
 │   │       │   │                     # an intent's project, the workspace it starts or moves in.
 │   │       │   ├── history.rs        # An intent's versions and a version's text, rebuilt from its events.
 │   │       │   ├── units.rs          # Code/research/spike units, relocation, merges, commit links.
-│   │       │   ├── projects.rs       # Projects; workspaces (workriver's own: id, name, project), the
-│   │       │   │                     # manager's seat and its appointment, an agent's workspace.
+│   │       │   ├── projects.rs       # Projects (none inside another); workspaces (workriver's own: id,
+│   │       │   │                     # name, project), the manager's seat and its appointment, a
+│   │       │   │                     # manager's start and its seating/end (by sequence), an agent's
+│   │       │   │                     # workspace.
 │   │       │   ├── tests.rs
-│   │       │   └── tests/ownership.rs  # Who sets an intent's project, workspace and manager.
+│   │       │   ├── tests/ownership.rs  # Who sets an intent's project, workspace and manager.
+│   │       │   └── tests/starts.rs   # A project's nesting; a manager's start, its seating and end.
 │   │       ├── work/                 # The task graph and its outcomes; no IO.
 │   │       │   ├── mod.rs            # Task/input/evidence types, task-ref parser, entry points.
 │   │       │   ├── tasks.rs          # Create/start/deliver/amend/drop, ownership, lookup.
@@ -160,7 +163,7 @@ Core defines `WorkStore` in `ports/data.rs`; it is all the service knows of stor
 
 Named reads of one record (`unit`, `task`, `question`, `agent`, `thread`, `run`, …, and what
 a previous run left: `delivered`, `open_questions`, `open_discussions`, `held_messages`,
-`thread_agents`) are
+`thread_agents`, `pending_starts`) are
 provided methods over `recorded()` that a store may answer without the whole state; add one
 when it is missing. `recorded()` is used only where a function of the whole state is called
 or several records of one revision are needed. Every read returns a `Result`.
@@ -267,8 +270,13 @@ crates/workriver/
 │   │   │   ├── session.rs            # Session status/code/exchange routes.
 │   │   │   ├── error.rs              # ApiError, status mapping, blocking helper.
 │   │   │   └── assets.rs             # Embedded web dist, MIME/caching, SPA fallback.
-│   │   ├── planning/mod.rs           # Start and merge handlers; the user's acts on workspaces
-│   │   │                             # (/api/workspaces: add, rename, close, open, manager, move).
+│   │   ├── planning/
+│   │   │   ├── mod.rs                # Start and merge handlers; the user's acts on workspaces
+│   │   │   │                         # (/api/workspaces: add, rename, close, open, manager, move, start).
+│   │   │   └── start.rs              # A manager started from the page: the place opened, the start
+│   │   │                             # recorded, the harness started, the wait and its one end, the
+│   │   │                             # starts a previous run left; the default harness and model
+│   │   │                             # (/api/settings/start).
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── terminals/                # An agent's terminal from the page; all three routes App::user.
 │   │   │   ├── mod.rs                # Terminals (digest key, presses, writers, marks, views),
@@ -354,7 +362,9 @@ crates/workriver/
 │   └── common/                       # Used by both sides, owned by no domain; mod.rs: BUILD.
 │       ├── config/
 │       │   ├── mod.rs                # Settings file read/update, generic over the adapter's options
-│       │   │                         # for a machine; the alert thresholds' types.
+│       │   │                         # for a machine; the alert thresholds' types; a start's default.
+│       │   ├── harness.rs            # The harnesses a manager is started with (kind, model flag,
+│       │   │                         # aliases) and the forms of a model.
 │       │   └── defaults.rs           # Tunable defaults (timeouts, caps).
 │       ├── home.rs                   # The data directory and the name of every file in it, in one
 │       │                             # place; it makes the directory (0700) and the database file
@@ -435,6 +445,8 @@ frontend/web/
     ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
     │                                 # Merge.tsx EditIntent.tsx IntentHistory.tsx
     │                                 # classify.ts (kind, size, tags, the rail's filter) Sort.tsx (their chips and fields)
+    │                                 # AddProject.tsx (the dialog) StartManager.tsx (Start a new one, the
+    │                                 # harness fields Settings shares, a workspace's start line)
     ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx sound.ts (the sound for a new row)

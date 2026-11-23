@@ -21,6 +21,7 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/metrics/history", &["GET"]),
     ("/api/metrics/thresholds", &["POST"]),
     ("/api/settings/stall", &["GET", "POST"]),
+    ("/api/settings/start", &["GET", "POST"]),
     ("/api/workspace", &["GET"]),
     ("/api/unit/{id}/code", &["GET"]),
     ("/api/intent/{id}/history", &["GET"]),
@@ -187,6 +188,8 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/metrics/thresholds", "THRESHOLDS"),
     ("GET", "/api/settings/stall", ""),
     ("POST", "/api/settings/stall", r#"{"minutes":30}"#),
+    ("GET", "/api/settings/start", ""),
+    ("POST", "/api/settings/start", r#"{"harness":"nope","model":""}"#),
     ("GET", "/api/workspace", ""),
     ("GET", "/api/unit/u1/code", ""),
     ("GET", "/api/intent/i1/history", ""),
@@ -206,6 +209,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("GET", "/api/agent/view?agent=nobody-here", ""),
     ("POST", "/api/intent/start", r#"{"intent":"i9","workspace":"ws1"}"#),
     ("POST", "/api/workspaces", r#"{"action":"rename","workspace":"ws9","name":"probe"}"#),
+    ("POST", "/api/workspaces", r#"{"action":"start","workspace":"ws9","harness":"claude","model":""}"#),
     ("POST", "/api/run/prepare", r#"{"command":"true","unit":"u9"}"#),
     ("POST", "/api/run", r#"{"id":"r9","command":"true"}"#),
     ("GET", "/api/run/r9", ""),
@@ -460,6 +464,12 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.call("/api/message", Some(json!({ "all": true, "text": "Shutting down at six." }))).unwrap();
     d.append("s-boss", "message.replied", json!({ "message": "m7", "text": "Nothing running here." })).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Other", "purpose": "", "repo": repo, "branch": "feat/other", "base": "main" })).unwrap();
+    // A manager's start that ended, in the runtime's words.
+    *fake.bring.lock().unwrap() = Bring::Refuse("the runtime: no such kind".into());
+    let spare = workspace_named(&d, "spare");
+    d.call("/api/workspaces", Some(json!({ "action": "start", "workspace": spare, "harness": "claude", "model": "opus", "replaces": null }))).unwrap();
+    let ended = || d.get("/api/workspace").unwrap()["workspaces"].as_array().unwrap().iter().any(|w| w["start"]["reason"] == "runtime");
+    wait_until("the start ended", ended);
     (d, fake)
 }
 

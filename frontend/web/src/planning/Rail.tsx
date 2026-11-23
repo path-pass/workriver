@@ -1,7 +1,7 @@
 // The rail picks a project and its units: product name, the filter by kind, size and tag, the
 // project switch, search; then project → workspace → intent → unit: each project's open
-// workspaces (name, id, its manager's state) with their active intents and units, its roadmap of
-// planned intents (ordered by dragging, added to inline), its done ones folded; settings. What asks something of the
+// workspaces (name, id, its manager's state, a manager's start) with their active intents and units, its roadmap of
+// planned intents (ordered by dragging, added to inline), its done ones folded; "Add project"; settings. What asks something of the
 // user and where the agents are live in the side panel on the right.
 import { Waves } from 'lucide-react'
 import { useEffect, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
@@ -23,6 +23,8 @@ import type { Intent, Unit } from './types'
 import type { Space } from '@/agents/types'
 import { activeIn, railOf, runs, type RailProject } from './spaces'
 import { openSeat } from './Seat'
+import { StartLine } from './StartManager'
+import { AddProjectButton } from './AddProject'
 import type { Workspace } from '@/workspace/types'
 import { MachineChip } from '@/machines/format'
 import { Content, ExternalChip, Slot, SLOT } from '@/content/Chips'
@@ -302,11 +304,14 @@ function RenameSpace({ space, onClose }: { space: Space | null; onClose: () => v
 
 /**
  * One workspace of a project: its name with its id quietly in mono, one status line with
- * its manager, a menu (rename, manager, close); under it its active intents with their
- * units. The only level of the rail whose group folds its intents.
+ * its manager, a menu (rename, manager, close); under it, while a start of a manager is
+ * pending or after it failed, what came of it, and with no manager running "Start manager";
+ * then its active intents with their units. The only level of the rail whose group folds
+ * its intents.
  */
-function SpaceGroup({ space, busy, isOpen, onOpen, onRename, onError, children }: { space: Space; busy: boolean; isOpen: boolean; onOpen: (o: boolean) => void; onRename: () => void; onError: (e: string) => void; children: ReactNode }) {
+function SpaceGroup({ ws, space, busy, isOpen, onOpen, onRename, onError, children }: { ws: Workspace | null; space: Space; busy: boolean; isOpen: boolean; onOpen: (o: boolean) => void; onRename: () => void; onError: (e: string) => void; children: ReactNode }) {
   const { t } = useT()
+  const pending = !!space.start && !space.start.reason
   const [menu, setMenu] = useState(false)
   const item = 'h-7 justify-start rounded-sm px-2 text-[13px] font-normal text-rail-ink hover:bg-rail-3 hover:text-rail-ink'
   const close = () => { setMenu(false); setSpace({ action: 'close', workspace: space.id }).catch(e => onError(t('rail.failed', { error: e instanceof Error ? e.message : String(e) }))) }
@@ -336,6 +341,16 @@ function SpaceGroup({ space, busy, isOpen, onOpen, onRename, onError, children }
           </PopoverContent>
         </Popover>
       </div>
+      {(space.start || !runs(space.manager)) && (
+        <div className="flex flex-col items-start gap-1 pb-1 pl-4">
+          <StartLine ws={ws} space={space} tone="rail" />
+          {!runs(space.manager) && !pending && (
+            <Button variant="ghost" size="xs" className="h-6 gap-1 rounded-sm px-1.5 text-[11px] font-normal text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink" onClick={() => openSeat(space.id, undefined, true)}>
+              <Icon name="play" className="size-3" />{t('launch.startNow')}
+            </Button>
+          )}
+        </div>
+      )}
       <CollapsibleContent className="flex flex-col gap-0.5 pl-2">{children}</CollapsibleContent>
     </Collapsible>
   )
@@ -566,7 +581,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         {p && !sec.spaces.length && !needle && <p className="px-2.5 text-xs text-rail-ink-2 italic">{t('rail.noSpaces')}</p>}
         {sec.spaces.map(({ space, intents: list }) => (
           <SpaceGroup
-            key={space.id} space={space} busy={activeIn(ws?.intents ?? [], space.id).length > 0}
+            key={space.id} ws={ws} space={space} busy={activeIn(ws?.intents ?? [], space.id).length > 0}
             isOpen={!!needle || !folded.includes(space.id)}
             onOpen={o => setFolded(f => (o ? f.filter(x => x !== space.id) : [...f, space.id]))}
             onRename={() => setRenaming(space)} onError={setError}
@@ -630,6 +645,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       <ScrollArea className="-mx-1 min-h-0 flex-1 max-[860px]:[&>[data-slot=scroll-area-viewport]]:max-h-[40vh] [&>[data-slot=scroll-area-viewport]>div]:block!">
       <div className="flex flex-col gap-1 px-1 py-0.5">
         {sections.map(section)}
+        {ws && !needle && <AddProjectButton tone="rail" className="mt-1 self-start" />}
         {error && <p role="alert" className="px-2.5 text-xs text-rail-you">{error}</p>}
         {ws && nothing && (needle || !spaces.some(w => !w.closed)) && (
           <div className="flex flex-col items-start gap-2 px-2.5 py-2 text-sm text-rail-ink-2">

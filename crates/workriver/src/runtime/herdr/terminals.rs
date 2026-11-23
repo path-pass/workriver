@@ -39,6 +39,27 @@ impl Herdr {
         Ok(())
     }
 
+    /// Waits for the agent just started in `pane` (`agent.start` answered at once): ready for
+    /// a prompt (Herdr knows its harness, its launch is over, it says a state), or blocked,
+    /// which waits for a person (`NotReady`). Still launching after a minute: `NotReady`
+    /// too, its pane left for whoever started it.
+    pub(super) fn launched(&self, pane: &str, name: &str) -> Result<(), RuntimeError> {
+        for _ in 0..120 {
+            let snap = self.snapshot()?;
+            if let Some(a) = snap.agents.iter().find(|a| a.pane_id == pane) {
+                if a.agent_status == "blocked" {
+                    return Err(RuntimeError::NotReady(format!("herdr: agent {name} was blocked during startup and is not ready for prompts")));
+                }
+                let known = a.agent.as_deref().is_some_and(|k| !k.is_empty());
+                if known && a.launch_pending != Some(true) && a.interactive_ready != Some(false) && !matches!(a.agent_status.as_str(), "" | "unknown") {
+                    return Ok(());
+                }
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        Err(RuntimeError::NotReady(format!("herdr: agent {name} is still not ready for prompts after a minute")))
+    }
+
     /// Starts `harness` as `name` in the root pane of a tab just made (`tab`, Herdr's answer).
     pub(super) fn launch(&self, tab: &Value, harness: &str, name: &str) -> Result<RuntimeAgent, RuntimeError> {
         let pane = tab["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr tab.create: no pane in the answer".into()))?.to_string();

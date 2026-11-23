@@ -8,6 +8,8 @@ local GET /api/metrics/history?machine=local&hours=1  anonymous 401  agent 200  
 local POST /api/metrics/thresholds  anonymous 401  agent 403  user 200
 local GET /api/settings/stall  anonymous 401  agent 403  user 200
 local POST /api/settings/stall  anonymous 401  agent 403  user 200
+local GET /api/settings/start  anonymous 401  agent 403  user 200
+local POST /api/settings/start  anonymous 401  agent 403  user 422
 local GET /api/workspace  anonymous 401  agent 200  user 200
 local GET /api/unit/u1/code  anonymous 401  agent 200  user 200
 local GET /api/intent/i1/history  anonymous 401  agent 200  user 200
@@ -26,6 +28,7 @@ local GET /api/agent/screen?agent=s-boss  anonymous 401  agent 403  user 200
 local POST /api/agent/keys  anonymous 401  agent 403  user 409
 local GET /api/agent/view?agent=nobody-here  anonymous 401  agent 403  user 404
 local POST /api/intent/start  anonymous 401  agent 403  user 422
+local POST /api/workspaces  anonymous 401  agent 403  user 422
 local POST /api/workspaces  anonymous 401  agent 403  user 422
 local POST /api/run/prepare  anonymous 401  agent 403  user 422
 local POST /api/run  anonymous 401  agent 403  user 422
@@ -47,6 +50,7 @@ local HEAD /api/machines  anonymous 401  agent 200  user 200
 local HEAD /api/metrics  anonymous 401  agent 200  user 200
 local HEAD /api/metrics/history?machine=local&hours=1  anonymous 401  agent 200  user 200
 local HEAD /api/settings/stall  anonymous 401  agent 403  user 200
+local HEAD /api/settings/start  anonymous 401  agent 403  user 200
 local HEAD /api/workspace  anonymous 401  agent 200  user 200
 local HEAD /api/unit/u1/code  anonymous 401  agent 200  user 200
 local HEAD /api/intent/i1/history  anonymous 401  agent 200  user 200

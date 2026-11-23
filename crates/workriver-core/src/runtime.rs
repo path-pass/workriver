@@ -110,6 +110,16 @@ pub enum RuntimeError {
     Ambiguous(String),
 }
 
+/// A harness as the runtime of a machine has it: whether its command is there, and whether
+/// the runtime's own integration for it (what reports its state and session) is current.
+#[derive(Serialize, Clone, PartialEq, Debug)]
+pub struct HarnessState {
+    /// The runtime's name for the harness ("claude", "codex").
+    pub kind: String,
+    pub installed: bool,
+    pub integrated: bool,
+}
+
 /// A change of an agent's state, as the runtime tells it when it happens.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Change {
@@ -151,7 +161,8 @@ pub trait Runtime: Send + Sync {
         Ok(vec![])
     }
     /// The root of `place` on `machine` (none: this one), or of every place there when no
-    /// place is named, read fresh; a place that is not there is not in the answer. This is
+    /// place is named, read fresh; a place that is not there is not in the answer, and a named
+    /// place whose root cannot be read now is an error, never an empty answer. This is
     /// how the service finds the place a calling process really runs at. By default, no
     /// place has a root the runtime knows.
     fn roots(&self, _machine: Option<&str>, _place: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
@@ -186,6 +197,33 @@ pub trait Runtime: Send + Sync {
     /// on first use as for `run_shell`. By default, no runtime can.
     fn start_temporary_at(&self, _machine: Option<&str>, _group: &str, _harness: &str, _name: &str, _cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
         Err(RuntimeError::None)
+    }
+    /// Opens a new place on `machine` (none: this one): a plain shell of the user's (no agent),
+    /// started in `dir`, inside the group labelled `group` (the first with that label, else
+    /// one made now), without taking the focus; returns the place. Nothing runs in it yet: its
+    /// shell is read with `shell_processes`, and it is closed with `close_shell`. By default,
+    /// no runtime can.
+    fn open_place(&self, _machine: Option<&str>, _group: &str, _dir: &str) -> Result<String, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// Starts `harness` (the runtime's name for it) under `name` in that place, which must be
+    /// a plain shell at its prompt, with `args` given to the harness as a list, never as a line
+    /// of shell. `NotReady`: it is there but waits for a person (a first-run question) or is
+    /// still launching; the place is kept either way, and closing it is the caller's. By
+    /// default, no runtime can.
+    fn start_in(&self, _machine: Option<&str>, _place: &str, _harness: &str, _name: &str, _args: &[String]) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// Whether an agent the runtime lists has a session of its harness's own yet; one that has
+    /// none goes by a name the adapter gives it (its place), which is nobody's session and is
+    /// never seated. By default, every listed agent has one.
+    fn has_session(&self, _agent: &RuntimeAgent) -> bool {
+        true
+    }
+    /// The harnesses the runtime on `machine` (none: this one) can start, as it sees them
+    /// there. By default, none.
+    fn harnesses(&self, _machine: Option<&str>) -> Result<Vec<HarnessState>, RuntimeError> {
+        Ok(vec![])
     }
     /// The last `lines` lines a place on `machine` shows, as plain text.
     fn read_place(&self, _machine: Option<&str>, _place: &str, _lines: u32) -> Result<String, RuntimeError> {
