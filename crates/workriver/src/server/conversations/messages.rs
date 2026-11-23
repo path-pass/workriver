@@ -15,28 +15,20 @@ impl App {
     }
 
     /// The user wrote to a manager (or to every manager: each copy alike): typed into its
-    /// terminal now, or held while it waits for a person there or its runtime cannot be read
-    /// (`hand`), or recorded as not delivered when a read of the runtime does not list it.
+    /// terminal now, held while it cannot take it, or recorded as not delivered (`hand`).
     pub(in crate::server) fn tell_manager(&self, id: &str) {
         // Without the message nothing is given to anyone: it stays as the page shows it, sent
         // and not delivered yet.
         let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
         let Ok(m) = all.message(id) else { return };
         // To one manager: its message, `copy` empty; to every manager: each one's copy.
-        let copies: Vec<(String, String)> = match m.to.is_empty() {
-            true => vec![(String::new(), m.manager.clone())],
-            false => m.to.iter().map(|r| (r.manager.clone(), r.manager.clone())).collect(),
+        let held: Vec<Held> = match m.to.is_empty() {
+            true => vec![Held::new(&all, For::Message, id, &m.manager, self.user_message(&all, m, ""), None)],
+            false => m.to.iter().map(|r| Held::new(&all, For::Broadcast, id, &r.manager, self.user_message(&all, m, &r.manager), None)).collect(),
         };
-        // A manager with no name on record goes by its session, as everywhere.
-        let copies: Vec<_> = copies.into_iter().map(|(copy, to)| (self.user_message(&all, m, &copy), all.name_of(&to).unwrap_or(&to).to_string(), copy, to)).collect();
         drop(all);
-        let live = self.runtime.agents();
-        for (text, name, copy, to) in copies {
-            match &live {
-                // A list not read says nobody is gone: `hand` holds it until one is read.
-                Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, &copy, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
-                _ => self.hand(Held { question: id.into(), kind: if copy.is_empty() { For::Message } else { For::Broadcast }, to, name, text, not_ready: None, about: None }),
-            }
+        for h in held {
+            self.hand(h);
         }
     }
 
@@ -50,18 +42,6 @@ impl App {
         let code = m.context.iter().any(|c| matches!(c.kind.as_str(), "file" | "lines"));
         let dir = all.unit(&m.unit).ok().filter(|_| code).map(|u| self.work_tree(u));
         delivery::user_message(all, m, &self.home, dir.as_deref())
-    }
-
-    /// Whether a message to a manager is still for the appointment it was sent to: the seat
-    /// of its workspace (to every manager: of that copy's) holds `to` under the same
-    /// `since`. None: the records cannot be read now.
-    pub(super) fn still_appointed(&self, id: &str, to: &str) -> Option<bool> {
-        let all = got(self.store.lock().unwrap().recorded()).ok()??;
-        let Ok(m) = all.message(id) else { return Some(false) };
-        Some(match m.to.iter().find(|r| r.manager == to) {
-            Some(r) => all.appointed(&r.workspace, &r.manager, r.since),
-            None => m.manager == to && all.appointed(&m.workspace, &m.manager, m.since),
-        })
     }
 
     /// Where a unit's branch is checked out, else its repository (a research unit: its

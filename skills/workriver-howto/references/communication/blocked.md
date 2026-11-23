@@ -27,7 +27,9 @@ refused: tell the manager instead,
 
 `workriver manager tell <task> --text "…"` is how any worker reaches its manager (a renamed
 branch, a contract that seems wrong, being stuck on a blind task): the text is typed into the
-manager's terminal, quoted, while it runs. Never type into another agent's terminal.
+manager's terminal, quoted; while the manager waits at a dialog, is on a blind task or is not
+running, it is held and given once it can take it (while it is still that manager). Never
+type into another agent's terminal.
 
 **Not a blocker:** a dialog your harness shows in your terminal (a permission prompt, a
 question, a trust or hooks review). The user sees it in Needs you and answers it from the

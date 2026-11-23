@@ -145,7 +145,7 @@ it); else none.
      message waits; 503). A session with no seat is at the one place its machine's runtime
      shows it (`Runtime::resolve`), and the runtime is asked to type only by `type_at`
      (`send_at`: that place, while it shows the session). What is for a session is found
-     by that session alone, never by an agent's name (`App::send_by_session`). The lock
+     by that session alone, never by an agent's name (`App::receiver`). The lock
      order: `discussing`, then `appointing`, then the agent's writer. A send finds its
      place under `appointing` (or `discussing`), so a seat change waits for it, over ssh
      too; a press finds its place under none, then takes the writer.

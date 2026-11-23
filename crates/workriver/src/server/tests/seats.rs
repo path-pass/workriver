@@ -405,15 +405,14 @@ fn a_seat_change_during_a_queued_send_stops_it() {
     let continue_rx = Mutex::new(continue_rx);
     let calls = AtomicUsize::new(0);
     let stand_in = Arc::downgrade(&fake);
-    *fake.on_agents.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, SeqCst) {
-        // The poll's read: boss is free, the message is taken up again.
-        0 => stand_in.upgrade().unwrap().agents.lock().unwrap()[0].1.state = Idle,
-        // Inside `hand`, after its first check of the appointment, before typing.
-        1 => {
+    *fake.on_agents.lock().unwrap() = Some(Arc::new(move || {
+        // The poll's read, which the held message is given against: boss is free; the seat
+        // changes before the message's appointment is checked.
+        if calls.fetch_add(1, SeqCst) == 0 {
+            stand_in.upgrade().unwrap().agents.lock().unwrap()[0].1.state = Idle;
             paused_tx.send(()).unwrap();
             let _ = continue_rx.lock().unwrap().recv_timeout(Duration::from_secs(10));
         }
-        _ => {}
     }));
     paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
     seat(&d, "ws1", Some("s-rev")).unwrap();
@@ -856,4 +855,35 @@ fn an_agent_named_after_a_remote_seated_session_not_listed_gets_nothing() {
     let evil: Vec<String> = local.sent.lock().unwrap().iter().filter(|(t, _)| t == "s-evil").map(|(_, m)| m.clone()).collect();
     assert!(evil.is_empty(), "typed into the agent named after the session: {evil:?}");
     assert!(far.sent.lock().unwrap().iter().all(|(_, m)| !m.contains("UNLISTED")), "typed nothing over there");
+}
+
+/// A notice held for a seated manager whose seat is lost does not outlive that appointment:
+/// once the user seats another session, it is dropped, typed neither into the terminal that
+/// reports the old session nor into the new manager.
+#[test]
+fn a_held_notice_does_not_outlive_its_appointment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    let (boss, worker, rev) = (started_in("s-boss", "boss", "/w/boss"), started_in("s-w", "ja-impl", "/w/w"), started_in("s-rev", "rev", "/w/rev"));
+    *fake.agents.lock().unwrap() = vec![("p1".into(), boss), ("p2".into(), worker.clone()), ("p3".into(), rev.clone())];
+    let (d, kernel) = daemon_and(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
+    let at_worker = Daemon { place: Some("p2".into()), home: Some(tmp.path().to_path_buf()), ..d.clone() };
+    at_worker.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    // The seat is lost: its terminal is gone, and the session reports from another folder.
+    kernel.procs.kill(root("p1"));
+    *fake.agents.lock().unwrap() = vec![("p5".into(), started_in("s-boss", "boss", "/w/x")), ("p2".into(), worker), ("p3".into(), rev)];
+    wait_until("the seat is lost", || workspace(&d, "ws1")["proposal"] == "s-boss");
+    at_worker.append("", "manager.told", json!({ "unit": "u1", "task": 1, "text": "TOLD_THE_OLD_SEAT" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    // The user seats another session; the old one is now no manager, still reported at p5.
+    seat(&d, "ws1", Some("s-rev")).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
+    assert!(sent_to(&fake, "TOLD_THE_OLD_SEAT").is_empty(), "typed after its appointment ended: {:?}", sent_to(&fake, "TOLD_THE_OLD_SEAT"));
 }

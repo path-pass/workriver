@@ -204,7 +204,7 @@ moves code keeps the guards of `docs/design/guards.md` green without editing the
   session's root is kept (`App::one_place`, `see_roots`): it comes back by itself only on
   the seat's machine and in its folder, anything else is refused until the user seats it.
   What is sent to or asked under one appointment (`Seat.since`) never reaches another
-  (`appointed`, `still_appointed`). The rules never read an intent's project from its units
+  (`appointed`, and `Held.seat` as `App::give` checks it). The rules never read an intent's project from its units
   or from a folder no registered project holds (`intent_project`). Reading is
   scoped the same way: a route that
   returns records goes through `App::view` (the user sees all; an agent sees all but the

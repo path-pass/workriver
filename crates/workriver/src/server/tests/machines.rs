@@ -118,7 +118,7 @@ fn machines_are_separate_and_need_no_link() {
     seat(&d, "ws1", Some("s-far")).unwrap();
     assert!(seat_of(&d, &far_ws).is_null(), "its old seat is empty");
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
-    let got = far.sent.lock().unwrap().last().unwrap().clone();
+    let got = far.sent.lock().unwrap().iter().rev().find(|(_, m)| m.contains("P2-1")).unwrap().clone();
     assert!(got.0 == "s-far" && got.1.contains("Attachments: `workriver attach fetch ") && got.1.contains(".png` (run it: the file is saved in the folder you are in)") && !got.1.contains("curl") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
     // The user's message with a file attached: to that manager, the file is a fetch command too.
     let mine = d.upload(&shot, "user", None).unwrap();
@@ -165,10 +165,9 @@ fn this_machines_agents_are_as_last_seen_while_its_runtime_does_not_answer() {
 
 /// A worker on another machine that started since that machine's agents were last read is
 /// told of a requirement added to its task all the same, once, and a file that came with it
-/// is the command that fetches it there, never a path on this machine. Looking for it is
-/// not the request's to wait for: the command is answered at once (recorded, its agent not
-/// told yet), and the worker is told as soon as its own machine is read, however long other
-/// machines take to answer.
+/// is the command that fetches it there, never a path on this machine. The command is
+/// answered at once (recorded, its agent not told yet: the note is held), and the worker is
+/// told at the poll after its own machine's next read, however long other machines take.
 #[test]
 fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
     use workriver_core::runtime::AgentState::*;
@@ -210,10 +209,13 @@ fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
     let asked = std::time::Instant::now();
     let out = d.append("s-boss", "task.noted", json!({ "unit": "u1", "task": 1, "text": "Also the queue", "attachments": [up["id"]] })).unwrap();
     assert!(asked.elapsed() < std::time::Duration::from_secs(1), "answered after {:?}", asked.elapsed());
-    assert_eq!(crate::cli::made(&out), "added to u1#1; not told yet: far is not seen running: it is told once it is found on a machine workriver follows");
+    assert_eq!(crate::cli::made(&out), "added to u1#1; not told yet: far is not running: it is told once it can be");
     let added = || far.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("added requirement")).cloned().collect::<Vec<_>>();
+    // Its machine's own read (the others still being read on their threads).
+    all.refresh(std::time::Duration::from_millis(500));
+    let read = std::time::Instant::now();
     wait_until("the worker is told", || !added().is_empty());
-    assert!(asked.elapsed() < std::time::Duration::from_millis(2500), "told after {:?}: not held up by the slow machines", asked.elapsed());
+    assert!(read.elapsed() < std::time::Duration::from_millis(3000), "told after {:?}: not held up by the slow machines", read.elapsed());
     let m = added();
     assert_eq!(m.len(), 1, "{m:?}");
     assert!(m[0].0 == "s-far" && m[0].1.contains("Attachments: `workriver attach fetch ") && !m[0].1.contains(&tmp.path().display().to_string()), "{m:?}");

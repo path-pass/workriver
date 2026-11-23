@@ -132,7 +132,6 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         pending: Mutex::default(),
         deadlines: Mutex::default(),
         held: Mutex::default(),
-        notes: Mutex::default(),
         idle: Mutex::default(),
         waits,
         blocked: Mutex::default(),

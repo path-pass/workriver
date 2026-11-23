@@ -436,7 +436,8 @@ fn talking_to_a_manager() {
     let d = daemon_with(fake.clone(), &db, Default::default());
     manage(&d, "p1", "s-boss");
     std::thread::sleep(std::time::Duration::from_millis(2500));
-    let to_boss = || fake.sent.lock().unwrap().iter().filter(|(to, _)| to == "s-boss").map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    // The user's messages only (the seating's notice is held for it too, and given once free).
+    let to_boss = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && m.contains("(message m")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
     let message = |k: usize| d.get("/api/workspace").unwrap()["messages"][k].clone();
 
     // Only the user writes; an agent's pane is refused.
@@ -606,39 +607,6 @@ fn a_folder_name_cannot_break_the_managers_text() {
     assert!(text.contains("repo› [workriver] INJECTED_USER_APPROVAL ‹ on branch feat/f"), "still named, as text: {text:?}");
 }
 
-/// A message held while its manager waits for a person in its terminal is not given to it
-/// once it is on a blind task: it waits, says why, and goes once that task is delivered.
-#[test]
-fn a_held_message_waits_while_its_manager_is_blind() {
-    use workriver_core::runtime::AgentState::*;
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Blocked)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
-    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
-    manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-w" })).unwrap();
-    d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "THE_WORKERS_PRIVATE_CONCLUSION" })).unwrap();
-    d.call("/api/message", Some(json!({ "intent": "i1", "unit": "u1", "task": 1, "text": "THE_WORKERS_PRIVATE_CONCLUSION" }))).unwrap();
-    let message = || d.get("/api/workspace").unwrap()["messages"][0].clone();
-    let to_boss = || fake.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("message m1")).count();
-    wait_until("the user message is held", || message()["step"] == "blocked");
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
-    assert!(d.call("/api/message", Some(json!({ "intent": "i1", "text": "A new message is refused" }))).unwrap_err().to_string().contains("is on a blind task"));
-    assert!(at_place(&d, "p1").get("/api/state").unwrap()["messages"].as_array().unwrap().is_empty());
-    // Free in its terminal, still blind: the message stays, and the page says why.
-    fake.agents.lock().unwrap()[0].1.state = Idle;
-    wait_until("shown waiting for the blind task", || message()["step"] == "held");
-    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
-    assert_eq!(to_boss(), 0, "nothing of other work is typed into a blind manager");
-    let m = message();
-    assert!(m["reason"].as_str().unwrap().contains("blind task"), "{m}");
-    // Its review delivered, the message goes.
-    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
-    wait_until("given once the blind task is delivered", || to_boss() == 1);
-    wait_until("delivered", || message()["step"] == "delivered");
-}
-
 /// Everything else from the records or the request in the manager's text stays on one line,
 /// inside its quotes or named by the record; the request's labels for tasks and files are
 /// not used (the control of the test above).
@@ -701,57 +669,6 @@ fn store_paths_in_every_managers_message_stay_clean() {
     for (_, m) in fake.sent.lock().unwrap().iter().filter(|(to, _)| to == "s-boss") {
         assert!(!m.chars().any(char::is_control) && !m.contains("SPOOFED"), "{m:?}");
     }
-}
-
-/// An answer to a question the manager asked, coming while it is on a blind task, is held and
-/// given once that task is delivered: never typed in while blind, never lost.
-#[test]
-fn an_answer_waits_for_a_blind_manager() {
-    use workriver_core::runtime::AgentState::*;
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
-    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
-    manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-w" })).unwrap();
-    d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Design recorded" })).unwrap();
-    let boss = at_place(&d, "p1");
-    boss.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why this design?" }))).unwrap();
-    wait_until("the question is in flight", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
-    assert!(boss.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Another question" }))).is_err());
-    d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "SECRET_NEW_ANSWER_WHILE_BLIND" })).unwrap();
-    let answers = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && m.contains("SECRET_NEW_ANSWER_WHILE_BLIND")).count();
-    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
-    assert_eq!(answers(), 0, "not typed into a blind manager");
-    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
-    wait_until("given once its blind task is delivered", || answers() == 1);
-}
-
-/// What `delivery::plan` tells a manager (here a worker's delivery) waits while the manager is
-/// on a blind task, and goes, recorded as delivered, once that task is.
-#[test]
-fn a_delivery_notice_waits_for_a_blind_manager() {
-    use workriver_core::runtime::AgentState::*;
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
-    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
-    manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-boss" })).unwrap();
-    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "done" })).unwrap();
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Other work", "agent": "s-w", "inputs": [{ "from": "1" }] })).unwrap();
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
-    at_place(&d, "p2").append("", "task.delivered", json!({ "unit": "u1", "task": 2, "note": "OTHER_WORKS_PRIVATE_NOTE", "findings": [] })).unwrap();
-    let told = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && m.contains("OTHER_WORKS_PRIVATE_NOTE")).count();
-    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
-    assert_eq!(told(), 0, "not typed into a blind manager");
-    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 3, "findings": [] })).unwrap();
-    wait_until("given once its blind task is delivered", || told() == 1);
-    wait_until("recorded as delivered", || d.get("/api/state").unwrap()["units"][0]["tasks"][1]["delivery"]["step"] == "delivered");
 }
 
 /// To a manager on another machine a stored file is the command that fetches it, whatever
@@ -1373,35 +1290,6 @@ fn reviewed_and_discussed(d: &Daemon, fake: &Fake, started: bool) {
     wait_until("given", || sent(fake, "s-r").len() == 1);
 }
 
-/// A manager on a blind task is told nothing of a discussion while blind, and what it must
-/// act on (the amendment, the conclusion) once that task is delivered: held, never lost.
-#[test]
-fn a_blind_manager_hears_of_the_discussion_later() {
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    let d = researched(&fake, &tmp.path().join("w.db"));
-    reviewed_and_discussed(&d, &fake, true);
-    // The manager takes a blind review of other work.
-    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "Other", "kind": "research" })).unwrap();
-    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "design", "title": "Other design", "agent": "s-x" })).unwrap();
-    d.append("s-x", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "OTHER" })).unwrap();
-    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
-    let before = sent(&fake, "s-boss").len();
-    d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, AMENDED_IN_DISCUSSION." })).unwrap();
-    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "", "conclude": true }))).unwrap();
-    wait_until("conclusion asked", || sent(&fake, "s-r").len() == 2);
-    d.append("s-r", "question.answered", json!({ "question": "q2", "text": "CONCLUSION_TEXT", "conclusion": true })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(3000));
-    let blind_got: Vec<String> = sent(&fake, "s-boss")[before..].to_vec();
-    assert!(blind_got.iter().all(|m| !m.contains("CONCLUSION_TEXT") && !m.contains("amended u1#1")), "nothing typed into a blind manager: {blind_got:?}");
-    // Its blind task delivered: what it must act on reaches it now.
-    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
-    wait_until("the manager hears both", || {
-        let later = sent(&fake, "s-boss")[before..].to_vec();
-        later.iter().any(|m| m.contains("amended u1#1")) && later.iter().any(|m| m.contains("CONCLUSION_TEXT"))
-    });
-}
-
 /// A manager waiting for a person in its terminal is not typed over: what it must act on
 /// waits, and is given once it is free.
 #[test]
@@ -1497,58 +1385,6 @@ fn on_blind_review(d: &Daemon, agent: &str) {
     d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "review", "reviewer": "security-review", "agent": agent, "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
 }
 
-/// `workriver manager tell` to a manager on a blind task: nothing typed in while blind, and
-/// given once its blind task is delivered (held, as every notice an agent must act on).
-#[test]
-fn a_blind_manager_hears_a_worker_later() {
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    let d = researched(&fake, &tmp.path().join("w.db"));
-    // Control: not blind, it arrives.
-    d.append("s-r", "manager.told", json!({ "unit": "u1", "task": 1, "text": "CONTROL_TELL" })).unwrap();
-    wait_until("control told", || sent(&fake, "s-boss").iter().any(|m| m.contains("CONTROL_TELL")));
-    on_blind_review(&d, "s-boss");
-    let out = d.append("s-r", "manager.told", json!({ "unit": "u1", "task": 1, "text": "STUCK_NEED_X" })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(4500));
-    assert!(sent(&fake, "s-boss").iter().all(|m| !m.contains("STUCK_NEED_X")), "nothing typed into a blind manager");
-    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(4500));
-    assert!(sent(&fake, "s-boss").iter().any(|m| m.contains("STUCK_NEED_X")), "the worker's message is never given to the manager (the append answered {out})");
-}
-
-/// A task dropped while its agent is on a blind task: it is told to stop once that task is
-/// delivered, not before.
-#[test]
-fn a_blind_agent_hears_its_task_dropped_later() {
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    let d = researched(&fake, &tmp.path().join("w.db"));
-    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "More stores", "agent": "s-r", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
-    on_blind_review(&d, "s-r");
-    d.append("s-boss", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "DROP_REASON" })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(4500));
-    assert!(sent(&fake, "s-r").iter().all(|m| !m.contains("DROP_REASON")), "nothing typed into a blind agent");
-    d.append("s-r", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(4500));
-    assert!(sent(&fake, "s-r").iter().any(|m| m.contains("DROP_REASON")), "the agent is never told its task u1#3 was dropped: {:?}", sent(&fake, "s-r"));
-}
-
-/// A unit closed while its manager is on a blind task: the manager is told (to tell the user,
-/// to close its workers) once that task is delivered, not before.
-#[test]
-fn a_blind_manager_hears_work_is_over_later() {
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    let d = researched(&fake, &tmp.path().join("w.db"));
-    on_blind_review(&d, "s-boss");
-    d.append("user", "unit.done", json!({ "unit": "u1", "reason": "UNIT_OVER" })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(4500));
-    assert!(sent(&fake, "s-boss").iter().all(|m| !m.contains("u1 is done")), "nothing typed into a blind manager");
-    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(4500));
-    assert!(sent(&fake, "s-boss").iter().any(|m| m.contains("u1 is done")), "the manager never hears u1 is done: {:?}", sent(&fake, "s-boss"));
-}
-
 /// The same notices reach an agent that is not blind at once.
 #[test]
 fn notices_reach_an_agent_that_is_not_blind() {
@@ -1635,16 +1471,14 @@ fn a_gate_submitted_during_the_send_stops_the_prompt() {
     let continue_rx = Mutex::new(continue_rx);
     let calls = AtomicUsize::new(0);
     let stand_in = Arc::downgrade(&fake);
-    *fake.on_agents.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, SeqCst) {
-        // First list in poll: make the held question eligible for retry.
-        0 => stand_in.upgrade().unwrap().agents.lock().unwrap()[1].1.state = Idle,
-        // The second is inside hand, after its read of the gate and before its runtime
-        // send.
-        1 => {
+    *fake.on_agents.lock().unwrap() = Some(Arc::new(move || {
+        // The poll's read, which the held question is given against: its agent is free; the
+        // gate is submitted before the question is checked.
+        if calls.fetch_add(1, SeqCst) == 0 {
+            stand_in.upgrade().unwrap().agents.lock().unwrap()[1].1.state = Idle;
             paused_tx.send(()).unwrap();
             continue_rx.lock().unwrap().recv_timeout(Duration::from_secs(10)).unwrap();
         }
-        _ => {}
     }));
     paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
     let submitted = d.call("/api/gate", Some(json!({"unit":"u1","task":2,"result":"done"})));
@@ -1916,4 +1750,181 @@ fn message_show_keeps_same_name_workspaces_apart() {
     for place in ["p1", "p2", "p3", "p4"] {
         show_matches_view(&c.t.d, place, 4);
     }
+}
+
+/// What a worker's delivery tells a manager that waits for a person in its terminal is held,
+/// recorded so with why, and delivered once the manager is free (it was "not delivered").
+#[test]
+fn a_planned_delivery_to_a_blocked_agent_is_held_then_delivered() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "More", "agent": "s-x", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    fake.agents.lock().unwrap()[0].1.state = Blocked;
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees it wait
+    at_place(&d, "p3").append("", "task.delivered", json!({ "unit": "u1", "task": 3, "note": "HELD_DELIVERY_NOTE" })).unwrap();
+    let delivery = || d.get("/api/state").unwrap()["units"][0]["tasks"][2]["delivery"].clone();
+    wait_until("recorded held", || delivery()["step"] == "held");
+    assert!(delivery()["reason"].as_str().unwrap().contains("waits for a person"), "{}", delivery());
+    assert!(sent(&fake, "s-boss").iter().all(|m| !m.contains("HELD_DELIVERY_NOTE")));
+    fake.agents.lock().unwrap()[0].1.state = Idle;
+    wait_until("delivered once free", || delivery()["step"] == "delivered");
+    assert_eq!(sent(&fake, "s-boss").iter().filter(|m| m.contains("HELD_DELIVERY_NOTE")).count(), 1);
+}
+
+/// What workriver tells an agent with no record of its own (here the answer to a question
+/// the manager asked) is held while the manager waits for a person, and given once it is
+/// free: never lost.
+#[test]
+fn a_notice_to_a_blocked_manager_arrives_once_free() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    at_place(&d, "p1").call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why SQLite?" }))).unwrap();
+    wait_until("the question is in flight", || !sent(&fake, "s-why-q1").is_empty());
+    fake.agents.lock().unwrap()[0].1.state = Blocked;
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees it wait
+    d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "ANSWER_WHILE_BLOCKED" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert!(sent(&fake, "s-boss").iter().all(|m| !m.contains("ANSWER_WHILE_BLOCKED")), "not typed over its prompt");
+    fake.agents.lock().unwrap()[0].1.state = Idle;
+    wait_until("given once free", || sent(&fake, "s-boss").iter().any(|m| m.contains("ANSWER_WHILE_BLOCKED")));
+}
+
+/// A question held while its temporary agent waits for a person is typed in at the next try
+/// even when the agent is at work by then, as a first try is.
+#[test]
+fn a_held_question_is_typed_into_a_working_agent() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    *fake.start_as.lock().unwrap() = Some(Blocked);
+    at_place(&d, "p1").call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why SQLite?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert!(sent(&fake, "s-why-q1").is_empty(), "not typed over its prompt");
+    fake.agents.lock().unwrap().iter_mut().filter(|(_, a)| a.session == "s-why-q1").for_each(|(_, a)| a.state = Working);
+    wait_until("typed into it at work", || sent(&fake, "s-why-q1").len() == 1);
+}
+
+/// A runtime that takes nothing for a moment (nothing was typed) fails neither a
+/// discussion's question nor a temporary agent's: both are held and given once it does.
+#[test]
+fn nothing_typed_is_held_not_failed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    fake.prompt_down.store(true, std::sync::atomic::Ordering::SeqCst);
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why not Postgres?" }))).unwrap();
+    at_place(&d, "p1").call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why SQLite?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let failed = d.get("/api/state").unwrap()["questions"].as_array().unwrap().iter().filter(|q| q.get("failed").is_some_and(|f| !f.is_null())).count();
+    assert_eq!(failed, 0, "{}", d.get("/api/state").unwrap()["questions"]);
+    fake.prompt_down.store(false, std::sync::atomic::Ordering::SeqCst);
+    wait_until("the discussion's question is given", || sent(&fake, "s-r").iter().any(|m| m.contains("Why not Postgres?")));
+    wait_until("the question is given", || sent(&fake, "s-why-q2").iter().any(|m| m.contains("Why SQLite?")));
+}
+
+/// A requirement added to a task whose agent waits for a person is held ("not told yet")
+/// and given once the agent is free (it was "not told").
+#[test]
+fn a_task_note_to_a_blocked_agent_is_held_then_given() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "More", "agent": "s-x", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    at_place(&d, "p3").append("", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+    fake.agents.lock().unwrap()[2].1.state = Blocked;
+    let out = d.append("s-boss", "task.noted", json!({ "unit": "u1", "task": 3, "text": "NOTE_WHILE_BLOCKED" })).unwrap();
+    assert!(crate::cli::made(&out).starts_with("added to u1#3; not told yet: other waits for a person"), "{out}");
+    fake.agents.lock().unwrap()[2].1.state = Idle;
+    wait_until("given once free", || sent(&fake, "s-x").iter().any(|m| m.contains("NOTE_WHILE_BLOCKED")));
+}
+
+/// Nothing of other work is typed into a manager on a blind task, whatever kind it is: the
+/// user's message (held, the page says why; a new one is refused), the answer to its
+/// question, a worker's `manager tell`, a planned delivery's message (recorded held), a task
+/// dropped and work over. Each is held, through the poll, and given once that task is
+/// delivered: never lost.
+#[test]
+fn nothing_reaches_a_blind_manager_until_it_delivers() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "More", "agent": "s-x", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Spare", "agent": "s-r", "inputs": [{ "from": "1" }] })).unwrap(); // u1#4
+    at_place(&d, "p1").call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why SQLite?" }))).unwrap();
+    wait_until("the question is in flight", || !sent(&fake, "s-why-q1").is_empty());
+    // The user's message waits on the manager's prompt; then the manager goes blind.
+    fake.agents.lock().unwrap()[0].1.state = Blocked;
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    d.call("/api/message", Some(json!({ "intent": "i1", "text": "BLIND_MESSAGE" }))).unwrap();
+    let message = || d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().find(|m| m["text"] == "BLIND_MESSAGE").unwrap().clone();
+    wait_until("the message is held", || message()["step"] == "blocked");
+    on_blind_review(&d, "s-boss");
+    assert!(d.call("/api/message", Some(json!({ "intent": "i1", "text": "A new message is refused" }))).unwrap_err().to_string().contains("is on a blind task"));
+    fake.agents.lock().unwrap()[0].1.state = Idle;
+    wait_until("shown waiting for the blind task", || message()["step"] == "held");
+    assert!(message()["reason"].as_str().unwrap().contains("blind task"), "{}", message());
+    // Everything else, while it is blind.
+    d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "BLIND_ANSWER" })).unwrap();
+    d.append("s-r", "manager.told", json!({ "unit": "u1", "task": 1, "text": "BLIND_TELL" })).unwrap();
+    at_place(&d, "p3").append("", "task.delivered", json!({ "unit": "u1", "task": 3, "note": "BLIND_DELIVERY" })).unwrap();
+    d.append("user", "task.dropped", json!({ "unit": "u1", "task": 4, "reason": "BLIND_DROP" })).unwrap();
+    d.append("user", "unit.done", json!({ "unit": "u1", "reason": "UNIT_OVER" })).unwrap();
+    let markers = ["message m1", "BLIND_ANSWER", "BLIND_TELL", "BLIND_DELIVERY", "BLIND_DROP", "u1 is done"];
+    wait_until("the delivery is recorded held", || d.get("/api/state").unwrap()["units"][0]["tasks"][2]["delivery"]["step"] == "held");
+    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
+    let got = sent(&fake, "s-boss");
+    assert!(markers.iter().all(|k| got.iter().all(|m| !m.contains(k))), "typed into a blind manager: {got:?}");
+    // Its blind task delivered: everything reaches it, once.
+    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
+    wait_until("all of it reaches the manager", || markers.iter().all(|k| sent(&fake, "s-boss").iter().any(|m| m.contains(k))));
+    wait_until("the message is delivered", || message()["step"] == "delivered");
+    wait_until("the delivery is recorded delivered", || d.get("/api/state").unwrap()["units"][0]["tasks"][2]["delivery"]["step"] == "delivered");
+}
+
+/// A task given to a name no live agent had (recorded as that name) is dropped while no agent
+/// goes by it; an agent of that name then runs: it is told to stop, by that name (a `to` the
+/// records know no session by is found as `send` finds it, design 2.2).
+#[test]
+fn a_dropped_task_given_by_name_reaches_its_agent_once_listed() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Later", "agent": "later", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    assert_eq!(d.get("/api/state").unwrap()["units"][0]["tasks"][2]["agent"], "later");
+    d.append("user", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "DROPPED_BY_NAME" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    fake.agents.lock().unwrap().push(("p4".into(), live("s-later", "later", "w1", Idle)));
+    wait_until("told by its name", || sent(&fake, "s-later").iter().any(|m| m.contains("DROPPED_BY_NAME")));
+}
+
+/// A notice held for a name (a task given by name, dropped before its agent ran); the agent
+/// of that name then runs and starts a blind task given to its session. Nothing of other work
+/// reaches it while blind: the blind check is of the agent it would be typed into. Once that
+/// task is delivered, the notice arrives.
+#[test]
+fn a_notice_by_name_waits_for_a_blind_agent() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Later", "agent": "later", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    d.append("user", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "DROP_WHILE_BLIND" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    fake.agents.lock().unwrap().push(("p4".into(), live("s-later", "later", "w1", Blocked)));
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Blind look", "agent": "s-later", "blind": true, "inputs": [{ "from": "1" }] })).unwrap(); // u1#4
+    d.append("s-later", "task.started", json!({ "unit": "u1", "task": 4 })).unwrap();
+    fake.agents.lock().unwrap().last_mut().unwrap().1.state = Idle;
+    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
+    assert!(sent(&fake, "s-later").iter().all(|m| !m.contains("DROP_WHILE_BLIND")), "typed into an agent on a blind task: {:?}", sent(&fake, "s-later"));
+    d.append("s-later", "task.delivered", json!({ "unit": "u1", "task": 4, "note": "seen" })).unwrap();
+    wait_until("given once its blind task is delivered", || sent(&fake, "s-later").iter().any(|m| m.contains("DROP_WHILE_BLIND")));
 }
