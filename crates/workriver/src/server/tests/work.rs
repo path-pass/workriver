@@ -419,7 +419,8 @@ fn replays_a_copied_database() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("w.db");
     std::fs::copy(&from, &db).unwrap();
-    let store = opened(&db);
+    // Opened as it is: the tests' templates of no steps are not saved into the user's records.
+    let store = workriver_data::Store::open(&db).unwrap();
     let s = store.state();
     for i in &s.intents {
         println!("{} {:?} {:?} project={:?} workspace={:?} manager={:?}", i.id, i.title, i.state, i.project, i.workspace, s.manager_of(&i.id));
