@@ -93,7 +93,7 @@ crates/             Rust workspace, four crates:
   workriver-data/   the SQLite event store (sqlite/), which implements the data port
   workriver-scan/   git and the file tree: runner.rs, history/, files/
   workriver/        the binary: cli/ (the CLI process), server/ (the service: app/,
-                    access/, http/, then a folder per domain), runtime/ (the facade;
+                    access/, http/, schedule/, then a folder per domain), runtime/ (the facade;
                     herdr/, the one adapter, private to it), common/ (both sides: config/,
                     home.rs, process.rs, wire/, diagnostics/)
 skills/             what agents read; the binary embeds all of it (`workriver guide …`):

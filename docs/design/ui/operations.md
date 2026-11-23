@@ -1,7 +1,8 @@
 # Operations: running commands, machines and settings
 
 Running a command as the user, the machines workriver follows and their alerts, stopped
-workers, Settings, and opening an agent's terminal.
+workers, Settings, the jobs the service runs by the clock, and opening an agent's
+terminal.
 
 Moved from `DESIGN.md` when it was split into these files, word for word but for paths
 made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
@@ -181,6 +182,18 @@ its sections went.
   The tab picked is kept in this browser (`workriver.settings.tab`) and the gear opens
   Settings on it next time; a kept tab that has no tab now opens General. No setting does
   anything else because of the tabs.
+
+## Jobs by the clock
+
+- **`workriver status`** ends with a `jobs (times in UTC):` block, one line per job the
+  service runs by the clock (today one, `attachments`), and nothing when it runs none. The
+  CLI knows no job: names and words are the service's (`/api/status`, `jobs`; on another
+  machine's listener the key is left out). A line is the name, then `next <date time>` (or
+  `nothing due`), then the last run: `last <date time> (timer|user, 4.2 s): <words>`,
+  `FAILED: <words>` after the time when it failed, or `not run since the service started`;
+  `running now` at its end while a run is on. Times are UTC, to the minute. A failure is
+  shown there, in the log and in the job's own part of the page until the next run
+  replaces it; never as an event, never in Needs you.
 
 ## Opening a terminal
 
