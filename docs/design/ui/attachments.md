@@ -107,12 +107,9 @@ its sections went.
       10 000 characters (306–357); the same without labels, as lines, one-line chains or
       `;`-joined: 205–216 (210–264); random and complete graphs, nested subgraphs, long
       links, labels filling 10 000 characters on 80 nodes: 74–203;
-    - ER: 78 relations of that shape took 254 ms (300–350), and entities of 8 attributes
-      took 35 ms. A separate render-time probe with Mermaid 12.3.0 in headless Chrome for Testing 1217
-      took 58–100 ms for 14 relations with 70 attribute lines, and 170–185 ms for 78 relations
-      alone. The same 78 relations with attributes in 40 entity blocks, within 10 000
-      characters, took 257, 279 and 266 ms. The probe can exceed the weight bound because
-      the entity declarations also count.
+    - ER (Mermaid 12.3.0): 378 ms, the heaviest kind, 78 relations plus one entity holding
+      attribute lines up to 10 000 characters; 77 relations with 2 attribute blocks: 332–371;
+      69 relations with 10 blocks: 289–316; 79 relations alone: 161–180;
     - class: 244 ms, 78 relations of that shape (357–412); namespaces, classes of 8
       members: 30–55;
     - state: 221 ms, 78 transitions of that shape (286–390); composite states nested 14
@@ -123,7 +120,8 @@ its sections went.
     them 0.3–0.7 s, 200 of them 1.6–2.9 s, the 499 of a review's input 24 s, so the weight bound
     sits where the worst is under half the budget, room for a slower machine. In the page
     itself (the app, then the first diagram, mermaid loaded then; production build) the
-    heaviest allowed held it for 364 ms (404 in the earlier measurement); every refused block, the
+    heaviest allowed held it for 364 ms (404 in the earlier measurement; both before attribute
+    blocks stopped counting in ER, not measured in the page since); every refused block, the
     inputs reviews found too heavy among them, for under 15 ms.
   - One diagram is drawn at a time, with a pause between, so many do not hold the page; one
     no longer shown is skipped.
