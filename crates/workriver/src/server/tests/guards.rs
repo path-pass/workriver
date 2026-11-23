@@ -319,6 +319,34 @@ fn who_may_use_each_route() {
     assert!(g == w, "who may use a route changed; was: {:?}; now: {:?}", w.difference(&g).collect::<Vec<_>>(), g.difference(&w).collect::<Vec<_>>());
 }
 
+/// One way to a terminal: the runtime types into a place only in `App::type_at`, and is
+/// asked where a session is only by `App::place_of` (which follows a seat) and, for a session
+/// with no seat, by what only reads: the screen and view routes and the poll's mark.
+#[test]
+fn one_way_to_a_terminal() {
+    let server = crate_dir().join("src/server");
+    let mut found = BTreeSet::new();
+    for file in sources(&server, &["rs"]) {
+        let at = file.strip_prefix(&server).unwrap().to_string_lossy().replace('\\', "/");
+        if at.starts_with("tests/") {
+            continue;
+        }
+        let mut within = String::new();
+        for line in std::fs::read_to_string(&file).unwrap().lines().map(str::trim_start).filter(|l| !l.starts_with("//")) {
+            if let Some(k) = line.find("fn ").filter(|k| *k == 0 || line[..*k].ends_with(' ')) {
+                within = line[k + 3..].split(['(', '<']).next().unwrap_or_default().to_string();
+            }
+            for call in ["send_at", "resolve"] {
+                if line.contains(&format!(".{call}(")) {
+                    found.insert(format!("{call} in {at} {within}"));
+                }
+            }
+        }
+    }
+    let want: BTreeSet<String> = ["resolve in access/mod.rs place_of", "resolve in terminals/marks.rs read_shows", "resolve in terminals/mod.rs agent_screen", "resolve in terminals/view.rs agent_view", "send_at in terminals/marks.rs type_at"].map(String::from).into();
+    assert_eq!(found, want);
+}
+
 fn crate_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }

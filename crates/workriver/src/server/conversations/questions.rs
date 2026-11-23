@@ -122,6 +122,20 @@ impl App {
         self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None, about: None });
     }
 
+    /// The user's message to a manager whose seat is lost: typed into no terminal that only
+    /// reports its session.
+    fn seat_lost(&self, h: &Held) {
+        self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::ManagerGone, &format!("the manager {} does not run in the terminal it was seated in; confirm its new terminal (the workspace's Manager), then write again", h.name))
+    }
+
+    /// Whether what is held for `to` is for a session, found by it alone: always a notice and
+    /// the user's message (or its copy); a duty and a discussion's question when `to` is a
+    /// session as recorded (`names_a_session`), else by the name a task's agent was given as.
+    /// Only a temporary agent's question goes by the name workriver gave it.
+    pub(in crate::server) fn by_session(&self, kind: For, to: &str) -> bool {
+        kind.by_session() || (matches!(kind, For::Duty | For::Discussion) && self.names_a_session(to))
+    }
+
     /// The user's message is for one appointment: its seat was given to another meanwhile.
     fn seat_changed(&self, h: &Held) {
         self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name))
@@ -134,7 +148,7 @@ impl App {
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
     pub(in crate::server) fn hand(&self, mut h: Held) {
-        let by_session = h.kind.by_session();
+        let by_session = self.by_session(h.kind, &h.to);
         let is = |a: &RuntimeAgent| a.session == h.to || (!by_session && a.name == h.to);
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
@@ -157,9 +171,10 @@ impl App {
             }
         }
         // Nor is it typed into a terminal that only reports the manager's session: its own
-        // is gone, and the user has not confirmed another.
-        if matches!(h.kind, For::Message | For::Broadcast) && self.seat_lost(&h.to) {
-            return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::ManagerGone, &format!("the manager {} does not run in the terminal it was seated in; confirm its new terminal (the workspace's Manager), then write again", h.name));
+        // is gone, and the user has not confirmed another. As the last read found it, at
+        // once; a seat lost since is found where it would be typed (`place_of`).
+        if matches!(h.kind, For::Message | For::Broadcast) && self.seat_found_lost(&h.to) {
+            return self.seat_lost(&h);
         }
         if matches!(h.kind, For::Message | For::Broadcast | For::Notice | For::Discussion | For::Duty) && !self.blind_free(&h.to) {
             h.not_ready = None;
@@ -178,13 +193,11 @@ impl App {
         if let (For::Discussion, Some(a)) = (h.kind, found) {
             h.name = a.name.clone();
         }
-        // A notice and the user's message go to the session found, on its machine, and to no
-        // other: what that machine's runtime answers is kept (one that drops before typing
-        // stays one that typed nothing). Anything else by `to`.
-        let sent = |h: &Held| match found.filter(|_| h.kind.by_session()) {
-            Some(a) => self.send_to(&a.session, a.machine.as_deref(), &h.text),
-            None => self.send(&h.to, &h.text),
-        };
+        // What is for a session is typed at that session alone (`send_by_session`: a seated
+        // one where its seat is held to), never at whatever row was found: what that
+        // machine's runtime answers is kept (one that drops before typing stays one that
+        // typed nothing). A temporary agent's question by the name workriver gave it.
+        let sent = |h: &Held| if by_session { self.send_by_session(&h.to, &h.text) } else { self.send(&h.to, &h.text) };
         match found.map(|a| a.state) {
             Some(AgentState::Blocked) => h.not_ready = None,
             // No state yet: not typed into, whatever the terminal shows.
@@ -204,11 +217,15 @@ impl App {
                 // send, which then stands as asked before the user decided. The user's message
                 // alike with a seat change (`App::appointing`): its appointment ended meanwhile,
                 // it is not delivered; a seat changed later comes after the send.
+                // Every other kind in order with a seat change too, so what is sent to a manager
+                // is typed into the seat as it is: the lock, then where it is held to
+                // (`place_of`), then the agent's writer. The order: `discussing`, then
+                // `appointing`, then the writer (`App::discussing`); a seat change waits for
+                // this send, over ssh too.
                 let message = matches!(h.kind, For::Message | For::Broadcast);
                 let _order = match h.kind {
-                    For::Discussion => Some(self.discussing.lock().unwrap()),
-                    _ if message => Some(self.appointing.lock().unwrap()),
-                    _ => None,
+                    For::Discussion => self.discussing.lock().unwrap(),
+                    _ => self.appointing.lock().unwrap(),
                 };
                 let asked = match h.kind {
                     For::Discussion => self.still_asked(&h.question),
@@ -232,6 +249,8 @@ impl App {
                         // manager takes it or is gone. Not one that may have been typed: that is
                         // not given twice.
                         Err(RuntimeError::None | RuntimeError::Unreachable(_)) if matches!(h.kind, For::Message | For::Broadcast) => h.not_ready = None,
+                        // Its seat lost since the last read: not where it is held to.
+                        Err(RuntimeError::NoAgent(_)) if message && self.seat_machine(&h.to).is_ok_and(|s| s.is_some()) => return self.seat_lost(&h),
                         // Never lost while the service runs: tried again at the next poll.
                         Err(e) if h.kind == For::Duty => {
                             tracing::warn!("cannot give {} what it must act on yet: {e}", h.name);

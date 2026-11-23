@@ -38,6 +38,8 @@ struct T {
     fake: std::sync::Arc<Fake>,
     d: Daemon,
     kernel: Kernel,
+    /// The machines followed, read again by the test (`poll_all`); none: this one alone.
+    machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>,
 }
 
 /// A service whose agents are `boss` (manager, idle, p1) and `alice` (blocked on a dialog, p2,
@@ -58,7 +60,7 @@ fn service(tick: Duration, rewatch: Duration) -> T {
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it", "agent": "s-a" })).unwrap();
     d.append("s-a", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
-    let t = T { _tmp: tmp, db, fake, d, kernel };
+    let t = T { _tmp: tmp, db, fake, d, kernel, machines: None };
     wait_until("the poll sees alice waiting", || waits_on(&t, "s-a").is_some());
     t
 }
@@ -474,7 +476,7 @@ fn the_runtimes_changes_wake_the_poll() {
         let db = tmp.path().join("w.db");
         let waits = crate::server::Waits { tick: Duration::from_secs(60), rewatch: Duration::from_millis(200), ..Default::default() };
         let (d, kernel) = daemon_and(fake.clone(), &db, waits);
-        T { _tmp: tmp, db, fake, d, kernel }
+        T { _tmp: tmp, db, fake, d, kernel, machines: None }
     };
     wait_until("the first poll", || t.d.get("/api/workspace").unwrap()["sessions"].as_array().is_some_and(|s| !s.is_empty()));
     wait_until("the change stream is followed", || t.fake.watched.load(std::sync::atomic::Ordering::SeqCst) == 1);
@@ -627,10 +629,10 @@ fn two_machines(here: Vec<(&str, workriver_core::runtime::RuntimeAgent)>, far: V
     let kernel = Kernel::default();
     let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
     let waits = crate::server::Waits { tick, ..Default::default() };
-    let (runtime, machines) = (all.clone(), all);
+    let (runtime, machines) = (all.clone(), all.clone());
     let options = crate::server::Options { waits, allow_as: true, machines: Some(machines), ..kernel.options() };
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
-    (T { _tmp: tmp, db, fake, d, kernel }, other)
+    (T { _tmp: tmp, db, fake, d, kernel, machines: Some(all) }, other)
 }
 
 /// The session as the page gets it on `machine` (none: here).
@@ -712,4 +714,219 @@ fn a_view_ends_at_a_frame_it_cannot_pass_on() {
     assert_eq!(code, 200, "{got}");
     assert!(got.contains("event: end"), "{got}");
     assert!(!got.contains("event: frame"), "no change drawn on nothing: {got}");
+}
+
+/// The status a terminal view of `query` (`agent=…&machine=…`) is answered with.
+fn view_status(t: &T, query: &str) -> u16 {
+    let (token, proof) = (t.d.token().unwrap(), t.d.process(false).0.unwrap());
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", t.d.port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+    let req = format!("GET /api/agent/view?{query} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nauthorization: Bearer {token}\r\nx-workriver-caller: {proof}\r\n\r\n", t.d.port);
+    s.write_all(req.as_bytes()).unwrap();
+    let mut got = String::new();
+    let end = std::time::Instant::now() + Duration::from_secs(5);
+    let mut buf = [0u8; 4096];
+    while std::time::Instant::now() < end && !got.contains("\r\n") {
+        if let Ok(n) = s.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            got.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+    }
+    got.split(' ').nth(1).and_then(|c| c.parse().ok()).unwrap_or(0)
+}
+
+/// What the page proposes for workspace ws1's seat (null: the seat is not lost).
+fn proposal(t: &T) -> Value {
+    let ws = t.d.get("/api/workspace").unwrap();
+    ws["workspaces"].as_array().unwrap().iter().find(|w| w["id"] == "ws1").map(|w| w["proposal"].clone()).unwrap_or(Value::Null)
+}
+
+/// Nothing of a seated manager's that is lost is read or pressed elsewhere: its screen and
+/// its view are "gone", a key is refused with nothing pressed, and its row offers no dialog.
+fn nothing_of_the_lost_seat(t: &T, query: &str) {
+    let (code, r) = ask(t, "GET", &format!("/api/agent/screen?{query}"), None, &[]);
+    assert_eq!((code, r["code"].as_str()), (404, Some("gone")), "the screen: {r}");
+    assert_eq!(view_status(t, query), 404, "the view");
+    let machine = query.split("machine=").nth(1);
+    let (code, r) = ask(t, "POST", "/api/agent/keys", Some(json!({ "agent": "s-boss", "machine": machine, "shown": "any", "press": { "option": 1 } })), &[]);
+    assert!(code == 404 || r["code"] == "not-waiting", "the keys: {code} {r}");
+    assert!(pressed(t).is_empty(), "nothing pressed: {:?}", pressed(t));
+}
+
+/// The security check's two probe cases: the seated manager's terminal is gone, or it runs
+/// another agent now; either way another terminal (another folder) reports the manager's
+/// session and waits on a dialog. The seat is lost: the screen and the view are "gone", a key
+/// is refused and pressed nowhere, and the session's row has no wait and no dialog.
+#[test]
+fn a_lost_seat_takes_no_key_and_shows_no_screen() {
+    for root_runs in [false, true] {
+        let t = service(Duration::from_millis(300), Duration::from_secs(5));
+        if !root_runs {
+            t.kernel.procs.kill(root("p1"));
+        }
+        {
+            let mut agents = t.fake.agents.lock().unwrap();
+            agents.retain(|(p, _)| p != "p1");
+            if root_runs {
+                agents.push(("p1".into(), live("s-evil", "evil", "w1", Idle)));
+            }
+            agents.push(("p5".into(), workriver_core::runtime::RuntimeAgent { cwd: "/elsewhere".into(), ..live("s-boss", "boss", "w1", Blocked) }));
+        }
+        t.fake.shown.lock().unwrap().insert("p5".into(), bash("⏺ Bash(rm -rf x)"));
+        wait_until("the seat is lost", || proposal(&t) == "s-boss");
+        std::thread::sleep(Duration::from_millis(900)); // a few regular reads
+        assert_eq!(waits_on(&t, "s-boss"), None, "no wait offered on the lost seat's row");
+        nothing_of_the_lost_seat(&t, "agent=s-boss");
+    }
+}
+
+/// The seated manager waits on a dialog at its pinned terminal, and the runtime's lookup of
+/// its session would also find another place: the screen, the poll's mark and the keys go
+/// to the pin, which alone shows the session among the roots.
+#[test]
+fn a_seated_managers_dialog_is_read_and_answered_at_its_pin() {
+    let t = service(Duration::from_millis(300), Duration::from_secs(5));
+    t.fake.shown.lock().unwrap().insert("p1".into(), bash("⏺ Bash(touch m.txt)"));
+    t.fake.also.lock().unwrap().push(("p9".into(), "s-boss".into()));
+    t.fake.agents.lock().unwrap()[0].1.state = Done; // its screen is read as it changes
+    wait_until("boss waits on its screen", || waits_on(&t, "s-boss").is_some_and(|(_, screen)| screen));
+    t.fake.reads.lock().unwrap().clear();
+    let (code, s) = screen(&t, "s-boss");
+    assert_eq!(code, 200, "{s}");
+    assert_eq!(s["waiting"], "screen");
+    then(&t, "p1", &[(String::new(), None)]);
+    let (code, r) = press(&t, "s-boss", &s["digest"], json!({ "option": 1 }));
+    assert_eq!(code, 200, "{r}");
+    assert_eq!(pressed(&t), [("p1".to_string(), vec![Key::Digit(1)])]);
+    assert!(t.fake.reads.lock().unwrap().iter().all(|p| p == "p1"), "{:?}", t.fake.reads.lock().unwrap());
+}
+
+/// A manager seated here whose session another machine reports too: a request that names
+/// that machine is not the manager's (and the seat is lost). Nothing is read or pressed there.
+#[test]
+fn a_request_for_another_machine_than_the_seats_is_gone() {
+    let (t, far) = two_machines(vec![("p1", live("s-boss", "boss", "w1", Idle))], vec![], Duration::from_millis(300));
+    manage(&t.d, "p1", "s-boss");
+    *far.agents.lock().unwrap() = vec![("w9:p4".into(), workriver_core::runtime::RuntimeAgent { cwd: "/srv/x".into(), ..live("s-boss", "boss", "w9", Blocked) })];
+    far.shown.lock().unwrap().insert("w9:p4".into(), bash(""));
+    t.machines.as_ref().unwrap().poll_all();
+    wait_until("the seat is lost", || proposal(&t) == "s-boss");
+    far.reads.lock().unwrap().clear();
+    nothing_of_the_lost_seat(&t, "agent=s-boss&machine=box");
+    assert!(far.pressed.lock().unwrap().is_empty() && far.reads.lock().unwrap().is_empty(), "nothing read or pressed over there");
+}
+
+/// A press reads the seat's machine itself, not the tick's read: a seat lost since the last
+/// tick takes no key; a roots read that fails answers 503 and presses nothing.
+#[test]
+fn a_press_reads_the_seats_machine_now() {
+    let t = service(Duration::from_secs(2), Duration::from_secs(5));
+    let dialog = bash("⏺ Bash(touch q.txt)");
+    t.fake.agents.lock().unwrap()[0].1.state = Blocked;
+    t.fake.shown.lock().unwrap().insert("p1".into(), dialog.clone());
+    wait_until("boss waits", || waits_on(&t, "s-boss").is_some());
+    let (code, s) = screen(&t, "s-boss");
+    assert_eq!(code, 200, "{s}");
+    // Its roots cannot be read now.
+    t.fake.agent_roots_down.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (code, r) = press(&t, "s-boss", &s["digest"], json!({ "option": 1 }));
+    assert_eq!(code, 503, "{r}");
+    assert!(pressed(&t).is_empty());
+    t.fake.agent_roots_down.store(false, std::sync::atomic::Ordering::SeqCst);
+    // Lost since the tick: its terminal gone, the session (and the same dialog) shown in
+    // another folder.
+    t.kernel.procs.kill(root("p1"));
+    {
+        let mut agents = t.fake.agents.lock().unwrap();
+        agents.retain(|(p, _)| p != "p1");
+        agents.push(("p5".into(), workriver_core::runtime::RuntimeAgent { cwd: "/elsewhere".into(), ..live("s-boss", "boss", "w1", Blocked) }));
+    }
+    t.fake.shown.lock().unwrap().insert("p5".into(), dialog);
+    let (code, r) = press(&t, "s-boss", &s["digest"], json!({ "option": 1 }));
+    assert!(code == 404 || r["code"] == "not-waiting", "{code} {r}");
+    assert!(pressed(&t).is_empty(), "{:?}", pressed(&t));
+}
+
+/// The tick's read of the seat's machine failed (the agents or the roots cannot be read),
+/// and the pinned shell runs another agent now: the screen and the view answer 503 (never
+/// an older read), and nothing is typed or pressed.
+#[test]
+fn a_seat_not_read_takes_nothing() {
+    for agents in [true, false] {
+        let t = service(Duration::from_millis(300), Duration::from_secs(5));
+        {
+            let mut all = t.fake.agents.lock().unwrap();
+            all.retain(|(p, _)| p != "p1");
+            all.push(("p1".into(), live("s-boss", "evil", "w1", Blocked)));
+        }
+        t.fake.shown.lock().unwrap().insert("p1".into(), bash(""));
+        if agents {
+            t.fake.agents_down.store(true, std::sync::atomic::Ordering::SeqCst);
+        } else {
+            t.fake.agent_roots_down.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        std::thread::sleep(Duration::from_millis(900)); // a few regular reads
+        let (code, r) = screen(&t, "s-boss");
+        assert_eq!(code, 503, "the screen: {r}");
+        assert_eq!(view_status(&t, "agent=s-boss"), 503, "the view");
+        let (code, r) = press(&t, "s-boss", &json!("any"), json!({ "option": 1 }));
+        assert!(code == 503 || r["code"] == "not-waiting", "{code} {r}");
+        assert!(pressed(&t).is_empty());
+        t.d.call("/api/message", Some(json!({ "intent": "i1", "text": "UNREAD_SEAT" }))).unwrap();
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(t.fake.sent.lock().unwrap().iter().all(|(_, m)| !m.contains("UNREAD_SEAT")), "typed nothing");
+    }
+}
+
+/// A session with no seat that two machines list takes nothing by its session: which of the
+/// two is meant cannot be told (a discussion's question to a task's agent here).
+#[test]
+fn a_session_two_machines_list_takes_no_message_by_its_session() {
+    let (t, far) = two_machines(vec![("p1", live("s-boss", "boss", "w1", Idle)), ("p2", live("s-d", "designer", "w1", Idle))], vec![], Duration::from_millis(300));
+    let repo = t._tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    manage(&t.d, "p1", "s-boss");
+    t.d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    t.d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the index", "agent": "s-d" })).unwrap();
+    t.d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{ "from": "1" }] })).unwrap();
+    t.d.append("s-d", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    t.d.append("s-d", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "A trie." })).unwrap();
+    *far.agents.lock().unwrap() = vec![("w9:p2".into(), live("s-d", "designer", "w9", Idle))];
+    t.machines.as_ref().unwrap().poll_all();
+    wait_until("both machines list it", || session_on(&t, "s-d", Some("box")).is_some());
+    t.d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why a trie?" }))).unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    for f in [&t.fake, &far] {
+        assert!(f.sent.lock().unwrap().iter().all(|(_, m)| !m.contains("Why a trie?")), "typed nothing");
+    }
+}
+
+/// A seat made where the runtime knew no shell (no pin); its manager exits, and a terminal
+/// in another folder reports its session and waits on a dialog: no screen, no view, no
+/// mark, no key, and its row offers no dialog.
+#[test]
+fn a_seat_with_no_pin_whose_manager_left_shows_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.no_shell.lock().unwrap() = vec!["p1".into()];
+    *fake.agents.lock().unwrap() = vec![("p1".into(), workriver_core::runtime::RuntimeAgent { cwd: "/w/boss".into(), ..live("s-boss", "boss", "w1", Idle) })];
+    let db = tmp.path().join("w.db");
+    let waits = crate::server::Waits { tick: Duration::from_millis(300), ..Default::default() };
+    let (d, kernel) = daemon_and(fake.clone(), &db, waits);
+    manage(&d, "p1", "s-boss");
+    let t = T { _tmp: tmp, db, fake, d, kernel, machines: None };
+    *t.fake.agents.lock().unwrap() = vec![("p5".into(), workriver_core::runtime::RuntimeAgent { cwd: "/elsewhere".into(), ..live("s-boss", "boss", "w1", Idle) })];
+    t.fake.shown.lock().unwrap().insert("p5".into(), bash("⏺ Bash(rm -rf x)"));
+    t.fake.agents.lock().unwrap()[0].1.state = Done; // its screen is read as it changes
+    wait_until("the seat is lost", || proposal(&t) == "s-boss");
+    std::thread::sleep(Duration::from_millis(900)); // a few regular reads
+    assert_eq!(waits_on(&t, "s-boss"), None, "no mark, no wait offered");
+    t.fake.agents.lock().unwrap()[0].1.state = Blocked;
+    std::thread::sleep(Duration::from_millis(900));
+    assert_eq!(waits_on(&t, "s-boss"), None, "blocked, but not the manager's terminal");
+    nothing_of_the_lost_seat(&t, "agent=s-boss");
 }

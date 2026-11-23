@@ -197,9 +197,9 @@ on one since it was last read: the answer says it is not told yet, and a thread 
 tells it after the first read that shows it, so no request ever waits for a machine. One whose agent is
 on a blind task is kept as the event and the agent it is for (`App.notes`), not as text:
 each poll works it out again (`give_notes`), so it is given only while the task is still
-started and with that agent. It goes out by `App::send_to` (the runtime's `resolve`, then
-`send_at` there): to that session on that machine and no other (a seated manager: at its
-pinned place only), files as that machine can get them. A held
+started and with that agent. It goes out by `App::type_at` (its place from `App::place_of`,
+then `send_at` there): to that session on that machine and no other (a seated manager: at
+the place its seat is held to only), files as that machine can get them. A held
 notice (`For::Notice`) is matched and sent the same way, by session only. How a failed read is handled before and after the commit is in
 AGENTS.md (Layout).
 
@@ -255,7 +255,9 @@ crates/workriver/
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.
 │   │   │   ├── mod.rs                # App::who/user/view/here, a seated session's root (seating, seated, the
-│   │   │   │                         # take-back and the proposals of see_roots), the Caller and the Reader.
+│   │   │   │                         # take-back, see_roots: the seats' places and proposals), the one
+│   │   │   │                         # answer for where a session's terminal is (place_of, seat_place),
+│   │   │   │                         # the Caller and the Reader.
 │   │   │   ├── auth.rs               # Token, random sessions, one-time codes, modes, atomic saves.
 │   │   │   ├── caller.rs             # Unix peer identity, proof store and listener (caller-identity.md).
 │   │   │   ├── pins.rs               # Session-root pins (caller-identity.md, rule 5).
@@ -281,11 +283,11 @@ crates/workriver/
 │   │   ├── terminals/                # An agent's terminal from the page; all three routes App::user.
 │   │   │   ├── mod.rs                # Terminals (digest key, presses, writers, marks, views),
 │   │   │   │                         # /api/agent/screen and /keys handlers, Refusal, ScreenView.
-│   │   │   ├── press.rs              # One press: resolve once, compare the digest, digit or a walk
+│   │   │   ├── press.rs              # One press: place_of once, compare the digest, digit or a walk
 │   │   │   │                         # of arrows, the reads after it, agent.keys.
-│   │   │   ├── marks.rs              # type_at (every message: resolve, or a seated
-│   │   │   │                         # manager's pin; read, type at that place); the poll's look
-│   │   │   │                         # at screens; waiting on its screen.
+│   │   │   ├── marks.rs              # type_at (every message: place_of, then read and
+│   │   │   │                         # type at that place); the poll's look at screens (a
+│   │   │   │                         # seated manager's at seat_place); waiting on its screen.
 │   │   │   └── view.rs               # /api/agent/view: the capped, bounded frame stream.
 │   │   ├── conversations/
 │   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, one message
