@@ -210,13 +210,16 @@ impl App {
 }
 
 /// `GET /api/agent/screen`: what the agent's terminal shows now, its digest and the dialog on
-/// it, read at the one place that shows the session.
+/// it, read at the one place that shows the session; a seated manager's at the place its
+/// seat is held to, as the last tick found it ("gone" while the seat is lost).
 pub(in crate::server) async fn agent_screen(State(app): State<Shared>, Extension(caller): Extension<Caller>, headers: HeaderMap, Query(q): Query<Which>) -> Result<Response, Refusal> {
     app.user(&caller)?;
     from_our_page(&caller, &headers)?;
     let view = tokio::task::spawn_blocking(move || -> Result<ScreenView, Refusal> {
         let machine = q.machine();
-        let place = app.runtime.resolve(machine, &q.agent)?;
+        // A seated manager's where the tick found its seat held; any other's, the one place
+        // that shows it.
+        let place = app.seat_place(&q.agent, machine).unwrap_or_else(|| app.runtime.resolve(machine, &q.agent))?;
         // The screen and the presses before it, together: a press under way ends first (it
         // holds the writer until its keys took effect), and one after it counts past it.
         let (count, screen) = {

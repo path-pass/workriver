@@ -270,8 +270,9 @@ pub(super) fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -
     let why = if user { users("The user wrote", reason) } else { quoted(&format!("Why, quoted from {by}"), reason) };
     let what = label(state, unit, t);
     let mut out: Vec<(String, String)> = vec![];
-    // Assigned by session, or by the name the agent goes by.
-    if let Some(a) = t.agent.as_deref().map(|a| live.iter().find(|x| x.session == a || x.name == a).map_or(a, |x| x.session.as_str())) {
+    // Assigned by session, or by the name the agent goes by; a known session that is not
+    // live is nobody else (`running`), whatever agent takes it as its name.
+    if let Some(a) = t.agent.as_deref().map(|a| running(state, live, a).map_or(a, |x| x.session.as_str())) {
         out.push((a.to_string(), format!("[workriver] {by} dropped your task {what}: it is no longer needed. Stop working on it and do not deliver it; keep what you committed. {} {why}", details(unit, *task))));
     }
     if let Some(m) = state.intent_of(unit).and_then(|i| state.manager_of(i)) {

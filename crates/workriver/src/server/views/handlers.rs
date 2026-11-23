@@ -188,6 +188,15 @@ impl App {
         for s in ws.sessions.iter_mut().filter(|s| s.blocked_since.is_some()) {
             s.on_screen = on_screen.contains(&crate::server::terminals::agent_key(&s.session, s.machine.as_deref()));
         }
+        // A seated manager's row waits only where its seat is held to, as last read: a row of
+        // a lost seat, of one not read, or on another machine than the seat's offers no dialog
+        // (what the user acts on is the workspace's "confirm its terminal").
+        for s in ws.sessions.iter_mut() {
+            let Some(m) = state.seat_of(&s.session).filter(|w| !w.closed).and_then(|w| w.manager.as_ref()) else { continue };
+            if self.place_as_read(&s.session, m.machine.as_deref(), s.machine.as_deref()).is_err() {
+                (s.blocked_since, s.on_screen) = (None, false);
+            }
+        }
         cache.save();
         // Each task an agent started or delivered: that agent's harness and model (where the
         // harness keeps the session is `task show`'s). One still to do has none: its agent's

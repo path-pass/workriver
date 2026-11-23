@@ -126,16 +126,29 @@ it); else none.
      that hold an agent only (`Runtime::agent_roots`), on this machine and on each machine a
      manager is seated on (section 4). A seat whose session is not at its pinned root (gone,
      or holding another agent), or is shown at another root as well (on the seat's machine,
-     or among the agents of any other machine: as the last poll read them for a seat on
-     this machine, read now for a seat on another), is lost from the same read, on any
-     machine: rule 5 refuses a caller from either root. It is read again before anything is
-     typed to a manager (`App::seat_lost` reads the seat's machine's roots then).
-   - **A seated session is typed into at its pinned root only** (`App::send_seated`, the
-     runtime's `send_at`: that place on that machine, while it shows the session), never by
-     its session, which the runtime would look up wherever it shows first. While the seat
-     is lost nothing is typed (`NoAgent`: not delivered); records that cannot be read type
-     nothing (`Unreachable`: it waits). A seated session never pinned (no known shell) goes
-     by its session.
+     or among the agents of any other machine, as the runtime's list read just before: the
+     poll's, or the caller's own, never an older one), is lost from the same read, on any
+     machine: rule 5 refuses a caller from either root.
+     The same read writes where each seat on that machine is (`App.seats`: its place, or
+     lost); a read that fails at any step (the roots, the records, the machine's runner,
+     the agents) changes nothing and leaves that machine's seats unknown.
+   - **One answer for where a session's terminal is** (`App::place_of`). A seated session
+     is at the place its seat is held to and nowhere else: its pinned root, while that runs
+     and alone shows the session; with no pin (no shell was known at the seating), the one
+     root of the seat's machine that shows it in the seat's folder (the same read pins it
+     there as soon as it knows the shell). Either way only while no other machine lists the
+     session; a request that names another machine than the seat's is not the manager.
+     Everything that types or presses (`App::type_at`, the page's keys) reads the seat's
+     machine now; what only reads (the page's screen and view, the poll's mark) goes by
+     the tick's read (`App::seat_place`). A lost seat is `NoAgent` (not delivered; "gone",
+     nothing pressed, no dialog offered on its row); a seat not read is `Unreachable` (a
+     message waits; 503). A session with no seat is at the one place its machine's runtime
+     shows it (`Runtime::resolve`), and the runtime is asked to type only by `type_at`
+     (`send_at`: that place, while it shows the session). What is for a session is found
+     by that session alone, never by an agent's name (`App::send_by_session`). The lock
+     order: `discussing`, then `appointing`, then the agent's writer. A send finds its
+     place under `appointing` (or `discussing`), so a seat change waits for it, over ssh
+     too; a press finds its place under none, then takes the writer.
 
 `App::user`'s "a caller whose place holds an agent is not the user" uses `place(P)` too.
 
