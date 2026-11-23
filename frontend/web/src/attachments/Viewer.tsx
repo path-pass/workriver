@@ -18,8 +18,12 @@ import { CAP } from '@/config/defaults'
 const MarkdownView = lazy(() => import('@/content/Markdown'))
 
 /** What the shell does for the viewer: hears which stored attachment is shown (the ask box
- *  offers it), and opens Ask. */
-export const ViewerContext = createContext<{ onView: (a: Attachment | null) => void; onAsk: () => void } | null>(null)
+ *  offers it), opens Ask, and calls registered close handlers on in-place navigation. */
+export const ViewerContext = createContext<{
+  onView: (a: Attachment | null) => void
+  onAsk: () => void
+  registerClose: (close: () => void) => () => void
+} | null>(null)
 
 /** The first `cap` bytes of a file as text, and its whole size; null while it comes. */
 function useText(url: string, cap: number) {
@@ -63,6 +67,7 @@ export function Viewer({ list, at, onAt, onClose, stored }: { list: Attachment[]
   const shell = useContext(ViewerContext)
   const latest = useRef(shell)
   latest.current = shell
+  useEffect(() => shell?.registerClose(onClose), [shell, onClose])
   const a = list[at]
   const kind = kindOf(a)
   // Whole picture, or as wide as the viewer with the rest scrolled: a tall screenshot fitted

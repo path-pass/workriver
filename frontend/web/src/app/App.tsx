@@ -28,6 +28,7 @@ import type { Talk, AskContext, Copy, ManagerMessage, Turn } from '@/conversatio
 import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
+import { NavigateContext } from '@/content/navigation'
 import { IntentPage } from '@/planning/IntentPage'
 import { openTemplates, TemplatesDialog } from '@/planning/Templates'
 import { MOCK, watchWorkspace } from '@/workspace/source'
@@ -113,6 +114,8 @@ export default function App() {
   }
   // A planned intent whose start steps are shown.
   const [starting, setStarting] = useState<Intent | null>(null)
+  // A command the user asked to run: the confirm dialog shows it.
+  const [running, setRunning] = useState<RunAsk | null>(null)
   const showSide = (next: Section | null) => { setSide(next); remember(SIDE, next ?? 'closed') }
   // Narrow screens: the same content as a sheet over the page; not remembered.
   const [sheet, setSheet] = useState<Section | null>(null)
@@ -216,6 +219,7 @@ export default function App() {
   useEffect(() => setAskReq(r => (r.extra.length ? { ...r, extra: [] } : r)), [lines])
   // The stored attachment the viewer shows, if any: a message can point at it.
   const [viewing, setViewing] = useState<Attachment | null>(null)
+  const activeViewers = useRef(new Set<() => void>())
 
   const unit = useSame(unitsOf(ws).find(i => i.id === unitId) ?? null)
   // An intent's page is open (`unitId` is its id).
@@ -260,6 +264,15 @@ export default function App() {
     setPick(r.pick)
     return true
   }, [])
+  // A Markdown link leaves the destination visible, even when it names the current page.
+  const navigate = useCallback((path: string) => {
+    setSheet(null)
+    setRunning(null)
+    for (const close of activeViewers.current) close()
+    if (path === location.pathname + location.search + location.hash) return
+    history.pushState(null, '', path)
+    if (latest.current) followed.current = follow(latest.current)
+  }, [follow])
   useEffect(() => {
     const back = () => { if (latest.current) followed.current = follow(latest.current) }
     window.addEventListener('popstate', back)
@@ -425,15 +438,20 @@ export default function App() {
   // The viewer hears this once: the latest openAsk is called through a ref.
   const askNow = useRef(openAsk)
   askNow.current = openAsk
-  const viewer = useMemo(() => ({ onView: setViewing, onAsk: () => askNow.current() }), [])
+  const viewer = useMemo(() => ({
+    onView: setViewing,
+    onAsk: () => askNow.current(),
+    registerClose: (close: () => void) => {
+      activeViewers.current.add(close)
+      return () => { activeViewers.current.delete(close) }
+    },
+  }), [])
 
   // The Manager section's chips: the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
   const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
 
-  // A command the user asked to run: the confirm dialog shows it. A gate or chore of a
-  // research unit has no work tree: it runs in the intent's project folder.
-  const [running, setRunning] = useState<RunAsk | null>(null)
+  // A gate or chore of a research unit has no work tree: it runs in the intent's project folder.
   const run = useCallback((a: RunAsk) => {
     if (!ws) return
     const at0 = a.unit && unitsOf(ws).find(u => u.id === a.unit)
@@ -495,6 +513,7 @@ export default function App() {
     <ActContext.Provider value={act}>
     <RunContext.Provider value={run}>
     <ViewerContext.Provider value={viewer}>
+    <NavigateContext.Provider value={navigate}>
     <Topics.Provider value={topics}>
     <Spaces.Provider value={ws?.workspaces ?? NO_SPACES}>
     <AgentContext.Provider value={agentActions}>
@@ -507,6 +526,7 @@ export default function App() {
         {ws && !unit && !missing && unitsOf(ws).length > 0 && !firstUnit(ws, project) && <Start project={ws.projects?.find(p => p.id === project)?.title} />}
         {ws && page && (
           <IntentPage
+            key={page.id}
             ws={ws}
             intent={page}
             onUnit={id => pickUnit(ws, id)}
@@ -578,6 +598,7 @@ export default function App() {
     </AgentContext.Provider>
     </Spaces.Provider>
     </Topics.Provider>
+    </NavigateContext.Provider>
     </ViewerContext.Provider>
     </RunContext.Provider>
     </ActContext.Provider>

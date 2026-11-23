@@ -1,21 +1,36 @@
 // Markdown an agent wrote, rendered: an attachment in the viewer, or (compact) a task's input,
 // a delivery note, an answer. Its text is untrusted: react-markdown builds React elements
 // (never an HTML string), raw HTML in it is dropped, unsafe link protocols are removed (its
-// default urlTransform), links open in a new tab without access to this one, and images are
+// default urlTransform), external links open in a new tab without access to this one, and images are
 // not fetched: each is a link to where it points. A ```mermaid block is drawn as a diagram,
 // shown only as an image (Diagram.tsx). Loaded only when one is shown (react-markdown with
 // remark-gfm, about 50 kB gzip), so the main bundle does not carry it.
-import type { ComponentProps } from 'react'
+import { useContext, type ComponentProps } from 'react'
 import Markdown, { type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { contentLang, useT } from '@/i18n'
 import { Diagram } from './diagram/Diagram'
+import { NavigateContext } from './navigation'
 
 /** File paths in the text: the same pattern answers used before they were Markdown. */
 const PATH = /[\w-]+(?:\/[\w.-]+)+\.\w+/g
 const WHOLE_PATH = new RegExp(`^${PATH.source}$`)
 /** A link to a file of the unit, made by `filePaths`; never fetched. */
 const FILE = '#file:'
+const WORKRIVER_PATH = /^\/(?:[iu]\d+\/?|u\d+\/\d+\/?(?:\?finding=[^&#]+)?)$/
+
+function workriverPath(href: string | undefined): string | undefined {
+  if (!href || href.startsWith('#')) return
+  let url: URL
+  try { url = new URL(href, location.href) } catch { return }
+  // The CLI prints a loopback URL even when the page is served at another origin.
+  const loopback = url.protocol === 'http:' && url.hostname === '127.0.0.1'
+  const path = url.pathname + url.search + url.hash
+  if (!(url.origin === location.origin || loopback) || !WORKRIVER_PATH.test(path)) return
+  const route = url.pathname.replace(/\/$/, '')
+  const finding = url.searchParams.get('finding')
+  return finding ? `${route}?finding=${encodeURIComponent(finding)}` : route
+}
 
 type MdNode = { type: string; value?: string; url?: string; children?: MdNode[] }
 
@@ -56,6 +71,7 @@ function Pre({ node, children }: ComponentProps<'pre'> & ExtraProps) {
 
 export default function MarkdownView({ text, compact = false, onFile }: { text: string; compact?: boolean; onFile?: (path: string) => void }) {
   const { t } = useT()
+  const navigate = useContext(NavigateContext)
   return (
     <div className={compact ? 'md md-sm' : 'md'} lang={contentLang(text)}>
       <Markdown
@@ -63,10 +79,18 @@ export default function MarkdownView({ text, compact = false, onFile }: { text: 
         skipHtml
         components={{
           pre: Pre,
-          a: ({ href, children }) =>
-            onFile && href?.startsWith(FILE)
-              ? <button type="button" className="md-file" onClick={() => onFile(href.slice(FILE.length))}>{children}</button>
-              : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+          a: ({ href, children }) => {
+            if (onFile && href?.startsWith(FILE)) {
+              return <button type="button" className="md-file" onClick={() => onFile(href.slice(FILE.length))}>{children}</button>
+            }
+            const path = workriverPath(href)
+            if (!path) return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+            return <a href={path} onClick={event => {
+              if (!navigate || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+              navigate(path)
+            }}>{children}</a>
+          },
           img: ({ src, alt }) => {
             const where = typeof src === 'string' ? src : ''
             const label = t('attach.mdImage', { name: alt || where })

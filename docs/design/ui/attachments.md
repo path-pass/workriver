@@ -22,9 +22,13 @@ its sections went.
   "Ask the manager", and a download button for every file. Markdown is rendered (tables, code,
   links) by react-markdown with remark-gfm, loaded only when one is shown (50 kB gzip,
   against 24 kB for marked + DOMPurify: chosen because it never puts an HTML string into
-  the page, and the text is an agent's): raw HTML is dropped, links open in a new tab with
-  `noopener noreferrer`, and images in it are not fetched but shown as links; a mermaid
-  block is drawn as a diagram (Diagrams in Markdown, below). Plain text is
+  the page, and the text is an agent's). Raw HTML is dropped. Links to workriver's own
+  intent, unit or task pages on the current origin or at the CLI's loopback address
+  open in place. Other links open in a new tab with `noopener noreferrer`.
+  Following a link in place from Edit Intent's preview, intent history, or a command
+  review closes its dialog, including when the link names the page already shown.
+  Images are shown as links without fetching them, and a mermaid block is drawn as a
+  diagram (Diagrams in Markdown, below). Plain text is
   monospace (whole JSON indented). Markdown is rendered up to its first 256 kB (about 1 s to
   render, measured), plain text up to 1 MB; past that a line says how much is shown.
   The Markdown preview fills the viewer's width, and any diagram, table or code block wider
@@ -34,6 +38,7 @@ its sections went.
   Escape closes it unless typed in a field outside it. Focus starts in the file (↑ ↓ scroll)
   and goes back to the thumbnail or chip on close. On a narrow screen it covers the page,
   and its "Ask the manager" opens the Manager sheet over it; closing the sheet comes back to it.
+  Following a workriver link in place closes the viewer so the destination is visible.
   While it shows a stored attachment, the Manager box carries it as a chip (the attachment's
   name) next to the task's; the message then points at it, and the manager is given its
   path in the store (a command that fetches it, on another machine). A message may point

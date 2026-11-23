@@ -148,6 +148,10 @@ context; everything else still goes to the manager.
   the other chips, then the files as attachments show everywhere: pictures as thumbnails,
   other files as chips, opening in the viewer.
 
+Workriver links in conversation Markdown follow the [shared link rule](attachments.md).
+Following one in place closes the Manager sheet on narrow screens and any open attachment
+viewer covering the destination. The wide-screen Manager panel stays open.
+
 ## Past questions
 
 - **In a task's detail**, after Output, a **Questions** block with how many conversations:

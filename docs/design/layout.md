@@ -515,6 +515,7 @@ frontend/web/
     ├── session/                      # Session.tsx
     ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx TerminalText.tsx (screen text in the
     │                                 # order a terminal draws it), diagram/ (mermaid),
+    │                                 # navigation.ts (the page's callback for following workriver links),
     │                                 # choice/ (a question's options: surface.ts Choice.tsx);
     │                                 # no api or domain UI imports
     ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx and popover.tsx among them) Choice.tsx Icon.tsx

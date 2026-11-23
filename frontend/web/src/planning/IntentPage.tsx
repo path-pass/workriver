@@ -1,6 +1,6 @@
 // An intent's own page (`/i3`): what it is for and what more was said about it, where it runs
 // and who manages it, and its units with where each stands.
-import { useState, type ReactNode } from 'react'
+import { useContext, useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { lastMove, quietSince } from './select'
 import { contentLang, useT } from '@/i18n'
@@ -14,6 +14,7 @@ import { Progress, ManagerState, Marks, needs, Quiet } from './Rail'
 import { TerminalButton } from '@/agents/Mark'
 import { MachineChip } from '@/machines/format'
 import { Prose } from '@/content/Prose'
+import { NavigateContext } from '@/content/navigation'
 import { Content, ExternalChip, Slot, SLOT } from '@/content/Chips'
 import { CopyButton } from '@/ui/CopyButton'
 import { Icon } from '@/ui/Icon'
@@ -83,6 +84,12 @@ export function IntentPage({ ws, intent, onUnit, onStart, onTalk, aside }: {
   // The edit dialog (with what it starts from: its text, or a version to restore) and the history.
   const [editing, setEditing] = useState<{ draft: Draft; restoring?: number } | null>(null)
   const [history, setHistory] = useState(false)
+  const navigate = useContext(NavigateContext)
+  const navigateFromDialog = navigate && ((path: string) => {
+    setEditing(null)
+    setHistory(false)
+    navigate(path)
+  })
   return (
     <>
       <header className="flex items-start gap-3">
@@ -175,9 +182,10 @@ export function IntentPage({ ws, intent, onUnit, onStart, onTalk, aside }: {
           : <p className="text-sm text-ink-2">{t('rail.noUnits')}</p>}
       </section>
 
-      {editing && <EditIntentDialog key={`${intent.id}:${editing.restoring ?? ''}`} intent={intent} draft={editing.draft} restoring={editing.restoring} offered={tagsOf(ws.intents.filter(i => i.project === intent.project))} onClose={() => setEditing(null)} />}
-      {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: draftOf(text), restoring: n }) }} />}
-
+      <NavigateContext.Provider value={navigateFromDialog}>
+        {editing && <EditIntentDialog key={editing.restoring ?? 'edit'} intent={intent} draft={editing.draft} restoring={editing.restoring} offered={tagsOf(ws.intents.filter(i => i.project === intent.project))} onClose={() => setEditing(null)} />}
+        {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: draftOf(text), restoring: n }) }} />}
+      </NavigateContext.Provider>
     </>
   )
 }

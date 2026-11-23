@@ -1,8 +1,11 @@
 // What an agent wrote is untrusted: the renderer drops raw HTML, keeps unsafe link
 // protocols out, opens links without access to this page, and never fetches an image.
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import MarkdownView from './Markdown'
+import { NavigateContext } from './navigation'
 
 const html = (text: string, onFile?: (path: string) => void) => renderToStaticMarkup(<MarkdownView text={text} onFile={onFile} />)
 
@@ -22,9 +25,56 @@ describe('Markdown an agent wrote', () => {
   })
 
   it('opens links in a new tab with no access to this one', () => {
-    const out = html('[docs](https://example.invalid/docs) and <https://example.invalid/auto>')
-    expect(out).toContain('<a href="https://example.invalid/docs" target="_blank" rel="noopener noreferrer">docs</a>')
+    const out = html('[docs](https://example.invalid/u1/3) and <https://example.invalid/auto>')
+    expect(out).toContain('<a href="https://example.invalid/u1/3" target="_blank" rel="noopener noreferrer">docs</a>')
     expect(out).toContain('<a href="https://example.invalid/auto" target="_blank" rel="noopener noreferrer">')
+  })
+
+  it.each([
+    'http://127.0.0.1:8000/u1/3?view=docs',
+    'http://127.0.0.1:8000/u1/3#install',
+    'http://127.0.0.1:8000/u1/3?view=docs#install',
+  ])('keeps route-shaped references such as %s in a new tab', href => {
+    expect(html(`[docs](${href})`)).toContain(`<a href="${href}" target="_blank" rel="noopener noreferrer">docs</a>`)
+  })
+
+  it.each([
+    ['http://127.0.0.1:8000/u1/3?finding=P2-1', '/u1/3?finding=P2-1'],
+    [`[open](${location.origin}/u1/)`, '/u1'],
+    ['[open](/i3)', '/i3'],
+    ['[open](/u1/3/?finding=two+words)', '/u1/3?finding=two%20words'],
+  ])('passes %s to the page on a plain click', (text, path) => {
+    const before = location.href
+    const entries = history.length
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    const destinations: string[] = []
+    const navigate = (destination: string) => destinations.push(destination)
+    try {
+      flushSync(() => root.render(<NavigateContext.Provider value={navigate}><MarkdownView text={text} /></NavigateContext.Provider>))
+      const link = host.querySelector('a')!
+      let intercepted = false
+      host.addEventListener('click', event => {
+        intercepted = event.defaultPrevented
+        event.preventDefault()
+      })
+      for (const keys of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+        link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...keys }))
+        expect(intercepted).toBe(false)
+      }
+      expect(destinations).toEqual([])
+
+      link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      expect(destinations).toEqual([path])
+      expect(intercepted).toBe(true)
+      expect(link.href).toBe(`${location.origin}${path}`)
+      expect(link.target).toBe('')
+
+      expect(history.length).toBe(entries)
+      expect(location.href).toBe(before)
+    } finally {
+      root.unmount()
+    }
   })
 
   it('never fetches an image: it becomes a link to where it points', () => {
