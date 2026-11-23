@@ -4,7 +4,7 @@
 // Needs you counts those replies under the same conversation.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
 import { inbox } from '@/attention/select'
 import type { Space } from '@/agents/types'
@@ -116,26 +116,20 @@ describe('the manager’s state above the input', () => {
 
   it.each([
     ['idle', 'Manager idle'],
-    ['done', 'Manager done'],
+    ['done', 'Manager idle'],
     ['blocked', 'Manager blocked'],
     ['gone', 'Manager not running'],
   ] as const)('shows the workspace manager’s %s state', (state, words) => {
     show('ws1', [], [{ ...sessions[0], manager: { ...sessions[0].manager!, state } }])
     expect(line()?.textContent).toBe(words)
+    expect(line()?.querySelector('.pending')).toBeNull()
   })
 
-  it('shows and updates the selected manager’s working time above the input', () => {
-    vi.useFakeTimers()
-    try {
-      const workingSince = Date.now() - 3 * 60_000
-      show('ws2', [], [sessions[0], { ...sessions[1], manager: { ...sessions[1].manager!, state: 'working', workingSince } }])
-      expect(line()?.textContent).toBe('Manager working… 3m')
-      expect(line()!.compareDocumentPosition(host.querySelector('textarea')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      act(() => { vi.advanceTimersByTime(60_000) })
-      expect(line()?.textContent).toBe('Manager working… 4m')
-    } finally {
-      vi.useRealTimers()
-    }
+  it('shows the selected manager’s working state with a moving mark above the input', () => {
+    show('ws2', [], [sessions[0], { ...sessions[1], manager: { ...sessions[1].manager!, state: 'working' } }])
+    expect(line()?.textContent).toBe('Manager working')
+    expect(line()!.compareDocumentPosition(host.querySelector('textarea')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(line()?.querySelector('.pending')).not.toBeNull()
   })
 })
 

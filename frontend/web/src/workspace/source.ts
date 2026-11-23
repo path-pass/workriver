@@ -67,17 +67,6 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
   let reading = false, again = false, missed = true
   let lastRead = -Infinity, later: ReturnType<typeof setTimeout> | undefined
   let shown: Workspace | null = null
-  const show = (ws: Workspace) => {
-    const now = Date.now()
-    const workspaces = ws.workspaces?.map(w => {
-      const m = w.manager
-      if (m?.state !== 'working') return w
-      const was = shown?.workspaces?.find(s => s.id === w.id)?.manager
-      const same = was?.state === 'working' && was.since === m.since && was.session === m.session && was.machine === m.machine
-      return { ...w, manager: { ...m, workingSince: (same ? was.workingSince : undefined) ?? now } }
-    })
-    onData((shown = { ...ws, workspaces }))
-  }
   const get = () => {
     if (stopped) return
     if (document.hidden) {
@@ -91,14 +80,22 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
     lastRead = Date.now()
     missed = again = false
     loadWorkspace()
-      .then(ws => { if (!stopped) show(ws) }, () => { if (!stopped) onDown() })
+      .then(ws => {
+        if (stopped) return
+        if (MOCK) shown = ws
+        onData(ws)
+      }, () => { if (!stopped) onDown() })
       .finally(() => { reading = false; if (again) get() })
   }
   const visible = () => { if (!document.hidden && missed) get() }
   document.addEventListener('visibilitychange', visible)
   get()
   if (MOCK) {
-    const changed = (e: Event) => { if (shown && !stopped) show((e as CustomEvent<(ws: Workspace) => Workspace>).detail(shown)) }
+    const changed = (e: Event) => {
+      if (!shown || stopped) return
+      shown = (e as CustomEvent<(ws: Workspace) => Workspace>).detail(shown)
+      onData(shown)
+    }
     window.addEventListener(MOCK_CHANGED, changed)
     return () => { stopped = true; clearTimeout(later); document.removeEventListener('visibilitychange', visible); window.removeEventListener(MOCK_CHANGED, changed) }
   }

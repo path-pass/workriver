@@ -615,8 +615,6 @@ export const zhCN: OneForm<typeof en> = {
     closed: '已关闭的工作区',
     title: '管理者',
     managerState: '管理者{{state}}',
-    managerWorking: '管理者工作中… {{time}}',
-    managerDone: '管理者已完成工作',
     ask: '问管理者',
     attach: '添加文件（也可以粘贴，或拖到这个面板上）',
     tooLarge: '未添加，超过 {{max}} MB：{{names}}',

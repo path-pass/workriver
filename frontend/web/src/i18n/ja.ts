@@ -615,8 +615,6 @@ export const ja: OneForm<typeof en> = {
     closed: '閉じたワークスペース',
     title: 'マネージャー',
     managerState: 'マネージャーは{{state}}',
-    managerWorking: 'マネージャーは作業中… {{time}}',
-    managerDone: 'マネージャーの作業完了',
     ask: 'マネージャーに聞く',
     attach: 'ファイルを添付（貼り付け、またはこのパネルへのドロップも可）',
     tooLarge: '添付できません（{{max}} MB 超）：{{names}}',

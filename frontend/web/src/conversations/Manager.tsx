@@ -131,21 +131,12 @@ const READ_AFTER = 1500
 /** The select's value for the conversation with every manager (a workspace's is `w:` and its id). */
 const ALL = 'all'
 
-function ManagerStatus({ state, workingSince }: Seat) {
-  const { t, waited } = useT()
-  const working = state === 'working'
-  const since = working ? workingSince : undefined
-  const [, refresh] = useState(0)
-  useEffect(() => {
-    if (since === undefined) return
-    const timer = window.setInterval(() => refresh(n => n + 1), 60_000)
-    return () => window.clearInterval(timer)
-  }, [since])
+function ManagerStatus({ state }: Seat) {
+  const { t } = useT()
   return (
     <p className="mb-1.5 text-xs text-ink-2 data-[manager=blocked]:text-hold-ink" data-manager={state}>
-      {working && <span aria-hidden className="pending bg-amber" />}
-      {since !== undefined ? t('talk.managerWorking', { time: waited(since) })
-        : state === 'done' ? t('talk.managerDone') : t('talk.managerState', { state: t(`manager.state.${state}`) })}
+      {state === 'working' && <span aria-hidden className="pending bg-amber" />}
+      {t('talk.managerState', { state: t(`manager.state.${state}`) })}
     </p>
   )
 }

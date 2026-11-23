@@ -13,8 +13,6 @@ export interface Seat {
   since: number;
   /** Its state in the runtime, or 'gone' when it is not running. */
   state: RuntimeState | 'gone';
-  /** When the page first saw this seat working, in milliseconds. */
-  workingSince?: number;
 }
 
 /**

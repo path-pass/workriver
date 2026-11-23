@@ -53,8 +53,8 @@ context; everything else still goes to the manager.
   in the bar until it is answered or closes. The bar reads the same snapshot as Needs you
   and Manager. With no rows there is no bar.
 - **The manager's state.** Above the input of an open workspace's conversation, a line shows
-  its seated manager's runtime state from the same snapshot as the rail, with a moving mark
-  and the time since the page first saw the manager working while it is in that state.
+  its seated manager's runtime state in the same words as the rail, from the same snapshot,
+  with a moving mark while the manager is working.
 - **A line of workriver's own.** A message with `notice` is not anyone's words: it is one
   quiet centred line in the conversation, with a crown and its age, never a bubble, never
   unread, never a row in Needs you. One kind for now, `manager-back`: "<manager> is back in

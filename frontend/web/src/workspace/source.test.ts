@@ -2,7 +2,6 @@
 // or be told of what comes (then at most once every few seconds); shown again, it catches up.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HIDDEN_READ } from '@/config/defaults'
-import type { Seat } from '@/agents/types'
 import type { Workspace } from './types'
 
 const stream = new EventTarget() as EventTarget & { onopen?: () => void; onerror?: () => void; close(): void }
@@ -61,33 +60,4 @@ describe('a hidden tab', () => {
     expect(read).toHaveBeenCalledTimes(3)
     stop()
   })
-})
-
-it('dates each observed working spell and starts over for a new seat', async () => {
-  vi.useFakeTimers()
-  const delivered = vi.fn<(ws: Workspace) => void>()
-  const manager = { session: 's1', name: 'boss', folder: '/w', since: 1 }
-  const readNext = async (state: Seat['state'], since = 1) => {
-    read.mockResolvedValueOnce({ ...snapshot, workspaces: [{ id: 'ws1', name: 'chat', project: 'p', manager: { ...manager, state, since } }] })
-    stream.dispatchEvent(new Event('changed'))
-    await vi.advanceTimersByTimeAsync(0)
-    return delivered.mock.lastCall?.[0].workspaces?.[0].manager?.workingSince
-  }
-  const stop = watchWorkspace(delivered, () => {}, () => false)
-  try {
-    await vi.advanceTimersByTimeAsync(0)
-    expect(await readNext('idle')).toBeUndefined()
-    const first = Date.now()
-    expect(await readNext('working')).toBe(first)
-    vi.setSystemTime(first + 60_000)
-    expect(await readNext('working')).toBe(first)
-    expect(await readNext('blocked')).toBeUndefined()
-    const resumed = Date.now()
-    expect(await readNext('working')).toBe(resumed)
-    vi.setSystemTime(resumed + 60_000)
-    expect(await readNext('working', 2)).toBe(Date.now())
-  } finally {
-    stop()
-    vi.useRealTimers()
-  }
 })

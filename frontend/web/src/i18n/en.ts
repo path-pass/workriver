@@ -630,8 +630,6 @@ export const en = {
     closed: 'Closed workspaces',
     title: 'Manager',
     managerState: 'Manager {{state}}',
-    managerWorking: 'Manager working… {{time}}',
-    managerDone: 'Manager done',
     ask: 'Ask the manager',
     attach: 'Attach files (or paste them, or drop them on this panel)',
     tooLarge: 'Not attached, larger than {{max}} MB: {{names}}',
