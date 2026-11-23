@@ -332,3 +332,17 @@ fn every_holder() -> Records {
     }
     s
 }
+
+/// Stored long ago and stored or named again now (an `attachment.added` for the same
+/// content): its clock starts again from the later one.
+#[test]
+fn a_file_added_again_waits_its_days_from_the_last_add() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    let mut s = recorded_before(s, "agent-a", json!({"kind": "attachment.added", "body": {"id": A, "name": "a.png", "type": "image/png", "size": 3}}));
+    assert_eq!(due(&s, &rule(30), after(0)), [A], "free since long ago");
+    stored(&mut s, "agent-b", A, 3);
+    assert_eq!(s.state().attachments[0].at, "2026-01-01T00:00:00Z", "the first store's time stays as it was");
+    assert!(due(&s, &rule(30), after(2)).is_empty(), "added again now");
+    assert_eq!(due(&s, &rule(30), after(31)), [A]);
+}

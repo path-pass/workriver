@@ -29,6 +29,11 @@ pub struct Attachment {
     /// stores them again (`attachment.restored`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gone: Option<Gone>,
+    /// When it was last stored or named again (an `attachment.added` for the same content,
+    /// after the first): its clock under the attachment rule starts again from it. None: only
+    /// once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<String>,
 }
 
 /// Where a moved file went: the target as the settings gave it, its kind and the kind's own
@@ -273,9 +278,9 @@ impl State {
 
     /// Since when `a` is free (every holder closed): the latest of the holding intents' close
     /// (a workspace's: the last close of an intent that ran there), the holding records' own
-    /// times and the file's own. None while any holder is open, or a time cannot be read.
+    /// times and the file's own (its first store, or the last time it was added again). None while any holder is open, or a time cannot be read.
     fn free_since(&self, a: &Attachment, held: &[&Held]) -> Option<SystemTime> {
-        let mut times = vec![a.at.as_str()];
+        let mut times: Vec<&str> = std::iter::once(a.at.as_str()).chain(a.last.as_deref()).collect();
         for h in held {
             if !h.at.is_empty() {
                 times.push(h.at);
@@ -435,8 +440,11 @@ impl State {
             AttachmentAdded { id, name, mime, size, unit, task, finding } => {
                 let user = e.actor == "user";
                 match self.attachments.iter_mut().find(|a| &a.id == id) {
-                    Some(a) => a.user |= user,
-                    None => self.attachments.push(Attachment { id: id.clone(), name: name.clone(), mime: mime.clone(), size: *size, by: e.actor.clone(), at: at.clone(), user, gone: None }),
+                    Some(a) => {
+                        a.user |= user;
+                        a.last = Some(at.clone());
+                    }
+                    None => self.attachments.push(Attachment { id: id.clone(), name: name.clone(), mime: mime.clone(), size: *size, by: e.actor.clone(), at: at.clone(), user, gone: None, last: None }),
                 }
                 if let (Some(u), Some(n)) = (unit, task)
                     && let Some(t) = self.task_mut(u, *n)
