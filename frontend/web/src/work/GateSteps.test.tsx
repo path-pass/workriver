@@ -21,7 +21,7 @@ const task = (over: Partial<Task>) => ({ id: '2', kind: 'review', state: 'todo',
 describe('template steps', () => {
   it('says which step a placed task is, and who fills it while it is not filled', () => {
     act(() => root.render(<StepLine unit={unit} n={task({ step: { id: 'design-review', description: 'The design against the rules.' } })} />))
-    expect(host.textContent).toBe('Step design-review· development (built in)The design against the rules.Not filled yet: its manager fills it, or leaves it out with the reason.')
+    expect(host.textContent).toBe('Step design-review · development (built in)The design against the rules.Not filled yet: its manager fills it, or leaves it out with the reason.')
     act(() => root.render(<StepLine unit={unit} n={task({ step: { id: 'design-review', description: 'd', filled: true } })} />))
     expect(host.textContent).not.toContain('Not filled yet')
     act(() => root.render(<StepLine unit={unit} n={task({})} />))

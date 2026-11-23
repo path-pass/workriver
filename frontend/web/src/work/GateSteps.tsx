@@ -24,7 +24,7 @@ export function StepLine({ unit, n }: { unit: Unit; n: Task }) {
       <span className="flex flex-wrap items-center gap-1 text-ink-2">
         <Icon name="template" className="size-3.5" />
         {t('template.step', { id: n.step.id })}
-        {template && <>· <TemplateName name={template.name} /> ({t(template.builtin ? 'template.builtin' : 'template.yours')})</>}
+        {template && <> · <TemplateName name={template.name} /> ({t(template.builtin ? 'template.builtin' : 'template.yours')})</>}
       </span>
       <span className="whitespace-pre-line" lang={contentLang(n.step.description)}>{n.step.description}</span>
       {!n.step.filled && n.state === 'todo' && <span className="text-ink-2">{t('template.toFill')}</span>}

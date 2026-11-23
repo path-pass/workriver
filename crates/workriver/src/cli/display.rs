@@ -145,7 +145,8 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
             Some(p) => format!(" · step {}", p.id),
             None => String::new(),
         };
-        let _ = writeln!(out, "    #{} {:<8} {what}{blind}{step} {}{agent}  after {}", t.n, name(&t.state), t.title, after.join(","));
+        let title = if t.title.is_empty() { String::new() } else { format!(" {}", t.title) };
+        let _ = writeln!(out, "    #{} {:<8} {what}{blind}{step}{title}{agent}  after {}", t.n, name(&t.state), after.join(","));
         // On a blind task the board is the hand-out: the whole ask.
         if state.reduced && !t.text.is_empty() && t.text != t.title {
             let _ = writeln!(out, "       {}", t.text);
