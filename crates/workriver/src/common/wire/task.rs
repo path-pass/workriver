@@ -59,6 +59,28 @@ pub struct TaskShow {
     /// Which harness and model its agent is, and where the harness keeps the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace: Option<Trace>,
+    /// Placed from its unit's template: which step, and what kind of step it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<StepShow>,
+    /// A gate of a unit with placed steps: what it lists of them (`State::gate_steps`), with
+    /// whoever did each by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_steps: Option<core::GateSteps>,
+}
+
+/// The step of a template a task was placed as.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StepShow {
+    pub id: String,
+    pub template: String,
+    /// The user's template, not the built-in: the description is the user's words.
+    #[serde(default)]
+    pub users: bool,
+    pub description: String,
+    /// Not filled yet: its manager fills it (`workriver task fill`).
+    #[serde(default)]
+    pub to_fill: bool,
 }
 
 /// Which harness and model did a task, and where the harness keeps the session, on the

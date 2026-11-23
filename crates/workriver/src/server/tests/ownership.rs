@@ -97,7 +97,7 @@ fn a_unit_gives_no_project() {
     let boss = at_place(&d, "p1");
     let other_project = |e: String| assert!(e.contains(&format!("{theirs} belongs to project Q; workspace ws1 (chat) is of project chat: an intent runs in a workspace of its project")), "{e}");
     other_project(boss.append("", "intent.state_changed", start(&theirs, None)).unwrap_err().to_string());
-    let unit = |i: &str| json!({ "intent": i, "title": "Decoy", "repo": q, "branch": "feat/decoy", "base": "main" });
+    let unit = |i: &str| json!({ "template": "bare", "intent": i, "title": "Decoy", "repo": q, "branch": "feat/decoy", "base": "main" });
     boss.append("", "unit.created", unit(&own)).expect("its manager adds its units");
     other_project(boss.append("", "intent.state_changed", start(&theirs, None)).unwrap_err().to_string());
     assert!(boss.append("", "intent.updated", json!({ "intent": theirs, "add_note": "x" })).is_err());
@@ -329,7 +329,7 @@ fn an_agents_workspace_is_the_one_its_tasks_are_in_when_that_is_one() {
     let tmp = tempfile::tempdir().unwrap();
     let (_fake, d, boss, other, worker) = two_managers(tmp.path());
     for (manager, intent) in [(&boss, "i1"), (&other, "i2")] {
-        let u = manager.append("", "unit.created", json!({ "intent": intent, "title": "Survey", "kind": "research" })).unwrap()["body"]["id"].as_str().unwrap().to_string();
+        let u = manager.append("", "unit.created", json!({ "template": "bare-research", "intent": intent, "title": "Survey", "kind": "research" })).unwrap()["body"]["id"].as_str().unwrap().to_string();
         manager.append("", "task.created", json!({ "unit": u, "kind": "research", "title": "Read", "agent": "s-w" })).unwrap();
     }
     let here = || worker.call("/api/here", Some(json!({}))).unwrap();

@@ -63,6 +63,13 @@ pub struct Unit {
     pub done: Option<Closed>,
     #[serde(default, skip_serializing_if = "UnitKind::is_default")]
     pub kind: UnitKind,
+    /// The template it was made with; empty: made before templates.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub template: String,
+    /// The user's template's revision it was placed from; none: the built-in (whose words
+    /// its steps' descriptions are), or no template.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
 }
 
 impl Unit {
@@ -161,6 +168,22 @@ fn unit_branch(branch: &str, base: &str, named: bool, kind: UnitKind) -> Result<
 }
 
 impl State {
+    /// The steps a new unit of `kind` places from template `name`, with the user's revision
+    /// of it. Refused with no name, an unknown one, or one made for another kind of unit:
+    /// the refusal lists those made for this kind.
+    fn placing(&self, name: &str, kind: UnitKind) -> Result<(Vec<TemplateStep>, Option<u64>), Rejected> {
+        let kind_name = crate::name(&kind);
+        let fit = || format!("Templates for a {kind_name} unit (`workriver template list --unit {kind_name}`):\n{}", self.templates_for(kind));
+        if blank(name) {
+            return no(format!("a unit names its template: `workriver unit add ... --template NAME`, the one whose description fits the work; its steps are placed in the unit as tasks to fill. {}", fit()));
+        }
+        let Some((t, revision)) = self.template(name) else { return no(format!("no template {name}. {}", fit())) };
+        if t.unit != kind {
+            return no(format!("template {name} is for a {} unit; this is a {kind_name} unit. {}", crate::name(&t.unit), fit()));
+        }
+        Ok((t.placed(), revision))
+    }
+
     pub fn unit(&self, id: &str) -> Result<&Unit, Rejected> {
         match self.units.iter().find(|u| u.id == id) {
             Some(u) => Ok(u),
@@ -278,7 +301,7 @@ impl State {
                 }
                 CommitUnlinked { unit: u.id.clone(), hash: l.hash.clone() }
             }
-            UnitCreated { intent, title, purpose, repo, branch, base, machine, kind, .. } => {
+            UnitCreated { intent, title, purpose, repo, branch, base, machine, kind, template, .. } => {
                 let i = self.intent(&intent)?;
                 if matches!(i.state, IntentState::Done | IntentState::Dropped) {
                     return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
@@ -306,7 +329,9 @@ impl State {
                         return no("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
                     }
                     let folder = self.project_of(&i.project).map_or(&i.project, |p| &p.path).clone();
-                    return Ok(UnitCreated { id, intent, title, purpose, repo: folder, branch, base, machine, kind });
+                    // Its steps, from the template as it is now; nothing the request says of them.
+                    let (placed, revision) = self.placing(&template, kind)?;
+                    return Ok(UnitCreated { id, intent, title, purpose, repo: folder, branch, base, machine, kind, template, revision, placed });
                 }
                 for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {
                     if blank(v) {
@@ -315,7 +340,8 @@ impl State {
                 }
                 unit_branch(&branch, &base, true, kind)?;
                 self.may_place(who, &intent, machine.as_deref())?;
-                UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind }
+                let (placed, revision) = self.placing(&template, kind)?;
+                UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind, template, revision, placed }
             }
             UnitMerged { unit, commits } => {
                 let u = self.unit(&unit)?;
@@ -374,24 +400,49 @@ impl State {
                     u.base = base.clone();
                 }
             }
-            UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind } => self.units.push(Unit {
-                kind: *kind,
-                machine: machine.clone(),
-                id: id.clone(),
-                intent: intent.clone(),
-                title: title.clone(),
-                purpose: purpose.clone(),
-                repo: repo.clone(),
-                branch: branch.clone(),
-                base: base.clone(),
-                at: at.clone(),
-                merged: None,
-                merged_commits: vec![],
-                tasks: vec![],
-                earlier: vec![],
-                links: vec![],
-                done: None,
-            }),
+            UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind, template, revision, placed } => {
+                // One task per step, numbered from 1, held by nobody, recorded by workriver.
+                let ids: Vec<&str> = placed.iter().map(|p| p.id.as_str()).collect();
+                let tasks = placed
+                    .iter()
+                    .enumerate()
+                    .map(|(k, p)| {
+                        let after = p.after.clone().unwrap_or_default();
+                        let mut inputs: Vec<Input> = after.iter().filter_map(|a| ids.iter().position(|i| i == a)).map(|k| Input { from: (k + 1).to_string(), primary: false }).collect();
+                        if inputs.is_empty() {
+                            inputs.push(Input { from: "start".into(), primary: false });
+                        }
+                        inputs[0].primary = true;
+                        Task {
+                            reviewer: p.reviewer,
+                            gate: p.gate,
+                            inputs,
+                            placed: Some(Placed { id: p.id.clone(), description: p.description.clone(), filled: false }),
+                            ..Task::blank(k as u32 + 1, intent, p.kind, "workriver", at)
+                        }
+                    })
+                    .collect();
+                self.units.push(Unit {
+                    kind: *kind,
+                    template: template.clone(),
+                    revision: *revision,
+                    machine: machine.clone(),
+                    id: id.clone(),
+                    intent: intent.clone(),
+                    title: title.clone(),
+                    purpose: purpose.clone(),
+                    repo: repo.clone(),
+                    branch: branch.clone(),
+                    base: base.clone(),
+                    at: at.clone(),
+                    merged: None,
+                    merged_commits: vec![],
+                    tasks,
+                    earlier: vec![],
+                    links: vec![],
+                    done: None,
+                })
+            }
             UnitMerged { unit, commits } => {
                 if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
                     u.merged = Some(at.clone());

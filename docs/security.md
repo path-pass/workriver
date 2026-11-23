@@ -102,12 +102,27 @@ rename, close and open workspaces, seat a workspace's manager or empty its seat,
 manager for a workspace (below, "Starting a manager"), move an intent to another workspace
 (`/api/workspaces`), add or enable machines, set when the machines alert
 (`/api/metrics/thresholds`), set the default harness and model of a start
-(`/api/settings/start`).
+(`/api/settings/start`), add, change or remove a template (`/api/template`,
+`/api/template/remove`; the events `template.set` and `template.removed`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
 `workriver machine load`) the user and an agent of this machine may; an agent on another
 machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and
 the rules of the event store refuse those events from anyone else as a last line of
 defence.
+
+Templates are your words and your library. A template is saved only from its text, by the
+action that reads it (`/api/template`): `/api/append` refuses `template.set`, as it refuses a
+manager's start, so a template's steps and the text you see and edit cannot differ. Neither
+template route is on a machine's listener. A unit's steps are placed by the event rules from
+the template as it is when the unit is made, never from the request (what it says it places
+is thrown away), and the unit keeps whether its steps are your words (your template's
+revision) or workriver's (a built-in). A fill cannot change a step's kind, reviewer or gate:
+the event has no field for them. Templates guard against forgetting a step, not against a
+manager that sets out to skip one: it may choose any template made for the unit's kind, drop
+a step (who and why are on every gate of the unit), add a gate of its own before the steps
+(they are listed on it as not done), or close or merge a unit over them (they stay to do on
+the board). Anyone who reads the records reads the templates, an agent on a blind task too:
+they say nothing of anyone's work.
 
 An intent's text is yours, with one owner beside you: its title and goal only you change; its
 note its manager also changes while the intent is active; while it is planned, the manager of

@@ -28,8 +28,10 @@ You are not a worker: no implementing, reviewing or testing.
 ## The loop
 
 1. **Split** little. One unit per intent, unless work must land apart (another repository
-   or machine, a merge of its own). A task is one whole outcome for one agent
-   ("implement X with its unit tests"), not a step. A step is never a new intent.
+   or machine, a merge of its own). Every unit names a template (`--template`), chosen by
+   its description (`workriver template list`): it comes with the template's steps placed
+   as tasks to fill (`templates`). A task is one whole outcome for one agent ("implement X
+   with its unit tests"), not a step. A step is never a new intent.
 2. **Hand off** through Herdr, briefly: the ref, its goal in a line, machine, repository,
    branch, "run `workriver task show <ref>`", and `workriver guide worker` pasted whole.
    Requirements go in the task's text.
@@ -39,7 +41,11 @@ You are not a worker: no implementing, reviewing or testing.
    nobody asked: `workriver say` (`user-message`).
 4. **Decide findings** of reviews and tests; hand out work for what you accept. A design
    that sets the shape of the work, or a change that added or moved more than a little
-   code, also gets an architecture review (`architecture-review`).
+   code, also gets an architecture review (`architecture-review`). Each step a unit's
+   template placed is filled (`workriver task fill`) when its turn comes, or dropped with
+   the reason the user reads on its gates; never a task of your own in its place. A placed
+   gate is filled last, after the last round of reviews. Every notice about a unit ends
+   with its steps still to fill.
 5. **Close**: merges git shows record themselves; else `workriver unit done`. Every unit
    merged or done: `workriver intent done`. Each time, tell the user what came of it and
    what they should do now (restart, re-open the page): work the user asked for in a message

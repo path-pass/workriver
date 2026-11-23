@@ -59,6 +59,22 @@
       "questions": [],
       "reduced": true,
       "roadmap": [],
+      "templates": [
+        {
+          "at": "2025-12-04T09:06:00Z",
+          "description": "Code and two looks at it.",
+          "name": "checks",
+          "revision": 131,
+          "steps": [
+            {
+              "description": "The change.",
+              "id": "build",
+              "kind": "implement"
+            }
+          ],
+          "unit": "code"
+        }
+      ],
       "threads": [],
       "units": [
         {
@@ -1670,6 +1686,136 @@
         "workspace": "ws4"
       },
       "kind": "workspace.manager_start_ended"
+    },
+    {
+      "body": {
+        "description": "Code and one look at it.",
+        "name": "checks",
+        "source": "name: checks\n# mine\n",
+        "steps": [
+          {
+            "description": "The change.",
+            "id": "build",
+            "kind": "implement"
+          },
+          {
+            "description": "What is wrong in it.",
+            "id": "look",
+            "kind": "review",
+            "reviewer": "code-review"
+          },
+          {
+            "after": [
+              "look"
+            ],
+            "description": "The user's go.",
+            "gate": "decide",
+            "id": "go",
+            "kind": "gate"
+          }
+        ],
+        "unit": "code"
+      },
+      "kind": "template.set"
+    },
+    {
+      "body": {
+        "description": "Gone soon.",
+        "name": "old",
+        "source": "name: old\n",
+        "steps": [
+          {
+            "description": "Read.",
+            "id": "read",
+            "kind": "research"
+          }
+        ],
+        "unit": "research"
+      },
+      "kind": "template.set"
+    },
+    {
+      "body": {
+        "name": "old"
+      },
+      "kind": "template.removed"
+    },
+    {
+      "body": {
+        "base": "main",
+        "branch": "feat/checks",
+        "id": "u5",
+        "intent": "i2",
+        "placed": [
+          {
+            "after": [],
+            "description": "The change.",
+            "id": "build",
+            "kind": "implement"
+          },
+          {
+            "after": [
+              "build"
+            ],
+            "description": "What is wrong in it.",
+            "id": "look",
+            "kind": "review",
+            "reviewer": "code-review"
+          },
+          {
+            "after": [
+              "look"
+            ],
+            "description": "The user's go.",
+            "gate": "decide",
+            "id": "go",
+            "kind": "gate"
+          }
+        ],
+        "purpose": "",
+        "repo": "/r/chat",
+        "revision": 125,
+        "template": "checks",
+        "title": "Checked"
+      },
+      "kind": "unit.created"
+    },
+    {
+      "body": {
+        "agent": "s-dev",
+        "plans": [
+          "src/a.rs"
+        ],
+        "task": 1,
+        "text": "The change, with tests.",
+        "title": "Build it",
+        "unit": "u5"
+      },
+      "kind": "task.filled"
+    },
+    {
+      "body": {
+        "reason": "nothing to look at",
+        "task": 2,
+        "unit": "u5"
+      },
+      "kind": "task.dropped"
+    },
+    {
+      "body": {
+        "description": "Code and two looks at it.",
+        "name": "checks",
+        "source": "name: checks\n",
+        "steps": [
+          {
+            "description": "The change.",
+            "id": "build",
+            "kind": "implement"
+          }
+        ],
+        "unit": "code"
+      },
+      "kind": "template.set"
     }
   ],
   "managers": {
@@ -1695,16 +1841,48 @@
       "kind": "project.added"
     },
     {
+      "rejected": "a unit names its template: `workriver unit add ... --template NAME`, the one whose description fits the work; its steps are placed in the unit as tasks to fill. Templates for a code unit (`workriver template list --unit code`):\n  checks: Code and two looks at it.\n  development: Work that lands in the repository. A design, its architecture review and the user's confirmation come first, then the implementation, three reviews of it, and the user's go before anything leaves the machine. A small fix drops the design steps and says why."
+    },
+    {
       "body": {
         "base": "main",
         "branch": "feat/more",
-        "id": "u5",
+        "id": "u6",
         "intent": "i2",
+        "placed": [
+          {
+            "after": [],
+            "description": "The change.",
+            "id": "build",
+            "kind": "implement"
+          }
+        ],
         "purpose": "",
         "repo": "/r/chat",
+        "revision": 131,
+        "template": "checks",
         "title": "More"
       },
       "kind": "unit.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "inputs": [
+          {
+            "from": "1",
+            "primary": false
+          }
+        ],
+        "task": 3,
+        "text": "",
+        "title": "Go?",
+        "unit": "u5"
+      },
+      "kind": "task.filled"
+    },
+    {
+      "rejected": "u5#1 is already filled; add to what it asks with `workriver task note u5#1 --text \"...\"`"
     },
     {
       "body": {
@@ -1730,7 +1908,7 @@
       "kind": "task.created"
     },
     {
-      "rejected": "i1 is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add i1 --kind research --title \"...\", then workriver task add u<N> ..."
+      "rejected": "i1 is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add i1 --kind research --title \"...\" --template research, then fill its research step: workriver task fill u<N>#1 ..."
     },
     {
       "body": {
@@ -2260,6 +2438,22 @@
     },
     "roadmap": [
       "i5"
+    ],
+    "templates": [
+      {
+        "at": "2025-12-04T09:06:00Z",
+        "description": "Code and two looks at it.",
+        "name": "checks",
+        "revision": 131,
+        "steps": [
+          {
+            "description": "The change.",
+            "id": "build",
+            "kind": "implement"
+          }
+        ],
+        "unit": "code"
+      }
     ],
     "threads": [
       {
@@ -2887,6 +3081,135 @@
           }
         ],
         "title": "Try it"
+      },
+      {
+        "at": "2025-12-04T09:03:00Z",
+        "base": "main",
+        "branch": "feat/checks",
+        "id": "u5",
+        "intent": "i2",
+        "merged": null,
+        "merged_commits": [],
+        "purpose": "",
+        "repo": "/r/chat",
+        "revision": 125,
+        "tasks": [
+          {
+            "agent": "s-dev",
+            "amended": null,
+            "at": "2025-12-04T09:03:00Z",
+            "attachments": [],
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "start",
+                "primary": true
+              }
+            ],
+            "intent": "i2",
+            "kind": "implement",
+            "n": 1,
+            "note": "",
+            "placed": {
+              "description": "The change.",
+              "filled": true,
+              "id": "build"
+            },
+            "plans": [
+              "src/a.rs"
+            ],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "todo",
+            "steps": [],
+            "text": "The change, with tests.",
+            "title": "Build it"
+          },
+          {
+            "agent": null,
+            "amended": null,
+            "at": "2025-12-04T09:03:00Z",
+            "attachments": [],
+            "by": "workriver",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "dropped": {
+              "at": "2025-12-04T09:05:00Z",
+              "by": "s-boss2",
+              "reason": "nothing to look at"
+            },
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "1",
+                "primary": true
+              }
+            ],
+            "intent": "i2",
+            "kind": "review",
+            "n": 2,
+            "note": "",
+            "placed": {
+              "description": "What is wrong in it.",
+              "id": "look"
+            },
+            "plans": [],
+            "result": null,
+            "reviewer": "code-review",
+            "started": null,
+            "state": "dropped",
+            "steps": [],
+            "text": "",
+            "title": ""
+          },
+          {
+            "agent": null,
+            "amended": null,
+            "at": "2025-12-04T09:03:00Z",
+            "attachments": [],
+            "by": "workriver",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "evidence": [],
+            "findings": [],
+            "gate": "decide",
+            "inputs": [
+              {
+                "from": "2",
+                "primary": true
+              }
+            ],
+            "intent": "i2",
+            "kind": "gate",
+            "n": 3,
+            "note": "",
+            "placed": {
+              "description": "The user's go.",
+              "id": "go"
+            },
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "todo",
+            "steps": [],
+            "text": "",
+            "title": ""
+          }
+        ],
+        "template": "checks",
+        "title": "Checked"
       }
     ],
     "workspaces": [

@@ -13,6 +13,89 @@ pub(super) fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// What a gate lists of the steps its unit's template placed: done (by whom), left out (who,
+/// why), not done; one line each, under the template's name. `named`: who someone is.
+pub(crate) fn gate_steps_lines(g: &core::GateSteps, named: &dyn Fn(&str) -> String) -> Vec<String> {
+    let by = |b: &Option<String>| match b.as_deref() {
+        Some("user") => "the user".to_string(),
+        Some(b) => named(b),
+        None => "?".into(),
+    };
+    let whose = if g.users { "the user's" } else { "built in" };
+    let mut out = vec![format!("Template {} ({whose})", g.template)];
+    if !g.done.is_empty() {
+        out.push(format!("  Done: {}", g.done.iter().map(|m| format!("{} (#{}), by {}", m.id, m.n, by(&m.by))).collect::<Vec<_>>().join(" · ")));
+    }
+    for m in &g.left_out {
+        out.push(format!("  Left out: {} (#{}), by {}: \"{}\"", m.id, m.n, by(&m.by), m.reason.as_deref().unwrap_or_default()));
+    }
+    if !g.not_done.is_empty() {
+        out.push(format!("  Not done: {}", g.not_done.iter().map(|m| format!("{} (#{})", m.id, m.n)).collect::<Vec<_>>().join(", ")));
+    }
+    out
+}
+
+/// The library of templates as `workriver template list` prints it: each name, whose it is,
+/// the kind of unit it is for, the whole description (choosing is what it is for) and its
+/// steps. `unit`: only those for that kind of unit.
+pub(crate) fn templates_text(list: &[core::LibraryTemplate], unit: Option<core::UnitKind>) -> String {
+    let mut out = String::new();
+    for t in list.iter().filter(|t| unit.is_none_or(|k| t.template.unit == k)) {
+        let whose = if t.builtin { "built in" } else { "the user's" };
+        let _ = writeln!(out, "{}  ({whose}, for a {} unit)", t.template.name, name(&t.template.unit));
+        for l in t.template.description.lines() {
+            let _ = writeln!(out, "  {l}");
+        }
+        let steps: Vec<String> = t.template.steps.iter().map(|s| format!("{} ({})", s.id, step_kind(s))).collect();
+        let _ = writeln!(out, "  steps: {}", if steps.is_empty() { "none".into() } else { steps.join(", ") });
+    }
+    out
+}
+
+/// A template's step's kind as the board writes a task's: `review (code-review)`, `gate (decide)`.
+fn step_kind(s: &core::TemplateStep) -> String {
+    match (s.kind, s.reviewer, s.gate) {
+        (TaskKind::Review, Some(r), _) => format!("review ({})", name(&r)),
+        (TaskKind::Gate, _, Some(g)) => format!("gate ({})", name(&g)),
+        (k, ..) => name(&k),
+    }
+}
+
+/// One template in full (`workriver template show`): its description, then each step with
+/// what it follows and what it is for.
+pub(crate) fn template_text(t: &core::LibraryTemplate) -> String {
+    let mut out = String::new();
+    let whose = if t.builtin { "built in" } else { "the user's" };
+    let _ = writeln!(out, "{}  ({whose}, for a {} unit)", t.template.name, name(&t.template.unit));
+    for l in t.template.description.lines() {
+        let _ = writeln!(out, "  {l}");
+    }
+    let _ = writeln!(out, "Steps (a change of the template touches only units made after it):");
+    for k in 0..t.template.steps.len() {
+        let s = &t.template.steps[k];
+        let after = t.template.after_of(k);
+        let after = if after.is_empty() { "start".into() } else { after.join(", ") };
+        let _ = writeln!(out, "  {} {}  after {after}", s.id, step_kind(s));
+        let _ = writeln!(out, "    {}", s.description);
+    }
+    out
+}
+
+/// What `unit add` prints of a unit made with steps: each task placed, to fill.
+pub(crate) fn placed_text(body: &Value) -> String {
+    let id = body["id"].as_str().unwrap_or("?");
+    let placed: Vec<core::TemplateStep> = serde_json::from_value(body["placed"].clone()).unwrap_or_default();
+    if placed.is_empty() {
+        return id.to_string();
+    }
+    let whose = if body["revision"].is_null() { "built in" } else { "the user's" };
+    let mut out = format!("{id}  placed from template {} ({whose}):", body["template"].as_str().unwrap_or("?"));
+    for (k, s) in placed.iter().enumerate() {
+        let _ = write!(out, "\n  #{} {} · step {}, to fill", k + 1, step_kind(s), s.id);
+    }
+    out + &format!("\nFill each when its turn comes (`workriver task fill {id}#<n>`), or drop one that does not apply with the reason (`workriver task drop {id}#<n> --reason \"...\"`).")
+}
+
 /// The board as text, as the caller may see it.
 pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
     use std::fmt::Write as _;
@@ -56,7 +139,14 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
         let after: Vec<String> = t.inputs.iter().map(|i| if i.from == "start" { "start".into() } else { format!("#{}", i.from) }).collect();
         let agent = t.agent.as_ref().map(|a| format!(" @{}", named(a))).unwrap_or_default();
         let blind = if t.blind { " [blind]" } else { "" };
-        let _ = writeln!(out, "    #{} {:<8} {what}{blind} {}{agent}  after {}", t.n, name(&t.state), t.title, after.join(","));
+        // A step its unit's template placed: which, and whether it waits for its fill.
+        let step = match &t.placed {
+            Some(p) if t.unfilled() && t.dropped.is_none() => format!(" · step {}, to fill", p.id),
+            Some(p) => format!(" · step {}", p.id),
+            None => String::new(),
+        };
+        let title = if t.title.is_empty() { String::new() } else { format!(" {}", t.title) };
+        let _ = writeln!(out, "    #{} {:<8} {what}{blind}{step}{title}{agent}  after {}", t.n, name(&t.state), after.join(","));
         // On a blind task the board is the hand-out: the whole ask.
         if state.reduced && !t.text.is_empty() && t.text != t.title {
             let _ = writeln!(out, "       {}", t.text);
@@ -84,6 +174,12 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
         }
         if let Some(d) = &t.dropped {
             let _ = writeln!(out, "       dropped ({})", d.reason);
+        }
+        // A gate of a unit with steps placed: what they came to.
+        if let Some(g) = state.gate_steps(&t_owner(&state, t), t.n).filter(|_| !t.state.over()) {
+            for l in gate_steps_lines(&g, &named) {
+                let _ = writeln!(out, "       {l}");
+            }
         }
         let n = t.n.to_string();
         let mine = shown(&t_owner(&state, t))["tasks"].as_array().and_then(|ts| ts.iter().find(|x| x["id"] == n.as_str()).cloned());
@@ -146,7 +242,8 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
                 core::UnitKind::Spike => format!("{on}{}, branch {} from {}; spike, never merged: close it with `workriver unit done`", u.repo, u.branch, u.base),
                 core::UnitKind::Research => "research, no branch: close it with `workriver unit done`".into(),
             };
-            let _ = writeln!(out, "  {} {}  [{place}]  {progress}{why}", u.id, u.title);
+            let template = if u.template.is_empty() { String::new() } else { format!(" · template {}", u.template) };
+            let _ = writeln!(out, "  {} {}  [{place}{template}]  {progress}{why}", u.id, u.title);
             link(&mut out, "    ", &u.id);
             // Its machine is disconnected: what is shown is as last read, and nothing waited on it.
             if let Some(since) = u.machine.as_deref().and_then(|m| down_since(&ws, m)) {
@@ -421,8 +518,22 @@ pub(crate) fn text(s: &TaskShow) -> String {
     if let Some(st) = &s.stalled {
         let _ = writeln!(out, "{}", stalled_line(st));
     }
+    // A step its unit's template placed: what kind of step it is, in the template's words;
+    // what to do is what it asks.
+    if let Some(st) = &s.step {
+        let whose = if st.users { "the user's" } else { "built in" };
+        block(&mut out, &format!("Step {} of template {} ({whose})", st.id, st.template), &st.description);
+        if st.to_fill {
+            let _ = writeln!(out, "Not filled yet: its manager fills it (`workriver task fill {}`), or drops it with the reason.", s.reference);
+        }
+    }
     if !s.text.is_empty() && s.text != s.title {
         block(&mut out, &format!("What it asks (written by {})", s.written_by), &s.text);
+    }
+    if let Some(g) = &s.template_steps {
+        for l in gate_steps_lines(g, &|b: &str| b.to_string()) {
+            let _ = writeln!(out, "{l}");
+        }
     }
     // Added since: part of what it asks, each with whose it is and when.
     for x in &s.notes {

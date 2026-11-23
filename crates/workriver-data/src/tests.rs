@@ -19,11 +19,13 @@ fn open(dir: &std::path::Path) -> Box<dyn WorkStore> {
     Box::new(Store::open(&dir.join("w.db")).unwrap())
 }
 
-/// An intent, a unit of it and a task: three events.
+/// A template of no steps, an intent, a unit of it made with that template and a task: four
+/// events.
 fn seed(s: &mut dyn WorkStore) {
     for v in [
+        json!({"kind": "template.set", "body": {"name": "bare", "description": "Nothing placed.", "steps": []}}),
         json!({"kind": "intent.created", "body": {"title": "Chat v2"}}),
-        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main"}}),
+        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main", "template": "bare"}}),
         json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}),
     ] {
         // An intent made active is the user's to add (an agent's starts in the roadmap), and
@@ -60,7 +62,7 @@ fn what_was_read_stays_at_its_revision() {
     let before = s.recorded().unwrap();
     let kept = before.clone().into_state();
     s.record(&agent_a(), body(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}))).unwrap();
-    assert_eq!((before.revision(), s.recorded().unwrap().revision()), (Revision(3), Revision(4)));
+    assert_eq!((before.revision(), s.recorded().unwrap().revision()), (Revision(4), Revision(5)));
     assert_eq!(*before, kept, "the earlier read did not change");
     assert_ne!(*s.recorded().unwrap(), kept, "the new one has the start");
 }
@@ -79,11 +81,11 @@ fn a_refused_request_changes_nothing() {
     let err = s.record(&agent_a(), body(json!({"kind": "project.added", "body": {"path": "/r", "title": "R"}}))).unwrap_err();
     assert!(matches!(&err, DataError::Rejected(r) if r.0.starts_with("only the user does this")), "{err:?}");
     assert_eq!(s.recorded().unwrap(), before);
-    assert_eq!(s.history(Revision(0), 100).unwrap().events.len(), 3);
-    assert_eq!(s.status().unwrap().events, 3);
+    assert_eq!(s.history(Revision(0), 100).unwrap().events.len(), 4);
+    assert_eq!(s.status().unwrap().events, 4);
     let next = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}}))).unwrap();
     assert!(matches!(&next.event.body, Body::IntentCreated { id, .. } if id == "i2"), "{:?}", next.event.body);
-    assert_eq!(next.revision, Revision(4));
+    assert_eq!(next.revision, Revision(5));
 }
 
 /// The history is read on from where the last read ended, oldest first, each event as it
@@ -98,10 +100,10 @@ fn history_is_read_by_cursor_and_survives_reopening() {
     seed(&mut *s);
     let rest = s.history(page.next, 2).unwrap();
     assert_eq!((rest.events.iter().map(|e| e.seq).collect::<Vec<_>>(), rest.next), (vec![2, 3], Revision(3)));
-    let end = s.history(Revision(4), 10).unwrap();
-    assert_eq!((end.events.len(), end.next), (0, Revision(4)), "nothing after the last: the cursor stays");
+    let end = s.history(Revision(5), 10).unwrap();
+    assert_eq!((end.events.len(), end.next), (0, Revision(5)), "nothing after the last: the cursor stays");
     let all = s.history(Revision(0), usize::MAX).unwrap();
-    assert_eq!(all.events.len(), 4);
+    assert_eq!(all.events.len(), 5);
     let work = s.recorded().unwrap();
     drop(s);
     let again = open(dir.path());
@@ -146,5 +148,23 @@ fn the_storage_reports_its_status() {
     assert_eq!((status.location.as_path(), status.events, status.revision), (dir.path().join("w.db").as_path(), 0, Revision(0)));
     seed(&mut *s);
     let status = s.status().unwrap();
-    assert_eq!((status.events, status.revision), (3, Revision(3)));
+    assert_eq!((status.events, status.revision), (4, Revision(4)));
+}
+
+/// A template's text is read by the revision that saved it: each revision its own text,
+/// nothing for a sequence that saved no template.
+#[test]
+fn a_templates_text_is_read_by_its_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = open(dir.path());
+    let save = |s: &mut Box<dyn WorkStore>, text: &str| {
+        let v = json!({"kind": "template.set", "body": {"name": "mine", "description": "Mine.", "steps": [], "source": text}});
+        s.record(&Principal::User, body(v)).unwrap().event.seq as u64
+    };
+    let first = save(&mut s, "name: mine\n# first\n");
+    let second = save(&mut s, "name: mine\n# second\n");
+    s.record(&Principal::User, body(json!({"kind": "template.removed", "body": {"name": "mine"}}))).unwrap();
+    assert_eq!(s.template_text(first).unwrap().as_deref(), Some("name: mine\n# first\n"));
+    assert_eq!(s.template_text(second).unwrap().as_deref(), Some("name: mine\n# second\n"));
+    assert_eq!((s.template_text(second + 1).unwrap(), s.template_text(99).unwrap(), s.template_text(0).unwrap()), (None, None, None));
 }

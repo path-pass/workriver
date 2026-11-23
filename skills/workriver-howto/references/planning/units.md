@@ -34,8 +34,15 @@ finds its branch in whichever worktree has it, uncommitted work included. A proj
 holding several repositories: one worktree folder next to each (`proj/front.worktrees/u3`),
 never a worktree directly in the project folder (it would read as another repository).
 
-    workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch feat/mention [--base main] [--repo PATH]
-    workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder [--plan src/notify] [--text "…"]
+    workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch feat/mention --template development [--base main] [--repo PATH]
+    workriver task fill u1#1 --title "Shape the notifications" --agent finder [--plan src/notify] [--text "…"]
+
+Every unit names a **template** (`--template`), chosen by its description from `workriver
+template list --unit code` (`--unit research`, `--unit spike`): its steps are placed in the
+unit as tasks to fill (`workriver task fill`), or to drop with the reason. `workriver guide
+how templates`. A task the template did not place is added as before:
+
+    workriver task add u1 --title "Notify the people mentioned, with unit tests" --after 4 --agent finder
 
 `--agent` is the worker's name or its session. A name two running agents have is refused
 ("several running agents are …", listing them): give the session of the one you mean. A
@@ -52,8 +59,8 @@ Work of the intent, not of one code unit (comparing approaches, a design across
 repositories) is a **research unit**: no repository, branch or base, never merged. It takes
 research, design, review and gate tasks; implementing goes in a code unit.
 
-    workriver unit add --kind research --title "Sync engine" --purpose "Pick one for offline chat"
-    workriver task add u2 --kind research --title "Compare sync engines" --agent scout
+    workriver unit add --kind research --title "Sync engine" --purpose "Pick one for offline chat" --template research
+    workriver task fill u2#1 --title "Compare sync engines" --agent scout
 
 When its work is delivered and decided it is "ready to close": `workriver unit done u2
 --reason "…"`. What the user should see on the intent's page (the decision, a link to the
@@ -75,9 +82,10 @@ or `--cause` naming findings of a task in the same unit.
 **You will see:** the unit id (`u1`), task refs (`u1#1`).
 
 **Refusals:** "no intent given, and workspace ws1 has no current intent; its manager starts
-one" - `start-intent`. "… is not a git repository" / "base … is not a commit or branch" - fix
-`--repo` or `--base`. "i3 is an intent: tasks go into a unit … workriver unit add i3 --kind research …" - add a research
-unit and the task there. "u2 is a research unit: it takes research, design, review and gate tasks" -
+one" - `start-intent`. "a unit names its template …" / "template … is for a … unit" - name
+one made for the unit's kind, from the list it prints (`templates`). "… is not a git repository" / "base … is not a commit or branch" - fix
+`--repo` or `--base`. "i3 is an intent: tasks go into a unit … workriver unit add i3 --kind research … --template research …" - add a research
+unit and fill its step (or add the task there). "u2 is a research unit: it takes research, design, review and gate tasks" -
 implementing goes in a code unit. "u2 is a research unit: …" - it has no branch to merge,
 move or link commits to; close it with `unit done`. "u1 already has tasks: say which one this
 follows with --after <n> …" - add `--after`, as above. "a unit's branch starts

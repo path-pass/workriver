@@ -90,7 +90,7 @@ its sections went.
   its first workspace, whose line offers "Start manager". The same dialog opens from the
   start guide (the main area's empty state, `DESIGN.md`) and from Start's
   dialog when there is no open workspace; both keep the CLI line beside it.
-  Settings at the bottom. It is the only large field
+  Templates and Settings at the bottom (Templates: `templates.md`). It is the only large field
   of colour in the interface. Each active or done intent is a group that folds (its chevron),
   on two lines only: its id quietly in mono before its title (as units show `u1`), the title
   cut to one line – a click opens the intent's page, a tooltip shows the title and the

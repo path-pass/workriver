@@ -14,6 +14,7 @@ mod scope;
 mod seats;
 mod starts;
 pub(super) mod support;
+mod templates;
 mod terminals;
 mod views;
 mod work;

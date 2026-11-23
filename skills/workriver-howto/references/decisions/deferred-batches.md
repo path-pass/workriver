@@ -10,8 +10,12 @@ The user ticks some in the browser ("Do together"). You get one message: "The us
 deferred findings of intent i3 … to do together", with each finding quoted and the commands.
 Make **one** cleanup unit and one task with all of them as causes:
 
-    workriver unit add i3 --title "Cleanup: token handling" --branch chore/cleanup-tokens
-    workriver task add u7 --title "Fix the batch" --cause u1#4:P2-1 --cause f3 --agent <name>
+    workriver unit add i3 --title "Cleanup: token handling" --branch chore/cleanup-tokens --template development
+    workriver task add u7 --title "Fix the batch" --cause u1#4:P2-1 --cause f3 --after start --agent <name>
+
+The template's steps are placed in the unit too (`templates`): fill those that apply (the
+reviews of the fix, the `go`), and drop the design steps with the reason ("a batch of
+decided findings: nothing to design").
 
 (`u1#4:P2-1` is a finding of another unit's task; `f3` one added to the backlog directly.)
 

@@ -32,6 +32,8 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/append", &["POST"]),
     ("/api/decide", &["POST"]),
     ("/api/task/drop", &["POST"]),
+    ("/api/template", &["GET", "POST"]),
+    ("/api/template/remove", &["POST"]),
     ("/api/gate", &["POST"]),
     ("/api/chore-done", &["POST"]),
     ("/api/backlog/merge", &["POST"]),
@@ -200,6 +202,9 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/append", r#"{"kind":"intent.created","body":{"title":"Probe","state":"planned"}}"#),
     ("POST", "/api/decide", r#"{"unit":"u1","task":1,"finding":"P2-9","decision":"defer"}"#),
     ("POST", "/api/task/drop", r#"{"unit":"u1","task":9,"reason":"probe"}"#),
+    ("GET", "/api/template?name=development", ""),
+    ("POST", "/api/template", r#"{"text":"name: probe\ndescription: A probe.\nsteps: []\n"}"#),
+    ("POST", "/api/template/remove", r#"{"name":"no-such-template"}"#),
     ("POST", "/api/gate", r#"{"unit":"u1","task":9,"result":"done"}"#),
     ("POST", "/api/chore-done", r#"{"chore":"c9"}"#),
     ("POST", "/api/backlog/merge", r#"{"into":"i8","from":["i9"]}"#),
@@ -257,7 +262,7 @@ fn who_may_use_each_route() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     // A message of ws1's conversation, which far, an agent of box that holds no seat, does
     // not read.
@@ -397,7 +402,8 @@ fn shape(v: &Value, at: &str, out: &mut BTreeSet<String>) {
 /// intent with its manager, a code unit with committed, unregistered and uncommitted work,
 /// a research unit, a design, its review with decided findings, a waiting gate, a chore, an
 /// attachment, a question with its temporary agent, a discussion of a delivered research, a
-/// conversation with the manager, and a second machine.
+/// conversation with the manager, a second machine, and a unit made with a template (a step
+/// done, one left out, the rest to fill).
 fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     use workriver_core::runtime::AgentState::*;
     let repo = tmp.join("repo");
@@ -427,7 +433,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
     let all = crate::runtime::follow::Machines::with(fake.clone(), vec![("box", far)]);
-    let store = workriver_data::Store::open(&tmp.join("w.db")).unwrap();
+    let store = opened(&tmp.join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -443,8 +449,8 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     manage(&d, "p1", "s-boss");
     d.append("user", "intent.created", json!({ "title": "Search", "goal": "Find messages", "project": repo, "state": "planned", "note": "See the spec.", "external": { "system": "jira", "key": "CH-1", "url": "https://example.invalid/CH-1" }, "kind": "feature", "size": "m", "tags": ["search"] })).unwrap();
     d.append("user", "finding.added", json!({ "project": repo, "finding": { "severity": "P2", "problem": "Old dependency", "impact": "A known hole", "where": ["Cargo.toml"] }, "source": "audit" })).unwrap();
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Index", "purpose": "Build the index", "repo": repo, "branch": "feat/index", "base": "main" })).unwrap();
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Index", "purpose": "Build the index", "repo": repo, "branch": "feat/index", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Index design", "agent": "impl", "plans": ["a.txt"] })).unwrap();
     d.append("s-impl", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "One table", "evidence": [{ "command": "cargo test", "result": "passed", "summary": "3 passed" }] })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Build it", "agent": "impl", "inputs": [{ "from": "1" }], "steps": [{ "text": "Check", "command": "cargo test" }] })).unwrap();
@@ -491,7 +497,13 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.append("s-boss", "message.said", json!({ "text": "Then which?", "choice": choice })).unwrap();
     d.call("/api/message", Some(json!({ "all": true, "text": "Shutting down at six." }))).unwrap();
     d.append("s-boss", "message.replied", json!({ "message": "m7", "text": "Nothing running here." })).unwrap();
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Other", "purpose": "", "repo": repo, "branch": "feat/other", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Other", "purpose": "", "repo": repo, "branch": "feat/other", "base": "main" })).unwrap();
+    // A unit made with a built-in template: a step filled and delivered, one left out, the
+    // rest still to fill; its go gate lists them.
+    d.append("s-boss", "unit.created", json!({ "template": "development", "intent": "i1", "title": "Steps", "repo": repo, "branch": "feat/steps", "base": "main" })).unwrap();
+    d.append("s-boss", "task.filled", json!({ "unit": "u4", "task": 1, "title": "Shape it", "agent": "impl" })).unwrap();
+    d.append("s-impl", "task.delivered", json!({ "unit": "u4", "task": 1, "note": "One table" })).unwrap();
+    d.append("s-boss", "task.dropped", json!({ "unit": "u4", "task": 3, "reason": "nothing to choose" })).unwrap();
     // A manager's start that ended, in the runtime's words.
     *fake.bring.lock().unwrap() = Bring::Refuse("the runtime: no such kind".into());
     let spare = workspace_named(&d, "spare");

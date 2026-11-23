@@ -20,7 +20,7 @@ fn state(i: &str, st: &str, w: Option<&str>) -> Value {
 }
 
 fn unit(i: &str, repo: &str) -> Value {
-    json!({"kind": "unit.created", "body": {"intent": i, "title": "Decoy", "repo": repo, "branch": "feat/decoy", "base": "main"}})
+    json!({"kind": "unit.created", "body": {"template": "bare", "intent": i, "title": "Decoy", "repo": repo, "branch": "feat/decoy", "base": "main"}})
 }
 
 fn seat_of<'a>(s: &'a Records, ws: &str) -> Option<&'a Seat> {
@@ -376,8 +376,8 @@ fn an_agents_workspace_comes_from_the_records() {
     let mut s = setup();
     seat(&mut s, "ws2", "other");
     add(&mut s, "user", state("i3", "active", Some("ws2"))).unwrap();
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "A", "repo": "/p/r", "branch": "feat/a", "base": "main"}})).unwrap();
-    add(&mut s, "other", json!({"kind": "unit.created", "body": {"intent": "i3", "title": "B", "repo": "/q/r", "branch": "feat/b", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i2", "title": "A", "repo": "/p/r", "branch": "feat/a", "base": "main"}})).unwrap();
+    add(&mut s, "other", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i3", "title": "B", "repo": "/q/r", "branch": "feat/b", "base": "main"}})).unwrap();
     for (who, u) in [("boss", "u1"), ("boss", "u1"), ("other", "u2")] {
         add(&mut s, who, json!({"kind": "task.created", "body": {"unit": u, "kind": "implement", "title": "T", "inputs": [{"from": "start"}]}})).unwrap();
     }

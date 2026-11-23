@@ -150,21 +150,32 @@ workriver 会在那个 agent 的终端里告诉它：它现在是这个工作区
 
 ```sh
 workriver backlog list                 # 路线图：i1 "Mentions"（进行中，由你开始）……
-workriver unit add --title "Mentions" --branch feat/mention   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
-workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
+workriver template list --unit code    # 代码单元可以用的模板
+workriver unit add --title "Mentions" --branch feat/mention --template development   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
+workriver task fill u1#4 --title "Notify the people mentioned, with unit tests" --agent finder
 ```
 
+每个单元都用一个**模板**建立：模板是给一种单元用的、有名字的一串步骤。建单元时，这些步骤作为
+还没人接的任务放进单元，所以还欠哪些步骤就在看板上，而不在管理者的记忆里。内置三个：`research`
+（调研，然后是你的 `direction` gate）、`development`（设计、它的架构评审、你的 `confirm` gate、
+实现、代码评审、安全评审、架构评审、你的 `go` gate）和 `spike`（实验，以及它说明了什么）。管理者
+按说明挑一个，每一步轮到时填写（`workriver task fill`），不适用的就写明理由略过
+（`workriver task drop u1#6 --reason "……"`）。单元的每个 gate 上都给你列出这些步骤：已做（谁做的）、
+略过（谁、为什么）、未做。模板库是你的：Templates 页面（在侧栏底部）列出每个模板，你可以在那里
+或者在你自己的终端里用 `workriver template add 文件` / `workriver template remove 名字` 增加、修改、
+删除。你用内置模板的名字保存的模板会整体替换它，删掉你的就回到内置的。修改只影响之后建的单元。
+
 然后它在运行时里启动干活的 agent `finder`，把任务交给它：任务 id、一句话目标、在哪里干、
-"运行 workriver task show u1#1"，以及 `workriver guide worker` 的全文（Herdr 下的命令：
+"运行 workriver task show u1#4"，以及 `workriver guide worker` 的全文（Herdr 下的命令：
 [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#工作区和管理者)）。
 
 worker 自己记录工作：
 
 ```sh
-workriver task show u1#1                          # 任务全文：要求、起因、补充说明
-workriver task start u1#1 --model claude-opus-5-5  # 它用的模型（知道的话）
-git commit -m "Find mentions" -m "Task: u1#1"     # 这一行 trailer 把提交和任务连起来
-workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
+workriver task show u1#4                          # 任务全文：要求、起因、补充说明
+workriver task start u1#4 --model claude-opus-5-5  # 它用的模型（知道的话）
+git commit -m "Find mentions" -m "Task: u1#4"     # 这一行 trailer 把提交和任务连起来
+workriver task deliver u1#4 --evidence 'npm test => passed: 6 passed'
 ```
 
 管理者尽量少拆：一个意图默认就是一个单元，除非有工作必须分开落地（另一个仓库、另一台机器、
@@ -220,7 +231,7 @@ workriver status                              # 回答来自你这台机器上�
 worker 通过拿到的任务在某个工作区里工作；那边的 agent 也可以像别的 agent 一样被你指定为工作区的管理者。
 
 单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
-并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch feat/queue`）；
+并给出那边的路径和分支名（`workriver unit add --template development --machine box --repo /home/me/app --branch feat/queue`）；
 登记错了地方的单元用 `workriver unit move u1 --machine box --repo … --branch …` 改正。分支改了名、
 或者变基到了新分支，也用这条命令（`workriver unit move u1 --branch feat/queue-2 [--base main-2]`）：单元、
 任务和发现都留着，提交从新分支读，页面上写"之前在 feat/queue"，提交留在旧分支上的任务会如实标出来。

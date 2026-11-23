@@ -252,7 +252,7 @@ fn a_message_carries_what_the_user_picked() {
         s.append(&who.into(), b).unwrap();
     }
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "Paging", "repo": "/r", "branch": "feat/paging", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i2", "title": "Paging", "repo": "/r", "branch": "feat/paging", "base": "main"}})).unwrap();
     add(&mut s, "user", json!({"kind": "attachment.added", "body": {"id": "00000000000000e1", "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
     add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "00000000000000c1", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
     add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "0000000000000001", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
@@ -302,7 +302,7 @@ fn a_message_carries_what_the_user_picked() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Far", "state": "planned"}})).unwrap();
     seat_at(&mut s, &twin, Some("far"), Some("box"), "/home/far").unwrap();
     add(&mut s, "user", start("i3", &twin)).unwrap();
-    s.append(&far, crate::records::tests::body(json!({"kind": "unit.created", "body": {"intent": "i3", "title": "Over there", "repo": "/r", "branch": "feat/far", "base": "main", "machine": "box"}}))).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i3", "title": "Over there", "repo": "/r", "branch": "feat/far", "base": "main", "machine": "box"}}))).unwrap();
     assert!(add(&mut s, "user", say("", "ws1", "u3", 0, json!([]))).unwrap_err().contains("u3 is not of an intent of workspace ws1 (chat)"));
     add(&mut s, "user", say("", &twin, "u3", 0, json!([]))).unwrap();
     // Nothing else is pointed at.

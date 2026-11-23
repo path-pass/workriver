@@ -39,6 +39,7 @@ import { filtersOn, keeps, loadFilter, NO_FILTER, saveFilter, tagsOf, type Filte
 /** All projects, in the project switch (Radix takes no empty value). */
 const ALL = '*'
 import { Settings } from '@/machines/Settings'
+import { TemplatesButton } from './Templates'
 
 /** What waits for the user in some units: gates an agent is stuck on, and everything else. */
 export function needs(units: Unit[]) {
@@ -550,7 +551,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         <span className="text-lg font-[650] tracking-[-0.01em] min-[861px]:hidden">workriver</span>
         <Fold open={false} onToggle={onToggle} />
         <Blocked ws={ws} />
-        <div className="mt-auto max-[860px]:hidden"><Settings compact ws={ws} /></div>
+        <div className="mt-auto flex flex-col gap-1 max-[860px]:hidden"><TemplatesButton compact /><Settings compact ws={ws} /></div>
       </aside>
     )
   const group = ({ intent, units }: { intent: Intent; units: Unit[] }) => (
@@ -657,6 +658,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       </ScrollArea>
 
       <div className="flex flex-col border-t border-rail-line pt-2">
+        <TemplatesButton />
         <Settings ws={ws} />
       </div>
       <RenameSpace space={renaming} onClose={() => setRenaming(null)} />

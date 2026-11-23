@@ -134,7 +134,7 @@ fn an_attachment_only_another_conversation_names_is_not_served() {
     let tmp = tempfile::tempdir().unwrap();
     let (_fake, d) = service(tmp.path());
     two_workspaces(&d, "docs", "web");
-    d.append("s-a", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
+    d.append("s-a", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
     d.append("s-a", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Read", "agent": "s-w" })).unwrap();
     let file = |name: &str, bytes: &[u8]| {
         let p = tmp.path().join(name);
@@ -174,7 +174,7 @@ fn an_attachment_id_in_free_text_grants_no_access() {
     let id = only["id"].as_str().unwrap();
     d.call("/api/message", Some(json!({ "workspace": "ws2", "text": "See this", "context": [{ "kind": "attachment", "label": "f.png", "id": id }] }))).unwrap();
     // An agent writes the id in words, where anyone reads it.
-    d.append("s-a", "unit.created", json!({ "intent": "i1", "title": format!("Look at {id}"), "kind": "research" })).unwrap();
+    d.append("s-a", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": format!("Look at {id}"), "kind": "research" })).unwrap();
     d.append("s-a", "task.created", json!({ "unit": "u1", "kind": "research", "title": format!("Fetch /api/attachments/{id}"), "agent": "s-w" })).unwrap();
     for place in ["p1", "p3"] {
         assert_eq!(from_place(&d, place, "GET", &format!("/api/attachments/{id}"), None).0, 404, "{place}");

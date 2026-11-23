@@ -5,6 +5,12 @@
 Three steps, three tasks, in this order, each after the user's go. Never one task doing two
 of them: an agent told to push does not also open the pull request or merge.
 
+In a unit made with the `development` template the first go is its placed `go` gate
+(`templates`): fill it, last, `--after` the last round of reviews (`workriver task fill u2#8
+--go --title "Push u2 (feat/readme)?" --after 11 --text "…"`), then add the push after it and
+the rest as below. Its gate lists the template's steps to the user: done, left out (why), not
+done.
+
     workriver task add u2 --kind gate --gate decide --go --title "Push u2 (feat/readme)?" --after 4 --text "<what is ready, what was checked>"
     workriver task add u2 --title "Push feat/readme" --after 5 --agent <agent> --text "Push the branch only. No pull request, no merge."
     workriver task add u2 --kind gate --gate decide --go --title "Open the pull request for u2?" --after 6
