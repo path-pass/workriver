@@ -17,7 +17,7 @@ fn only_the_user_is_the_user() {
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle)), ("w1:p2".into(), live("s-rev", "rev", "w1", Idle))];
     // As it runs for real: nobody is an agent by saying so.
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -42,7 +42,7 @@ fn only_the_user_is_the_user() {
     let refused = boss.call("/api/workspaces", Some(json!({ "action": "manager", "workspace": ws, "manager": "s-rev", "replaces": seat_of(&user, &ws) }))).unwrap_err().to_string();
     assert!(refused.contains("only the user does this"), "{refused}");
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{ "from": "1" }] })).unwrap();
     boss.append("", "chore.created", json!({ "intent": "i1", "title": "Rotate the key" })).unwrap();
@@ -86,7 +86,7 @@ fn only_the_user_is_the_user() {
     assert!(crate::cli::board_text(&boss, Some("i3")).unwrap().contains("  dropped: merged into i2\n"));
     // Research and design: a unit with no branch, nothing of git; the manager (not another
     // agent) adds what it learnt to the intent's note.
-    assert_eq!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "Pick a store", "kind": "research" })).unwrap()["body"]["id"], "u2");
+    assert_eq!(boss.append("", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "Pick a store", "kind": "research" })).unwrap()["body"]["id"], "u2");
     boss.append("", "intent.updated", json!({ "intent": "i1", "add_note": "Decided: SQLite" })).unwrap();
     assert!(rev.append("", "intent.updated", json!({ "intent": "i1", "add_note": "x" })).unwrap_err().to_string().contains("only the user or the manager"));
     let ws = user.get("/api/workspace").unwrap();
@@ -214,7 +214,7 @@ fn a_machines_listener_serves_only_agents() {
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
     let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -296,7 +296,7 @@ fn a_machines_listener_serves_only_agents() {
     let ws = seat_at(&user, &there);
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     // Research over there: a unit with no branch, so nothing of that machine to check.
-    let e = there.append("", "unit.created", json!({ "intent": "i1", "title": "Look around", "kind": "research" })).unwrap();
+    let e = there.append("", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "Look around", "kind": "research" })).unwrap();
     assert_eq!(e["actor"], "s-far");
     let u = e["body"]["id"].as_str().unwrap().to_string();
     there.append("", "task.created", json!({ "unit": u, "kind": "research", "title": "Look" })).unwrap();
@@ -356,7 +356,7 @@ fn blind_reviews() {
     git(&repo, &["commit", "-q", "-m", "SECRET-SUBJECT trust me, it is safe\n\nTask: u1#1"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-imp", "imp", "w1", Idle)), ("p3".into(), live("s-sec", "sec", "w1", Idle))];
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -370,7 +370,7 @@ fn blind_reviews() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
     imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
     let shot = tmp.path().join("shot.png");
@@ -696,7 +696,7 @@ fn a_caller_on_another_machine_is_checked_there() {
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle)), ("w1:p2".into(), live("s-two", "two", "w1", Idle))];
     let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -780,7 +780,7 @@ fn a_long_command_outlives_its_proof() {
     // Every proof from here on stands for a third of a second.
     kernel.callers.set_ttl(std::time::Duration::from_millis(300));
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "kind": "research" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "M", "kind": "research" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design it", "agent": "two" })).unwrap();
     let boss = at_place(&d, "p1");
     let asked = boss.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Which clock?", "context": [] }))).unwrap();

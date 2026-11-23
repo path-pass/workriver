@@ -67,6 +67,9 @@ pub struct State {
     pub projects: Vec<Project>,
     #[serde(default)]
     pub workspaces: Vec<Workspace>,
+    /// The user's templates, by name (the built-in ones are not records: see `library`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub templates: Vec<LibraryTemplate>,
     /// Planned intents in roadmap order (each project's roadmap is its part of this list).
     #[serde(default)]
     pub roadmap: Vec<String>,
@@ -142,8 +145,9 @@ impl State {
             IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentWorkspaceSet { .. } => self.prepare_intents(who, body),
             ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } | WorkspaceManagerStarted { .. } | ManagerStartSeated { .. } | ManagerStartEnded { .. } => self.prepare_projects(who, body),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.prepare_units(who, body),
+            TemplateSet { .. } | TemplateRemoved { .. } => self.prepare_templates(who, body),
             // The work: work/.
-            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.prepare_tasks(who, body),
+            TaskCreated(..) | TaskFilled { .. } | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.prepare_tasks(who, body),
             FindingsBatched { .. } | FindingAdded { .. } | FindingDropped { .. } | FindingNoted { .. } | FindingDecided { .. } => self.prepare_findings(who, body),
             GateSubmitted { .. } => self.prepare_gates(who, body),
             ChoreCreated { .. } | ChoreDone { .. } => self.prepare_chores(who, body),
@@ -166,8 +170,9 @@ impl State {
             IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentWorkspaceSet { .. } => self.apply_intents(e),
             ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } | WorkspaceManagerStarted { .. } | ManagerStartSeated { .. } | ManagerStartEnded { .. } => self.apply_projects(e),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.apply_units(e),
+            TemplateSet { .. } | TemplateRemoved { .. } => self.apply_templates(e),
             // The work: work/.
-            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.apply_tasks(e),
+            TaskCreated(..) | TaskFilled { .. } | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.apply_tasks(e),
             FindingsBatched { .. } | FindingAdded { .. } | FindingDropped { .. } | FindingNoted { .. } | FindingDecided { .. } => self.apply_findings(e),
             GateSubmitted { .. } => self.apply_gates(e),
             ChoreCreated { .. } | ChoreDone { .. } => self.apply_chores(e),

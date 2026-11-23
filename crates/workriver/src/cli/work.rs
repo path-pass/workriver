@@ -70,6 +70,21 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind, "blocks": blocks, "choice": choice,
             }))?
         }
+        Cmd::Task(TaskCmd::Fill { task, title, text, agent, after, go, option, require_note, step, plan, blind }) => {
+            if go && !option.is_empty() {
+                bail!("a decide gate takes --go or --option, not both: --go asks may I, --option asks which");
+            }
+            if !option.is_empty() && option.len() < core::MIN_OPTIONS {
+                bail!("a decide gate that asks which takes at least {} --option, not {}; to ask may I, use --go (workriver guide how ask-user)", core::MIN_OPTIONS, option.len());
+            }
+            let (unit, n) = task_ref(&task)?;
+            let inputs: Vec<Value> = after.iter().map(|n| json!({ "from": n, "primary": false })).collect();
+            let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
+            let choice = parse_choice(&option, &require_note)?;
+            d.append(actor, "task.filled", json!({
+                "unit": unit, "task": n, "title": title, "text": text, "agent": agent, "inputs": inputs, "plans": plan, "steps": steps, "blind": blind, "choice": choice,
+            }))?
+        }
         Cmd::Task(TaskCmd::Start { task, agent, model }) => {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent, "model": model }))?
@@ -290,6 +305,49 @@ pub(crate) enum TaskCmd {
         /// work (notes, evidence, findings, decisions, questions) until it delivers, so its
         /// view is its own. Blindness guards against bias, not against an agent that sets
         /// out to look (commit messages, files on disk).
+        #[arg(long)]
+        blind: bool,
+    },
+    /// Fill a step its unit's template placed (`workriver board` marks it `to fill`): what it
+    /// asks and whose it is. Once, by the manager of its intent or the user, who becomes its
+    /// author; its kind, reviewer and gate are the template's. A step that does not apply is
+    /// dropped instead, with the reason (`workriver task drop`), which every gate of the unit
+    /// shows. Fill a placed gate last, --after the last round of reviews: it opens (asks the
+    /// user) once what it follows is done or dropped.
+    Fill {
+        /// The task (u1#3).
+        task: String,
+        /// What the work is (needed for implement, design, research and gate).
+        #[arg(long, default_value = "")]
+        title: String,
+        /// The full ask, as handed to the agent; default: the title.
+        #[arg(long, default_value = "")]
+        text: String,
+        /// The agent it is handed to.
+        #[arg(long)]
+        agent: Option<String>,
+        /// A task it follows besides those the template placed it after (N); repeatable. A
+        /// placed input is never taken away.
+        #[arg(long, value_name = "N")]
+        after: Vec<String>,
+        /// Decide gates: it asks may I (merge, a design's gate): the user confirms or not.
+        #[arg(long)]
+        go: bool,
+        /// Decide gates: an option the user picks from, `ID=LABEL`; 2 to 8. Not on a
+        /// design's gate. Repeatable.
+        #[arg(long, value_name = "ID=LABEL")]
+        option: Vec<String>,
+        /// An option whose answer needs the user's note (why). Repeatable.
+        #[arg(long, value_name = "ID")]
+        require_note: Vec<String>,
+        /// Gate tasks: one step for the user, `TEXT` or `TEXT => COMMAND`. Repeatable.
+        #[arg(long)]
+        step: Vec<String>,
+        /// A path the work expects to change (file or folder). Repeatable.
+        #[arg(long)]
+        plan: Vec<String>,
+        /// For a review, tests, research or design step: its agent sees nothing of other
+        /// work until it delivers.
         #[arg(long)]
         blind: bool,
     },

@@ -271,13 +271,13 @@ mod tests {
     #[test]
     fn an_idle_worker_on_an_unread_machine_is_unknown() {
         let dir = tempfile::tempdir().unwrap();
-        let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+        let mut s = crate::server::tests::support::opened(&dir.path().join("w.db"));
         let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         let boss = || Principal::Agent { session: "boss".into(), machine: None };
         at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
         seated(&mut s);
         at(&mut s, Principal::User, json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": "ws1"}}));
-        at(&mut s, Principal::User, json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
+        at(&mut s, Principal::User, json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "agent": "w"}}));
         let w = || Principal::Agent { session: "w".into(), machine: Some("box".into()) };
         at(&mut s, w(), json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
@@ -299,14 +299,14 @@ mod tests {
     #[test]
     fn the_agent_of_a_result_is_kept_until_its_gate() {
         let dir = tempfile::tempdir().unwrap();
-        let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+        let mut s = crate::server::tests::support::opened(&dir.path().join("w.db"));
         let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         let boss = || Principal::Agent { session: "boss".into(), machine: None };
         let r = || Principal::Agent { session: "r".into(), machine: None };
         at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
         seated(&mut s);
         at(&mut s, Principal::User, json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": "ws1"}}));
-        at(&mut s, boss(), json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
+        at(&mut s, boss(), json!({"kind": "unit.created", "body": {"template": "bare-research", "intent": "i1", "title": "Survey", "kind": "research"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "x", "agent": "r"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Which?", "inputs": [{"from": "1"}]}}));
         at(&mut s, r(), json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
@@ -325,10 +325,10 @@ mod tests {
     #[test]
     fn a_disconnected_machine_is_unknown() {
         let dir = tempfile::tempdir().unwrap();
-        let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+        let mut s = crate::server::tests::support::opened(&dir.path().join("w.db"));
         let mut at = |who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         at(Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat"}}));
-        at(Principal::User, json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
+        at(Principal::User, json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
         at(Principal::User, json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x"}}));
         at(Principal::Agent { session: "w".into(), machine: Some("box".into()) }, json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
         let state = s.state().clone();

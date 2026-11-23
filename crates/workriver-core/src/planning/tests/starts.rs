@@ -261,7 +261,7 @@ fn a_session_known_before_the_start_is_refused() {
     let mut s = setup();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "T", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": "ws2"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/p/r", "branch": "feat/u", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/p/r", "branch": "feat/u", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "T", "agent": "s-worker"}})).unwrap();
     let seq = start(&mut s);
     let e = add(&mut s, "workriver", seated("ws1", seq, "s-worker")).unwrap_err();

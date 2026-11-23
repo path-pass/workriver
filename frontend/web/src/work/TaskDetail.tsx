@@ -36,6 +36,7 @@ import { RunSteps } from '@/commands/context'
 import { Choice } from '@/ui/Choice'
 import { NodeName, glyph, grewText } from './Nodes'
 import { Findings, FindingNotes } from './Findings'
+import { GateStepsList, StepLine } from './GateSteps'
 
 /** The checks run on a piece of work, one line each; with none, done work says so quietly. */
 function Checks({ n }: { n: Task }) {
@@ -154,7 +155,7 @@ export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Un
     const of = byId(n.inputs.find(i => i.primary)?.from)
     const files = [...new Set(commitsOf(of).filter(c => !c.merge).flatMap(c => c.files.map(f => f.path)))]
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.state === 'dropped' ? 'state.dropped' : n.result === 'running' ? 'state.running' : 'state.done')}</>
-    input = <>{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}<Added n={n} /><Answers n={n} /></>
+    input = <><StepLine unit={unit} n={n} />{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}<Added n={n} /><Answers n={n} /></>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
@@ -162,6 +163,7 @@ export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Un
     // The results this gate asks about that the user may still discuss with their agents.
     const discussed = n.state === 'waiting' ? unit.tasks.filter(x => x.output.gate === n.id && x.discuss === 'open') : []
     input = <>
+      <StepLine unit={unit} n={n} />
       <Prose text={n.input.text || n.title} />
       <Added n={n} />
       <RunSteps steps={n.input.steps ?? []} ask={{ unit: unit.id, from: `${unit.id}#${n.id}`, by: byId(n.inputs.find(i => i.primary)?.from)?.agent ?? undefined }} />
@@ -176,9 +178,12 @@ export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Un
       )}
     </>
     // What was attached to the gate (by its agent) is there to look at before answering it.
+    // What the unit's template placed, above the form's buttons: what the user goes ahead of.
+    const listed = n.gateSteps && <GateStepsList steps={n.gateSteps} />
     output = n.state === 'waiting'
-      ? <div className="flex flex-col gap-2"><Thumbs list={n.output.attachments ?? []} /><GateForm key={gateKey(unit, n)} unit={unit} gate={n} /></div>
+      ? <div className="flex flex-col gap-2"><Thumbs list={n.output.attachments ?? []} />{listed}<GateForm key={gateKey(unit, n)} unit={unit} gate={n} /></div>
       : <>
+          {listed && <div className="mb-2">{listed}</div>}
           {n.output.selected?.map(v => <Chose key={v} choice={n.input.choice} value={v} />)}
           {n.output.note && <Prose text={n.output.note} />}
           <Thumbs list={n.output.attachments ?? []} />
@@ -194,6 +199,7 @@ export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Un
     })
     head = <>{n.agent ? <Who name={n.agent} /> : <Icon name={glyph(n)} />}{[t(n.design ? 'kind.design' : n.research ? 'kind.research' : 'kind.implement'), n.agent, t(`state.${n.state}`)].filter(Boolean).join(' · ')}</>
     input = <>
+      <StepLine unit={unit} n={n} />
       <Prose text={n.input.text || n.title} />
       <Added n={n} />
       <Answers n={n} />

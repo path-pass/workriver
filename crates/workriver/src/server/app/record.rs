@@ -201,10 +201,10 @@ impl App {
             // one the unit was recorded from. It is checked there, over ssh for another machine.
             // Research has no repository: nothing to check.
             b @ Body::UnitCreated { kind: core::UnitKind::Research, .. } => b,
-            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, machine: named, kind } => {
+            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, machine: named, kind, template, revision, placed } => {
                 let machine = place(named.as_deref(), machine);
                 let top = self.repository(machine.as_deref(), &repo, &base)?;
-                Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine, kind }
+                Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine, kind, template, revision, placed }
             }
             // What is not given stays as it is; `machine` is always said (the CLI sends it).
             Body::UnitRelocated { unit, machine: named, repo, branch, base, .. } => {
@@ -267,6 +267,10 @@ impl App {
                 Body::TaskCreated(t)
             }
             Body::TaskStarted { unit, task, agent, model } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.task_session(&a)).transpose()?, model },
+            // A placed task filled for an agent: resolved as `task add` resolves it.
+            Body::TaskFilled { unit, task, title, text, agent, inputs, plans, steps, blind, choice } => {
+                Body::TaskFilled { unit, task, title, text, agent: agent.map(|a| self.task_session(&a)).transpose()?, inputs, plans, steps, blind, choice }
+            }
             other => other,
         })
     }

@@ -4,7 +4,8 @@
 
 A unit stands (board, `workriver task show`, the page):
 
-- **working**: a task is to do or being done.
+- **working**: a task is to do or being done. A step its template placed (`templates`) is
+  a task to do until it is done or dropped: a unit with one is never ready.
 - **waiting**: an open finding, a gate for the user, or a finding accepted with no work
   handed out for it. A review delivered last is not the end.
 - **ready**: everything delivered and decided (deferred findings hold nothing up): it can
@@ -25,6 +26,11 @@ A research unit (`units`) has no branch: it goes from ready ("ready to close") t
     workriver unit merged u1                                # after a squash merge (git cannot show it)
     workriver unit done u2 --reason "superseded by u1"      # research, abandoned, superseded
     workriver intent done i3                                # once the board says every unit is merged or done
+
+Closing a unit over steps its template placed that are neither done nor dropped is not
+refused; `unit done` answers "Steps of template … not done: …; u2 is closed without them",
+and they stay `todo` on the board. Drop each with its reason first, so the record says why
+(`templates`).
 
 **Tell the user** what came of it each time, by the rule of `user-message`: work the user
 asked for in a message (`m3`, also one to every manager) is answered there, as a reply to

@@ -5,6 +5,7 @@ use crate::*;
 
 mod ownership;
 mod starts;
+mod templates;
 
 /// A unit's branch is its own and says what it holds; units named before that rule still
 /// load from the records and keep working.
@@ -12,7 +13,7 @@ mod starts;
 fn unit_branches_take_a_prefix_but_old_ones_replay() {
     let mut s = Records::default();
     seeded(&mut s);
-    let unit = |branch: &str, base: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "x", "repo": "/r", "branch": branch, "base": base}});
+    let unit = |branch: &str, base: &str| json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "x", "repo": "/r", "branch": branch, "base": base}});
     for (branch, base, says) in [("ja-ui", "main", "starts with feat/, chore/ or fix/"), ("feat/", "main", "and a name"), ("feature/x", "main", "e.g. --branch feat/x"), ("main", "main", "must not be its base"), ("feat/x", "feat/x", "must not be its base"), ("main", "origin/main", "must not be its base")] {
         let e = add(&mut s, "user", unit(branch, base)).unwrap_err();
         assert!(e.contains(says), "{branch} from {base}: {e}");
@@ -60,7 +61,7 @@ fn intent_states_and_workspaces() {
     // Done: no longer current, no new units; done cannot start again; dropping needs a reason.
     add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "done"}})).unwrap();
     assert_eq!(current(&s).as_deref(), Some("i1"), "the other active intent there is current again");
-    let e = add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "x", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap_err();
+    let e = add(&mut s, "boss", json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i2", "title": "x", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap_err();
     assert!(e.contains("is done"), "{e}");
     let e = add(&mut s, "boss", start("i2", &w1)).unwrap_err();
     assert!(e.contains("cannot become active"), "{e}");
@@ -181,7 +182,7 @@ fn an_intents_project_is_the_one_holding_its_folder() {
     add(&mut s, "user", plan("Filters", "/p/web")).unwrap();
     add(&mut s, "user", plan("Sync", "/p/web")).unwrap();
     add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2"]}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i3", "title": "Compare sync engines", "kind": "research"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"template": "bare-research", "intent": "i3", "title": "Compare sync engines", "kind": "research"}})).unwrap();
     assert_eq!(s.state().unit("u1").unwrap().repo, "/p", "the project's folder");
 }
 
@@ -197,7 +198,7 @@ fn research_units() {
         assert!(e.contains("tasks go into a unit") && e.contains("workriver unit add i1 --kind research"), "{e}");
     }
     let research = |extra: serde_json::Value| {
-        let mut b = json!({"intent": "i1", "title": "Compare sync engines", "kind": "research"});
+        let mut b = json!({"intent": "i1", "title": "Compare sync engines", "kind": "research", "template": "bare-research"});
         b.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         json!({"kind": "unit.created", "body": b})
     };
@@ -237,7 +238,7 @@ fn research_units() {
 fn spike_units_keep_code_but_are_never_merged() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync"}})).unwrap();
-    let unit = |kind: &str, branch: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Try CRDTs", "repo": "/r", "branch": branch, "base": "main", "kind": kind}});
+    let unit = |kind: &str, branch: &str| json!({"kind": "unit.created", "body": {"template": if kind == "spike" { "bare-spike" } else { "bare" }, "intent": "i1", "title": "Try CRDTs", "repo": "/r", "branch": branch, "base": "main", "kind": kind}});
     for (kind, branch, says) in [("spike", "feat/crdt", "--branch spike/crdt"), ("spike", "spike/", "a spike's branch starts with spike/"), ("spike", "main", "must not be its base"), ("code", "spike/crdt", "spike/<name> is for --kind spike")] {
         let e = add(&mut s, "user", unit(kind, branch)).unwrap_err();
         assert!(e.contains(says), "{kind} {branch}: {e}");
@@ -293,7 +294,7 @@ fn units_are_where_the_work_is() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A", "project": "/p", "state": "planned"}})).unwrap();
     seat(&mut s, &w1, "boss");
     add(&mut s, "user", start("i1", &w1)).unwrap();
-    let unit = |machine: Option<&str>| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/srv/app", "branch": "feat/f", "base": "main", "machine": machine}});
+    let unit = |machine: Option<&str>| json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i1", "title": "U", "repo": "/srv/app", "branch": "feat/f", "base": "main", "machine": machine}});
     // The manager is on this machine, the workers on box: it puts the unit there, with no
     // link; another agent does not.
     assert!(add(&mut s, "worker", unit(Some("box"))).unwrap_err().contains("only the user or the manager"));

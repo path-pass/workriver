@@ -91,6 +91,11 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
     if matches!(body, Body::WorkspaceManagerStarted { .. }) {
         return Err(bad("a manager is started only by the start action, which opens its terminal and records it: the page's Start manager (a workspace's line)".into()));
     }
+    // A template holds its text and the steps read from it: only the action that reads the
+    // text records one, so the two cannot differ.
+    if matches!(body, Body::TemplateSet { .. }) {
+        return Err(bad("a template is saved from its text: `workriver template add FILE`, or the Templates page".into()));
+    }
     blocking(move || {
         let who = app.who(&caller, a.named.as_deref())?;
         let e = app.record(&who, body)?;
@@ -98,6 +103,21 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
         // A requirement added to a task: whether its agent was told, apart from the note.
         if let Body::TaskNoted { .. } = &e.body {
             out["told"] = json!(app.noted(&e));
+        }
+        // A gate added or filled, or a unit closed, while steps its template placed are not
+        // done: said, not refused. Recorded: a store that cannot be read now only leaves the
+        // warning out.
+        let ahead = match &e.body {
+            Body::TaskCreated(t) if t.kind == core::TaskKind::Gate && t.blocks.is_none() => Some((t.unit.clone(), Some(t.n))),
+            Body::TaskFilled { unit, task, .. } => Some((unit.clone(), Some(*task))),
+            Body::UnitDone { unit, .. } => Some((unit.clone(), None)),
+            _ => None,
+        };
+        if let Some((unit, n)) = ahead
+            && let Ok(Some(all)) = got(app.store.lock().unwrap().recorded())
+            && let Some(w) = delivery::steps_warning(&all, &unit, n)
+        {
+            out["warning"] = json!(w);
         }
         // A manager that closes its intent is told, in place of a message, to tell the user.
         if let Body::IntentStateChanged { intent, state: core::IntentState::Done, .. } = &e.body {

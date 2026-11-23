@@ -46,7 +46,7 @@ fn machines_are_separate_and_need_no_link() {
     all.close("why-q9").unwrap();
     all.poll_all();
 
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -86,10 +86,10 @@ fn machines_are_separate_and_need_no_link() {
 
     // A unit is its intent's manager's to add, not any agent's over there; one the manager
     // puts on the other machine has its repository there.
-    let far_unit = json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" });
+    let far_unit = json!({ "template": "bare", "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" });
     let refused = via_box.append("s-far", "unit.created", far_unit.clone()).unwrap_err().to_string();
     assert!(refused.contains("only the user or the manager of intent i1 (boss) adds its units"), "{refused}");
-    let unit = d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap();
+    let unit = d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap();
     assert_eq!(unit["body"]["machine"], "box");
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     // A review delivered there reaches the manager here; a file it attached is, for an agent
@@ -181,7 +181,7 @@ fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
     // Read once here, with nobody there; no thread reads it again (the test does, below).
     let all = crate::runtime::follow::Machines::with(local.clone(), vec![("slow1", slow.clone()), ("box", far.clone()), ("slow2", slow.clone())]);
     slow.wait.store(3000, std::sync::atomic::Ordering::Relaxed);
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -192,7 +192,7 @@ fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
     wait_until("the machine's listener", || all.local_port("box").is_some());
     let via_box = kernel.daemon(all.local_port("box").unwrap(), None, None);
     manage(&d, "w1:p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Drain" })).unwrap();
 
     // The worker comes up over there and starts its task through that machine's listener.
@@ -369,7 +369,7 @@ fn units_on_another_machine() {
     let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
     all.set_runner("box", workriver_scan::Runner::Ssh { program: fake_ssh.to_string_lossy().into_owned(), options: vec![], target: "box".into() });
     all.poll_all();
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -384,14 +384,14 @@ fn units_on_another_machine() {
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
 
     // What happened on the work machine: recorded on the manager's side, with a ref that only exists there.
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "feat/hub", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "feat/hub", "base": "main" })).unwrap();
     // Recording it where the work is: the intent's manager puts a unit on any machine
     // workriver follows, with no link.
-    let on_box = json!({ "intent": "i1", "title": "Queue", "repo": path(&there), "branch": "feat/feature", "base": "main", "machine": "box" });
+    let on_box = json!({ "template": "bare", "intent": "i1", "title": "Queue", "repo": path(&there), "branch": "feat/feature", "base": "main", "machine": "box" });
     let made = boss.append("", "unit.created", on_box).unwrap();
     assert_eq!((made["body"]["machine"].as_str(), made["body"]["repo"].as_str()), (Some("box"), Some(path(&there).as_str())));
     // The path and the base are checked on that machine.
-    let e = boss.append("", "unit.created", json!({ "intent": "i1", "title": "x", "repo": "/no/such/repo", "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string();
+    let e = boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "x", "repo": "/no/such/repo", "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string();
     assert!(e.contains("/no/such/repo on box is not a git repository"), "{e}");
 
     // The first unit is corrected: what is not given stays.
@@ -410,7 +410,7 @@ fn units_on_another_machine() {
     let code = user.get("/api/unit/u1/code").unwrap();
     assert!(code["commits"][0]["files"][0]["after"].is_string() && u1["commits"][0]["files"][0].get("after").is_none() && u1["commits"][0]["files"][0]["add"].as_u64() > Some(0), "{code}");
     let board = crate::cli::board_text(&boss, None).unwrap();
-    assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feat/feature from main]", path(&there))), "{board}");
+    assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feat/feature from main · template bare]", path(&there))), "{board}");
 
     // The line to box dies (the computer slept): nothing waits on box until it is back.
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Drain", "agent": "s-worker" })).unwrap();
@@ -435,7 +435,7 @@ fn units_on_another_machine() {
     assert!(matches!(e, workriver_core::runtime::RuntimeError::Unreachable(_)), "{e:?}");
     let e = e.to_string();
     assert!(started.elapsed() < std::time::Duration::from_millis(200) && e.contains("machine box is disconnected since "), "{e}");
-    assert!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "y", "repo": path(&there), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
+    assert!(boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "y", "repo": path(&there), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
     std::fs::remove_file(&slow).unwrap();
 
     // Chores of no intent: a project's (a registered one's; a repository outside every

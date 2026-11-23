@@ -13,11 +13,11 @@ conversations……）。
 
 | 位置 | 是什么 |
 |---|---|
-| `crates/workriver-core/` | workriver 记录什么、按什么规则记录，不碰网络、存储和界面：`records/`（事件和它们累加成的状态）、`planning/`（项目、意图、单元）、`work/`（任务、问题发现、关卡、杂务）、`conversations/`（提问、消息、附件的记录）、`choices/`（问题的选项按记录的样子：A2UI v1.0 的一个固定子集，这里只有它的写入规则，core 不画任何东西）、`access/`（谁能做什么、盲审的视图）、`runtime.rs`（运行时接口，用 workriver 自己的词）、`screens/`（agent 终端上显示的内容：从中读出的确认框，workriver 能按的键）、`ports/`（数据端口：服务对保存记录的一方提出的要求） |
+| `crates/workriver-core/` | workriver 记录什么、按什么规则记录，不碰网络、存储和界面：`records/`（事件和它们累加成的状态）、`planning/`（项目、意图、单元，以及放置单元步骤的模板）、`work/`（任务、问题发现、关卡、杂务）、`conversations/`（提问、消息、附件的记录）、`choices/`（问题的选项按记录的样子：A2UI v1.0 的一个固定子集，这里只有它的写入规则，core 不画任何东西）、`access/`（谁能做什么、盲审的视图）、`runtime.rs`（运行时接口，用 workriver 自己的词）、`screens/`（agent 终端上显示的内容：从中读出的确认框，workriver 能按的键）、`ports/`（数据端口：服务对保存记录的一方提出的要求） |
 | `crates/workriver-data/` | 事件库：一个只追加的 SQLite 文件（`sqlite/`）。它实现 core 的数据端口，服务只通过这个端口使用它 |
 | `crates/workriver-scan/` | 读 git 和文件树，本机或经 ssh：`runner.rs`、`history/`、`files/` |
 | `crates/workriver/src/cli/` | `workriver` 命令：解析参数、证明调用者是谁、请求服务、打印结果 |
-| `crates/workriver/src/server/` | 服务：`app/`（启动、记录、轮询）、`access/`（调用者是谁、能做什么、能看什么）、`http/`（路由和请求守卫），然后每个领域一个文件夹（`planning/`、`work/`、`conversations/`、`commands/`、`terminals/`（在页面上读 agent 的终端、按键、看终端视图）、`machines/`、`files/`、`views/`、`delivery/`） |
+| `crates/workriver/src/server/` | 服务：`app/`（启动、记录、轮询）、`access/`（调用者是谁、能做什么、能看什么）、`http/`（路由和请求守卫），然后每个领域一个文件夹（`planning/`（包括模板的 YAML）、`work/`、`conversations/`、`commands/`、`terminals/`（在页面上读 agent 的终端、按键、看终端视图）、`machines/`、`files/`、`views/`、`delivery/`） |
 | `crates/workriver/src/runtime/` | agent 运行时，藏在一个门面后面：`follow.rs`（把多台机器当成一个）、`ssh.rs`（隧道），每种运行时一个文件夹；目前只有 `herdr/`（[Herdr 运行时](runtimes/herdr.zh-CN.md)） |
 | `crates/workriver/src/common/` | 服务和 CLI 共用的东西：设置（`config/`）、数据目录里的文件（`home.rs`）、进程，以及服务、CLI 和网页共同认定的 JSON 结构（`wire/`） |
 | `frontend/web/src/` | 网页：`app/`（外壳）、`api/`（通往服务的唯一出口）、`workspace/`（载入快照），每个领域一个文件夹（`planning/`、`work/`、`attention/`、`agents/`、`conversations/`、`code/`、`attachments/`、`commands/`、`machines/`、`session/`），然后是共用部分（`content/`、`ui/`、`lib/`、`config/`、`i18n/`）和 `mock/`（示例数据） |

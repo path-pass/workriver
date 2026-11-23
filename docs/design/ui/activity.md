@@ -160,6 +160,9 @@ read each other); nothing is matched or merged automatically.
 
 ## Gates and chores
 
+A unit made with a template has its steps placed as tasks; a placed task and what every gate
+of such a unit lists of the steps are in `templates.md` (On the work).
+
 Both are things an agent hands to the user; what separates them is whether an agent is
 stuck. A **gate** blocks: a manual deploy, a manual try-out. It is a node, placed where
 the flow stops, violet while it waits and water once done. It waits only once every task

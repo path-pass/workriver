@@ -239,6 +239,18 @@ pub trait WorkStore: Send {
         Ok(self.recorded()?.units.clone())
     }
 
+    /// The text the user saved a template from, by the template's revision (the sequence of
+    /// its `template.set`); None when the event of that sequence is no `template.set`. Read by
+    /// the revision a state holds, so a removed template's text is never answered, nor one
+    /// newer than that state. Not kept in the state: every read of it would carry them all.
+    fn template_text(&self, revision: u64) -> Result<Option<String>, DataError> {
+        let at = self.history(Revision(revision.saturating_sub(1)), 1)?;
+        Ok(at.events.into_iter().find(|e| e.seq as u64 == revision).and_then(|e| match e.body {
+            Body::TemplateSet { source, .. } => Some(source),
+            _ => None,
+        }))
+    }
+
     // ---- what a previous run left, for the service's start ----
 
     /// Messages given to their receiver and not seen picked up (`DeliveryStep::Delivered`),

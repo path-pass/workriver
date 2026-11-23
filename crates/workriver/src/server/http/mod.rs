@@ -61,6 +61,8 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/append", post(append))
         .route("/api/decide", post(decide))
         .route("/api/task/drop", post(drop_task))
+        .route("/api/template", get(template_show).post(template_save))
+        .route("/api/template/remove", post(template_remove))
         .route("/api/gate", post(gate))
         .route("/api/chore-done", post(chore_done))
         .route("/api/backlog/merge", post(merge))

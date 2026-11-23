@@ -63,21 +63,28 @@ workriver/
 │   │       │   │                     # who edits an intent's text, its versions (Edits), the base check,
 │   │       │   │                     # an intent's project, the workspace it starts or moves in.
 │   │       │   ├── history.rs        # An intent's versions and a version's text, rebuilt from its events.
-│   │       │   ├── units.rs          # Code/research/spike units, relocation, merges, commit links.
+│   │       │   ├── units.rs          # Code/research/spike units, relocation, merges, commit links; a new
+│   │       │   │                     # unit's template and the steps it places (`placing`).
+│   │       │   ├── templates.rs      # Templates as values: their rules (`Template::checked`, with the
+│   │       │   │                     # step and key at fault), the three built-ins, the user's library
+│   │       │   │                     # (`template.set`/`removed`, revision = its sequence), `library`.
 │   │       │   ├── projects.rs       # Projects (none inside another); workspaces (workriver's own: id,
 │   │       │   │                     # name, project), the manager's seat and its appointment, a
 │   │       │   │                     # manager's start and its seating/end (by sequence), an agent's
 │   │       │   │                     # workspace.
 │   │       │   ├── tests.rs
 │   │       │   ├── tests/ownership.rs  # Who sets an intent's project, workspace and manager.
-│   │       │   └── tests/starts.rs   # A project's nesting; a manager's start, its seating and end.
+│   │       │   ├── tests/starts.rs   # A project's nesting; a manager's start, its seating and end.
+│   │       │   └── tests/templates.rs  # Templates' rules, the library, placing, filling, a gate's list.
 │   │       ├── work/                 # The task graph and its outcomes; no IO.
 │   │       │   ├── mod.rs            # Task/input/evidence types, task-ref parser, entry points.
-│   │       │   ├── tasks.rs          # Create/start/deliver/amend/drop, ownership, lookup.
+│   │       │   ├── tasks.rs          # Create/fill/start/deliver/amend/drop, ownership, lookup; the
+│   │       │   │                     # shape a new or filled task must have (`shape`).
 │   │       │   ├── graph.rs          # Inputs, ancestors, follow-ups, progress, readiness, and design
 │   │       │   │                     # ancestry (decide gates, superseding designs); result_gate.
 │   │       │   ├── findings.rs       # Findings, suggestions, decisions, additions, deferred batches.
-│   │       │   ├── gates.rs          # Gate submission/opening and results.
+│   │       │   ├── gates.rs          # Gate submission/opening and results; what a gate lists of its
+│   │       │   │                     # unit's placed steps (`gate_steps`), the steps still to fill.
 │   │       │   ├── chores.rs         # Non-blocking chores and their completion.
 │   │       │   ├── commands.rs       # The user's recorded command runs/reviews/ends and Verdict.
 │   │       │   ├── answers.rs        # agent.keys: the user's answer in an agent's terminal, cut
@@ -232,7 +239,8 @@ crates/workriver/
 │   │   ├── mod.rs                    # The clap tree (Cli, Cmd), the shared context (Cx), status,
 │   │   │                             # open, board, link, guide, perf; one dispatch per domain.
 │   │   ├── client.rs                 # Daemon, proof fetch and renewal, headers, bounded response reading.
-│   │   ├── planning.rs               # Intent/unit/project/workspace/backlog commands (a seating included).
+│   │   ├── planning.rs               # Intent/unit/project/workspace/backlog/template commands (a seating
+│   │   │                             # included).
 │   │   ├── work.rs                   # Task/finding/commit/gate/chore/attach/run-review commands;
 │   │   │                             # delivery staging, task show.
 │   │   ├── conversations.rs          # Ask/answer/reply/say/manager-tell and waits; message show.
@@ -275,10 +283,15 @@ crates/workriver/
 │   │   ├── planning/
 │   │   │   ├── mod.rs                # Start and merge handlers; the user's acts on workspaces
 │   │   │   │                         # (/api/workspaces: add, rename, close, open, manager, move, start).
-│   │   │   └── start.rs              # A manager started from the page: the place opened, the start
-│   │   │                             # recorded, the harness started, the wait and its one end, the
-│   │   │                             # starts a previous run left; the default harness and model
-│   │   │                             # (/api/settings/start).
+│   │   │   ├── start.rs              # A manager started from the page: the place opened, the start
+│   │   │   │                         # recorded, the harness started, the wait and its one end, the
+│   │   │   │                         # starts a previous run left; the default harness and model
+│   │   │   │                         # (/api/settings/start).
+│   │   │   └── templates.rs          # The user's templates: their YAML read (saphyr, the line of every
+│   │   │                             # refusal) into core's value, the built-ins' texts (a test reads
+│   │   │                             # each and compares it with core's), /api/template (save, read with
+│   │   │                             # its text by revision) and /api/template/remove; all App::user but
+│   │   │                             # the read (App::view); none on machine_router.
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── terminals/                # An agent's terminal from the page; all three routes App::user.
 │   │   │   ├── mod.rs                # Terminals (digest key, presses, writers, marks, views),
@@ -319,7 +332,8 @@ crates/workriver/
 │   │   │   ├── mod.rs                # Snapshot build (workspaces with their seats), the files
 │   │   │   │                         # two open units both change.
 │   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads; an intent's
-│   │   │   │                         # history (through App::view, a reduced view refused).
+│   │   │   │                         # history (through App::view, a reduced view refused); /api/state
+│   │   │   │                         # with the template library (the built-ins added as values).
 │   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads, net change,
 │   │   │   │                         # the files the code tree shows it changing.
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
@@ -330,18 +344,23 @@ crates/workriver/
 │   │   │   └── tests.rs
 │   │   ├── delivery/                 # Pure delivery plans and text.
 │   │   │   ├── mod.rs                # Plan, event-to-recipient planning.
-│   │   │   ├── messages.rs           # Decision/gate/task/manager templates, all through quote.
+│   │   │   ├── messages.rs           # Decision/gate/task/manager templates, all through quote; the
+│   │   │   │                         # steps of a unit still to fill that end a manager's notice
+│   │   │   │                         # (`to_fill`), and the warning of steps not done (`steps_warning`).
 │   │   │   ├── reminders.rs          # Stall/idle/merge reminder decisions (tests beside them).
 │   │   │   ├── quote.rs              # The one sanitizer for authored text (tests beside it).
 │   │   │   └── tests.rs
 │   │   └── tests/                    # The in-process daemon tests, compiled with the binary under cfg(test).
 │   │       ├── mod.rs                # Declares the suites only.
-│   │       ├── support.rs            # Fake runtime, Kernel, daemon constructors, git helpers, HTTP client.
+│   │       ├── support.rs            # Fake runtime, Kernel, daemon constructors (each store with the
+│   │       │                         # user's templates of no steps, `BARE`), git helpers, HTTP client.
 │   │       ├── guards.rs             # The service's guards (guards.md).
 │   │       ├── route-access.txt  page-json.txt   # What they pin.
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
 │   │       ├── terminals.rs          # Reading, answering and watching an agent's terminal.
+│   │       ├── templates.rs          # The template library through the service; a unit's steps filled,
+│   │       │                         # warned of and named in the manager's notices.
 │   │       └── ownership.rs          # Who sets an intent's project, workspace and manager.
 │   ├── runtime/                      # Adapting outside programs: the facade and composition.
 │   │   ├── mod.rs                    # Neutral construction/context/wording facade (connect,
@@ -449,8 +468,11 @@ frontend/web/
     │                                 # classify.ts (kind, size, tags, the rail's filter) Sort.tsx (their chips and fields)
     │                                 # AddProject.tsx (the dialog) StartManager.tsx (Start a new one, the
     │                                 # harness fields Settings shares, a workspace's start line)
+    │                                 # Templates.tsx (the Templates dialog: the library, one template,
+    │                                 # its text edited, removing; opened from the rail's foot and a unit)
     ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
+    │                                 # GateSteps.tsx (a placed task's step, a gate's list of the steps)
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx sound.ts (the sound for a new row)
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
     │                                 # Gate.tsx (a stuck agent answered: its screen, options, keys)
@@ -494,7 +516,7 @@ skills/
     ├── SKILL.md                      # The topic index; names topics, not paths.
     ├── CHANGES.md                    # Kept whole, chronological.
     └── references/                   # Grouped by work domain; topic = file basename.
-        ├── planning/        start-intent, units, units-other-machine, spike, closing-units
+        ├── planning/        start-intent, units, units-other-machine, spike, templates, closing-units
         ├── workers/         hand-off, closing-workers, stalled, branch-moved, commit-link
         ├── decisions/       design-gate, ask-user, gates-chores, deciding-findings, deferred-batches, push-pr-merge
         ├── reviews/         architecture-review, blind-review, contract, finding-additions
@@ -508,7 +530,7 @@ docs/
     ├── layout.md                             # This file.
     ├── guards.md                             # The tests that hold behaviour and layout.
     ├── caller-identity.md                    # Who a call comes from: the rules.
-    └── ui/ navigation, activity, code, conversations, operations, attachments, presentation (.md)
+    └── ui/ navigation, activity, code, conversations, operations, attachments, templates, presentation (.md)
 ```
 
 `workriver guide how <topic>` finds the embedded recipe whose basename is the topic

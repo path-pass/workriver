@@ -14,6 +14,15 @@ pub(super) fn not_dropped(unit: &str, t: &Task) -> Result<(), Rejected> {
     }
 }
 
+/// A step of a template nobody filled yet is not worked on: refused, saying who fills it.
+pub(super) fn filled(unit: &str, t: &Task) -> Result<(), Rejected> {
+    if t.unfilled() {
+        let id = t.placed.as_ref().map(|p| p.id.as_str()).unwrap_or_default();
+        return no(format!("{unit}#{} is a step of the template ({id}), not filled yet: its manager fills it, `workriver task fill {unit}#{} --agent <agent> --text \"...\"`", t.n, t.n));
+    }
+    Ok(())
+}
+
 /// What a delivery or its correction may carry.
 fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Result<(), Rejected> {
     if !findings.is_empty() && matches!(t.kind, TaskKind::Implement | TaskKind::Design | TaskKind::Research) {
@@ -28,6 +37,17 @@ fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Res
         }
     }
     Ok(())
+}
+
+/// What a new task, or a placed one as it is filled, must say for its kind: a title where it
+/// needs one, a gate's kind, and no blind for work that is not looking at others'.
+fn shape(t: &NewTask) -> Result<(), Rejected> {
+    match t.kind {
+        TaskKind::Implement | TaskKind::Gate | TaskKind::Design | TaskKind::Research if blank(&t.title) => no("an implement, design or research task, or a gate, needs a title"),
+        TaskKind::Gate if t.gate.is_none() => no("a gate needs its kind: deploy or test"),
+        TaskKind::Implement | TaskKind::Gate if t.blind => no("--blind is for looking at work without being told about it: a review, tests, research or design task"),
+        _ => Ok(()),
+    }
 }
 
 impl State {
@@ -87,14 +107,9 @@ impl State {
                 t.inputs = if stuck.inputs.is_empty() { vec![Input { from: "start".into(), primary: true }] } else { stuck.inputs.clone() };
             }
         }
-        match t.kind {
-            TaskKind::Implement | TaskKind::Gate | TaskKind::Design | TaskKind::Research if blank(&t.title) => {
-                return no("an implement, design or research task, or a gate, needs a title");
-            }
-            TaskKind::Gate if t.gate.is_none() => return no("a gate needs its kind: deploy or test"),
-            TaskKind::Implement | TaskKind::Gate if t.blind => return no("--blind is for looking at work without being told about it: a review, tests, research or design task"),
-            TaskKind::Review if t.reviewer.is_none() => t.reviewer = Some(Reviewer::CodeReview),
-            _ => {}
+        shape(&t)?;
+        if t.kind == TaskKind::Review && t.reviewer.is_none() {
+            t.reviewer = Some(Reviewer::CodeReview);
         }
         if t.kind != TaskKind::Review {
             t.reviewer = None;
@@ -215,9 +230,65 @@ impl State {
                 }
                 TaskCreated(self.prepare_task(t)?)
             }
+            TaskFilled { unit, task, title, text, agent, inputs, plans, steps, blind, choice } => {
+                let t = self.task(&unit, task)?;
+                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
+                if !user && !manager {
+                    let intent = self.intent_of(&unit).unwrap_or_default();
+                    return no(format!("a step of a template is filled by the manager of intent {intent} or the user; to tell the manager: workriver manager tell <your task> --text \"...\""));
+                }
+                let Some(p) = &t.placed else { return no(format!("{unit}#{task} is not a step of a template: what it asks is added with `workriver task note`")) };
+                if p.filled {
+                    return no(format!("{unit}#{task} is already filled; add to what it asks with `workriver task note {unit}#{task} --text \"...\"`"));
+                }
+                not_dropped(&unit, t)?;
+                if t.state != TaskState::Todo {
+                    return no(format!("{unit}#{task} is {}, not todo", name(&t.state)));
+                }
+                // What it follows is added to: never itself, nor a task that follows it.
+                let mut added: Vec<Input> = vec![];
+                for i in inputs {
+                    let from = i.from.trim().trim_start_matches('#').to_string();
+                    if from != "start" {
+                        let n: u32 = from.parse().map_err(|_| Rejected(format!("input {:?} is neither \"start\" nor a task number", i.from)))?;
+                        self.task(&unit, n)?;
+                        if n == task {
+                            return no(format!("{unit}#{task} cannot follow itself"));
+                        }
+                        if self.before(&unit, n).contains(&task) {
+                            return no(format!("{unit}#{n} follows {unit}#{task}: it cannot come before it"));
+                        }
+                    }
+                    if !t.inputs.iter().chain(&added).any(|x| x.from == from) {
+                        added.push(Input { from, primary: false });
+                    }
+                }
+                let whole = NewTask {
+                    unit: unit.clone(),
+                    intent: t.intent.clone(),
+                    n: task,
+                    kind: t.kind,
+                    title: title.clone(),
+                    text: text.clone(),
+                    inputs: t.inputs.iter().chain(&added).cloned().collect(),
+                    causes: vec![],
+                    agent: agent.clone(),
+                    reviewer: t.reviewer,
+                    gate: t.gate,
+                    steps: steps.clone(),
+                    plans: plans.clone(),
+                    blind,
+                    blocks: None,
+                    choice: choice.clone(),
+                };
+                shape(&whole)?;
+                self.check_choice(&unit, &whole)?;
+                TaskFilled { unit, task, title, text, agent, inputs: added, plans, steps, blind, choice }
+            }
             TaskStarted { unit, task, agent, model } => {
                 let t = self.task(&unit, task)?;
                 not_dropped(&unit, t)?;
+                filled(&unit, t)?;
                 if t.kind == TaskKind::Gate {
                     return no(format!("{unit}#{task} is a gate: only the user does it, with gate submit"));
                 }
@@ -238,6 +309,7 @@ impl State {
             TaskDelivered { unit, task, note, evidence, findings, attachments } => {
                 let t = self.task(&unit, task)?;
                 not_dropped(&unit, t)?;
+                filled(&unit, t)?;
                 if t.kind == TaskKind::Gate {
                     return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
                 }
@@ -305,6 +377,7 @@ impl State {
                     return no(format!("a requirement is added to {unit}#{task} by the manager of its intent or the user; to tell the manager: workriver manager tell {unit}#{task} --text \"...\""));
                 }
                 not_dropped(&unit, t)?;
+                filled(&unit, t)?;
                 // Delivered work is judged as it was asked; more is new work.
                 if t.state == TaskState::Done {
                     return no(format!(
@@ -333,9 +406,6 @@ impl State {
                 let intent = if t.intent.is_empty() { self.intent_of(&t.unit).unwrap_or_default().to_string() } else { t.intent.clone() };
                 if let Some(tasks) = self.units.iter_mut().find(|u| u.id == t.unit).map(|u| &mut u.tasks) {
                     tasks.push(Task {
-                        n: t.n,
-                        intent,
-                        kind: t.kind,
                         title: t.title.clone(),
                         text: t.text.clone(),
                         inputs: t.inputs.clone(),
@@ -348,26 +418,7 @@ impl State {
                         blind: t.blind,
                         blocks: t.blocks,
                         choice: t.choice.clone(),
-                        // A gate opens (waits for the user) once what it follows is done.
-                        state: TaskState::Todo,
-                        by: e.actor.clone(),
-                        at: at.clone(),
-                        started: None,
-                        model: None,
-                        done: None,
-                        note: String::new(),
-                        evidence: vec![],
-                        findings: vec![],
-                        result: None,
-                        selected: vec![],
-                        delivery: None,
-                        amended: None,
-                        read_before: vec![],
-                        waiting_since: None,
-                        attachments: vec![],
-                        dropped: None,
-                        notes: vec![],
-                        answers: vec![],
+                        ..Task::blank(t.n, &intent, t.kind, &e.actor, at)
                     })
                 }
                 // More work for a unit closed as done: it is open again, its state from its tasks.
@@ -379,6 +430,23 @@ impl State {
                     && let Some(stuck) = self.task_mut(&t.unit, b)
                 {
                     stuck.inputs.push(Input { from: t.n.to_string(), primary: false });
+                }
+            }
+            TaskFilled { unit, task, title, text, agent, inputs, plans, steps, blind, choice } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.title = title.clone();
+                    t.text = text.clone();
+                    t.agent = agent.clone();
+                    t.inputs.extend(inputs.iter().cloned());
+                    t.plans = plans.clone();
+                    t.steps = steps.clone();
+                    t.blind = *blind;
+                    t.choice = choice.clone();
+                    // Its text, options and steps are the filler's from now on.
+                    t.by = e.actor.clone();
+                    if let Some(p) = &mut t.placed {
+                        p.filled = true;
+                    }
                 }
             }
             TaskStarted { unit, task, agent, model } => {

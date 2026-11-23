@@ -22,7 +22,7 @@ fn daemon_smoke() {
     std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
     git(&repo, &["commit", "-q", "-am", "two\n\nTask: u1#1"]);
 
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -34,7 +34,7 @@ fn daemon_smoke() {
     d.append("user", "intent.created", json!({ "title": "Chat" })).unwrap();
     let repo_dir = repo.clone();
     let repo = repo.to_string_lossy();
-    d.append("user", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo, "branch": "feat/feature", "base": "main" })).unwrap();
+    d.append("user", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Mentions", "repo": repo, "branch": "feat/feature", "base": "main" })).unwrap();
     d.append("manager", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Find mentions" })).unwrap();
     d.append("agent-a", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
     d.append("agent-a", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P2", "problem": "p", "impact": "i", "where": ["a.txt"] }] })).unwrap();
@@ -125,7 +125,7 @@ fn pick_up_survives_a_restart() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let db = tmp.path().join("w.db");
     let start = |fake: std::sync::Arc<Fake>| {
-        let store = workriver_data::Store::open(&db).unwrap();
+        let store = opened(&db);
         let rt = tokio::runtime::Runtime::new().unwrap();
         let listener = rt.block_on(crate::server::bind(0)).unwrap();
         let kernel = Kernel::default();
@@ -139,7 +139,7 @@ fn pick_up_survives_a_restart() {
     *busy.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Working))];
     let a = start(busy.clone());
     manage(&a, "p1", "s-boss");
-    a.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    a.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     a.append("s-rev", "task.created", json!({ "unit": "u1", "kind": "review" })).unwrap();
     a.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P1", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
@@ -188,7 +188,7 @@ fn what_a_previous_run_left_is_closed_at_the_next_start() {
     *first.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
     let a = start(first.clone());
     manage(&a, "p1", "s-boss");
-    a.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    a.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     a.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
     *first.start_as.lock().unwrap() = Some(Blocked);
@@ -228,7 +228,7 @@ fn a_store_that_cannot_be_read_is_the_services_error() {
     let (port, down) = (user.port, &faults.down);
     let _ = &kernel;
     manage(&user, "p1", "s-boss");
-    user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
     // As the manager from its place, with the status of each answer.
     let ask = |method: &str, path: &str, body: Option<&str>| {
@@ -314,7 +314,7 @@ fn no_reviewer_is_started_when_its_author_cannot_be_read() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), author)];
     let (user, _kernel, faults) = flaky_service(fake.clone(), &db, crate::server::Waits::default());
     manage(&user, "p1", "s-boss");
-    user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Set up", "steps": [{ "text": "Set up", "command": "bash ./scripts/setup.sh" }] })).unwrap();
     let prepare = || user.call("/api/run/prepare", Some(json!({ "command": "bash ./scripts/setup.sh", "unit": "u1", "from": "u1#1", "step": 1 }))).unwrap();
     let review = |id: &str| user.get(&format!("/api/run/{id}")).unwrap()["review"].clone();
@@ -353,7 +353,7 @@ fn a_question_whose_prompt_cannot_be_read_is_not_sent() {
     let waits = crate::server::Waits { answer: std::time::Duration::from_secs(600), idle: std::time::Duration::from_secs(600), ..Default::default() };
     let (user, _kernel, faults) = flaky_service(fake.clone(), &db, waits);
     manage(&user, "p1", "s-boss");
-    user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
     // How question `q` ended, if it failed: its reason.
@@ -419,7 +419,7 @@ fn replays_a_copied_database() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("w.db");
     std::fs::copy(&from, &db).unwrap();
-    let store = workriver_data::Store::open(&db).unwrap();
+    let store = opened(&db);
     let s = store.state();
     for i in &s.intents {
         println!("{} {:?} {:?} project={:?} workspace={:?} manager={:?}", i.id, i.title, i.state, i.project, i.workspace, s.manager_of(&i.id));
@@ -460,7 +460,7 @@ fn findings_after_the_fact() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle))];
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -474,7 +474,7 @@ fn findings_after_the_fact() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
@@ -546,7 +546,7 @@ fn what_follows_a_record_keeps_its_order() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
@@ -601,7 +601,7 @@ fn a_manager_is_told_of_an_update_once() {
     let tmp = tempfile::tempdir().unwrap();
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -652,7 +652,7 @@ fn a_dropped_task_is_told_and_shown() {
     let ws = seat_at(&d, &boss);
     d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     d.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     fix.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?", "inputs": [{ "from": "1" }] })).unwrap();
@@ -713,7 +713,7 @@ fn a_task_note_is_told_and_shown() {
     let ws = seat_at(&d, &boss);
     d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "text": "Check the tokens", "agent": "fix" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }], "agent": "s-rev", "blind": true })).unwrap();
     rev.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
@@ -822,7 +822,7 @@ fn a_task_note_goes_to_its_agent_only() {
     let ws = seat_at(&d, &boss);
     d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "text": "Check the tokens" })).unwrap();
     // Each of the three has a blind review (2, 4, 6) and other work (3, 5, 7), all started.
     // The third is given by a name nobody live goes by yet: it stays a name.
@@ -900,7 +900,7 @@ fn stopped_workers_are_reminded_then_escalated() {
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(tmp.path().join("settings.json")).unwrap()).unwrap();
     assert_eq!(saved["stallMinutes"], 2);
 
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for (title, after) in [("push it", "start"), ("again", "1"), ("deploy", "2")] {
         d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "ja-impl", "inputs": [{ "from": after }] })).unwrap();
     }
@@ -974,7 +974,7 @@ fn a_stuck_worker_puts_a_blocker_and_tells_its_manager() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "ja-impl", "w1", Working))];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), crate::server::Waits::default());
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
     // The worker records from its own pane, as an agent does.
     let worker = Daemon { place: Some("p2".into()), home: Some(tmp.path().to_path_buf()), ..d.clone() };
@@ -1024,7 +1024,7 @@ fn idle_workers_are_told_to_their_manager() {
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p0", "s-boss");
     for b in ["feat/a", "feat/b"] {
-        d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "T", "repo": repo.to_string_lossy(), "branch": b, "base": "main" })).unwrap();
+        d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "T", "repo": repo.to_string_lossy(), "branch": b, "base": "main" })).unwrap();
     }
     for (unit, agent, after) in [("u1", "boss", "start"), ("u1", "ja-impl", "1"), ("u1", "ja-test", "2"), ("u1", "ja-busy", "3"), ("u2", "ja-busy", "start")] {
         d.append("s-boss", "task.created", json!({ "unit": unit, "kind": "implement", "title": "Do it", "agent": agent, "inputs": [{ "from": after }] })).unwrap();
@@ -1068,7 +1068,7 @@ fn an_escalation_waits_for_a_blind_manager() {
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.call("/api/settings/stall", Some(json!({ "minutes": 2 }))).unwrap();
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "push it", "agent": "ja-impl" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "start" }] })).unwrap();
     d.append("s-w", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
@@ -1094,7 +1094,7 @@ fn a_held_notice_is_for_its_session_alone() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-boss" })).unwrap();
     d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "done" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "code-review", "agent": "s-w", "inputs": [{ "from": "1" }] })).unwrap();
@@ -1125,7 +1125,7 @@ fn a_held_notice_is_recorded_and_survives_a_restart() {
         *first.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
         let a = daemon_with(first.clone(), &db, Default::default());
         manage(&a, "p1", "s-boss");
-        a.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+        a.append("s-boss", "unit.created", json!({ "template": "bare-research", "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
         a.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-boss" })).unwrap();
         a.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "done" })).unwrap();
         a.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "code-review", "title": "Worker review", "agent": "s-w", "inputs": [{ "from": "1" }] })).unwrap();
@@ -1183,7 +1183,7 @@ fn an_agent_named_by_two_running_agents_is_refused() {
     let d = daemon_with(fake.clone(), &db, waits);
     let boss = Daemon { place: Some("p1".into()), home: None, ..d.clone() };
     manage(&d, "p1", "s-boss");
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     wait_until("the initial poll saw the first worker", || d.get("/api/workspace").unwrap()["sessions"].as_array().is_some_and(|sessions| sessions.iter().any(|s| s["agent"] == "impl")));
     let task = |agent: &str| json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "inputs": [{ "from": "start" }], "agent": agent });
     let start = |agent: &str| json!({ "unit": "u1", "task": 1, "agent": agent });

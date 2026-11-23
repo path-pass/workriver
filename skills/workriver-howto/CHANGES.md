@@ -4,6 +4,28 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-23
 
+- **Every unit is made with a template, and comes with its steps placed** (managers: read
+  `workriver guide how templates`). `workriver unit add … --template NAME` is needed now:
+  without it the unit is refused ("a unit names its template: …"), with the templates made
+  for its kind of unit and what each is for. `workriver template list [--unit code|research|
+  spike]` and `workriver template show NAME` read the library; built in are `research`,
+  `development` and `spike`, and the user may add their own (only the user: `template add`
+  and `template remove`, or the Templates page). The template's steps become tasks of the
+  unit nobody holds yet, marked on the board `· step <id>, to fill`: fill each when its turn
+  comes, `workriver task fill u1#3 --agent … --text "…"` (the flags of `task add` that apply,
+  `--after` adding to what it follows), or drop one that does not apply with the reason
+  (`workriver task drop u1#3 --reason "…"`), which the user reads on every gate of the
+  unit. A step not filled is not started, delivered or noted. A placed gate does not ask
+  the user until it is filled: fill it last, `--after` the last round of reviews. Every
+  notice about such a unit ends with "Steps of u1 still to fill: …"; adding or filling a
+  gate, or `unit done`, while steps are not done answers "Steps of template … not done: …"
+  (not refused). Every unit's later tasks need `--after` as before, the placed ones
+  counting. Units made before keep no template and nothing placed. (`templates`, `units`,
+  `spike`, `design-gate`, `architecture-review`, `push-pr-merge`, `closing-units`)
+- **A worker's task may be a step of a template** (workers): `task show` then begins with
+  "Step <id> of template <name> (built in | the user's): <what kind of step it is>", above
+  what it asks. The step says what kind of work it is; what to do is what it asks.
+  (`hand-off`)
 - **A name is read again on every machine** (managers): `task add --agent impl` and `task
   start --agent impl` read the machines workriver follows again first, for up to a second,
   so a second `impl` that just started on one is seen (refused, both listed). A machine

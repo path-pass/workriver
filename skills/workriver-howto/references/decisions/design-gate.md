@@ -3,6 +3,13 @@
 **When:** the goal leaves choices the user has not made (how it looks, which approach).
 What is already decided needs no design task: cite the decision in the task's `--text`.
 
+A unit made with the `development` template has these steps placed already (`templates`):
+`design`, `design-review` (architecture), the user's `confirm` gate, `implement`. Fill them
+(`workriver task fill u1#1 …`, the gate with `--go` and the choices in `--text`) rather than
+adding them; drop `confirm` with the reason when the design leaves nothing to choose, and
+`design` and `design-review` when the work needs no design (a small fix), each saying why.
+By hand, in a unit with no such steps:
+
     workriver task add u1 --kind design --title "Design the mention picker" --agent designer
     workriver task add u1 --kind review --reviewer architecture-review --after 1 --agent arch
     workriver task add u1 --kind gate --gate decide --go --title "Confirm the design" --after 2

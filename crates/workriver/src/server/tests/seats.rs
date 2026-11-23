@@ -620,7 +620,7 @@ fn a_worker_reaches_its_seated_manager_not_one_named_after_it() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss")), ("p2".into(), started_in("s-w", "ja-impl", "/w/w"))];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
     let worker = Daemon { place: Some("p2".into()), home: Some(tmp.path().to_path_buf()), ..d.clone() };
     worker.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
@@ -725,7 +725,7 @@ fn an_agent_named_after_a_seated_session_not_listed_gets_nothing() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss")), ("p2".into(), started_in("s-w", "ja-impl", "/w/w"))];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "title": "look at it", "agent": "s-boss", "inputs": [{ "from": "1" }] })).unwrap();
     let worker = Daemon { place: Some("p2".into()), home: Some(tmp.path().to_path_buf()), ..d.clone() };
@@ -760,7 +760,7 @@ fn a_name_is_read_again_on_every_machine() {
     let user = kernel.client(port, tmp.path());
     manage(&user, "p1", "s-boss");
     let boss = at_place(&user, "p1");
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     // A second `impl` over there, since the machine's last read.
     far.agents.lock().unwrap().push(("p4".into(), started_in("s-two", "impl", "/srv/b")));
     let e = boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "A", "agent": "impl" })).unwrap_err().to_string();
@@ -803,7 +803,7 @@ fn a_name_is_not_resolved_from_a_disconnected_machines_old_list() {
     let user = kernel.client(port, tmp.path());
     manage(&user, "p1", "s-boss");
     let boss = at_place(&user, "p1");
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     // The connection goes down; over there the first `impl` ends and a second one starts.
     all.drop_tunnel("box");
     *far.agents.lock().unwrap() = vec![("p4".into(), started_in("s-two", "impl", "/srv/b"))];
@@ -839,7 +839,7 @@ fn an_agent_named_after_a_remote_seated_session_not_listed_gets_nothing() {
     let intent = made["body"]["id"].as_str().unwrap().to_string();
     user.append("", "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": ws })).unwrap();
     let boss = at_place(&there, "p3");
-    boss.append("", "unit.created", json!({ "intent": intent, "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": intent, "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "title": "look at it", "agent": "s-new", "inputs": [{ "from": "1" }] })).unwrap();
     let worker = at_place(&user, "p2");

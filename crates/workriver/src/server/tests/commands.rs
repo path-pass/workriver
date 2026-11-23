@@ -26,7 +26,7 @@ fn the_user_runs_a_command() {
     let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
     manage_here(&user, &boss);
     let repo_s = repo.to_string_lossy().to_string();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Push it", "steps": [{ "text": "Push", "command": "git push origin feat/f" }] })).unwrap();
 
     let ask = json!({ "command": "git push origin feat/f", "unit": "u1", "from": "u1#1", "step": 1 });
@@ -68,7 +68,7 @@ fn the_user_runs_a_command() {
 
     // A unit on another machine: the shell is that machine's, through its runtime.
     // (In tests a machine's git runs here, so its repository is a folder here.)
-    let made = boss.append("", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
+    let made = boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
     let shown = user.call("/api/run/prepare", Some(json!({ "command": "make deploy", "unit": made["body"]["id"] }))).unwrap();
     assert_eq!((shown["machine"].as_str(), shown["by"].as_str()), (Some("box"), Some("user")), "{shown}");
     user.call("/api/run", Some(json!({ "id": shown["id"], "command": "make deploy" }))).unwrap();
@@ -120,8 +120,8 @@ fn a_runs_shell_closes() {
     let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
     manage_here(&user, &boss);
     let repo_s = repo.to_string_lossy().to_string();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
     // Runs `command` in `unit`'s folder; its id.
     let run = |unit: &str, command: &str| {
         let shown = user.call("/api/run/prepare", Some(json!({ "command": command, "unit": unit }))).unwrap();
@@ -195,7 +195,7 @@ fn only_an_idle_run_shell_closes() {
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
     manage_here(&user, &boss);
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     let run = |command: &str| {
         let shown = user.call("/api/run/prepare", Some(json!({ "command": command, "unit": "u1" }))).unwrap();
         user.call("/api/run", Some(json!({ "id": shown["id"], "command": command }))).unwrap();
@@ -281,7 +281,7 @@ fn a_command_is_reviewed_before_it_runs() {
     let waits = crate::server::Waits { answer: std::time::Duration::from_secs(5), ..Default::default() };
     let user = daemon_with(fake.clone(), &db, waits);
     manage(&user, "p1", "s-boss");
-    user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Set up", "steps": [{ "text": "Set up the project «then» go", "command": "bash ./scripts/setup.sh" }] })).unwrap();
 
     let shown = user.call("/api/run/prepare", Some(json!({ "command": "bash ./scripts/setup.sh", "unit": "u1", "from": "u1#1", "step": 1, "lang": "zh-CN" }))).unwrap();

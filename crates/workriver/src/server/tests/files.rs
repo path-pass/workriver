@@ -23,7 +23,7 @@ fn attachments_round_trip() {
     std::fs::create_dir(&home).unwrap();
     let d = daemon_with(fake.clone(), &home.join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "tests", "agent": "s-t" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
 
@@ -107,7 +107,7 @@ fn the_inbox_asks_who_calls() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
 
     let ask = json!({ "unit": "u1", "task": 1 }).to_string();

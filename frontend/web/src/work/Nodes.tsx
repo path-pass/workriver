@@ -34,6 +34,8 @@ const ports = (
 export function NodeName({ n }: { n: Task }) {
   const { t } = useT()
   if (n.kind === 'review') return reviewLabel(t, n)
+  // A step its template placed, not filled yet: it has no title, only its step.
+  if (!n.title && n.step) return <>{n.taskId && `#${n.taskId} `}{t('template.stepNode', { id: n.step.id })}</>
   const title = <Content text={n.title} />
   if (n.state === 'unregistered') return <Slot text={t('task.unregistered', { title: SLOT })}>{title}</Slot>
   return <>{n.taskId && `#${n.taskId} `}{title}</>
@@ -84,7 +86,9 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         <span className="lb">
           {n.kind === 'review'
             ? n.result === 'found' ? <><span className="nm">{finderLabel(t, n)}</span><span className="sev">{severityCounts(findingsOf(n))}</span></> : <ReviewLabel n={n} />
-            : n.state === 'unregistered' || !n.taskId ? <NodeName n={n} /> : <><b>#{n.taskId}</b> <Content text={n.title} /></>}
+            : n.state === 'unregistered' || !n.taskId ? <NodeName n={n} />
+            : !n.title && n.step ? <><b>#{n.taskId}</b> <span className="italic">{t('template.stepNode', { id: n.step.id })}</span></>
+            : <><b>#{n.taskId}</b> <Content text={n.title} /></>}
         </span>
         {n.agent && (n.state === 'running' || n.state === 'todo') && <Who name={n.agent} live={n.writing} />}
         {open > 0 && <Waiting count={open} />}

@@ -5,6 +5,12 @@ an implementation that added or moved more than a little code (review how it is 
 A third reviewer beside `code-review` and `security-review`; in everything else it is a
 review like those (findings, decisions, blind or not).
 
+The `development` template places both (`design-review` and `architecture-review`,
+`templates`): fill them (`workriver task fill u1#2 --agent arch --text "…"`), or drop one
+with the reason the user reads on the unit's gates ("added or moved little code: 40 lines in
+one file"). Later rounds are added by hand, as below; fill the placed `go` gate only after
+the last round, `--after` its review.
+
     workriver task add u1 --kind review --reviewer architecture-review --after 1 --agent arch --text "The design of u1#1 against CLAUDE.md"
     workriver task add u1 --kind review --reviewer architecture-review --after 3 --agent arch --text "How u1#3 is organized, against CLAUDE.md and the design u1#1"
 

@@ -86,7 +86,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | WorkspaceManagerStarted { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. } | AgentKeys { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | WorkspaceManagerStarted { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. } | AgentKeys { .. } | TemplateSet { .. } | TemplateRemoved { .. }
         )
     }
 

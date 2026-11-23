@@ -186,5 +186,10 @@ pub(in crate::server) fn task(state: &State, ws: &serde_json::Value, unit: &str,
         dropped: t.dropped.clone().map(|d| core::Closed { by: who(state, &d.by), ..d }),
         stalled: mine.and_then(|m| serde_json::from_value(m["stalled"].clone()).ok()),
         trace: None,
+        step: t.placed.as_ref().zip(u).map(|(p, u)| StepShow { id: p.id.clone(), template: u.template.clone(), users: u.revision.is_some(), description: p.description.clone(), to_fill: !p.filled && t.dropped.is_none() }),
+        template_steps: state.gate_steps(unit, n).map(|g| {
+            let named = |l: Vec<core::StepMark>| l.into_iter().map(|m| core::StepMark { by: m.by.map(|b| who(state, &b)), ..m }).collect();
+            core::GateSteps { done: named(g.done), left_out: named(g.left_out), not_done: named(g.not_done), ..g }
+        }),
     })
 }

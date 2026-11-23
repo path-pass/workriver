@@ -9,10 +9,23 @@ pub(crate) fn body(v: serde_json::Value) -> Body {
 /// What the store does with the rules, without its SQL (that is workriver-data's to test): each
 /// event prepared against the state, recorded in order and applied; and the state rebuilt from
 /// the records alone, each read back from its stored form and applied again.
-#[derive(Default)]
 pub(crate) struct Records {
     state: State,
     events: Vec<Event>,
+}
+
+/// The templates of no steps the user saved for the tests, one per kind of unit: a unit made
+/// with one has no task placed, so the tests number their own tasks from 1.
+pub(crate) const BARE: [(&str, &str); 3] = [("bare", "code"), ("bare-research", "research"), ("bare-spike", "spike")];
+
+impl Default for Records {
+    fn default() -> Records {
+        let mut s = Records { state: State::default(), events: vec![] };
+        for (name, unit) in BARE {
+            s.append(&Principal::User, body(json!({"kind": "template.set", "body": {"name": name, "description": "Nothing placed: for the tests.", "unit": unit, "steps": []}}))).unwrap();
+        }
+        s
+    }
 }
 
 impl Records {
@@ -38,7 +51,7 @@ impl Records {
 pub(crate) fn seed() -> Vec<Body> {
     let steps = [
         json!({"kind": "intent.created", "body": {"title": "Chat v2"}}),
-        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main"}}),
+        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main", "template": "bare"}}),
         json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}),
         json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}),
         json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "npm test", "result": "passed", "summary": "6 passed"}]}}),
@@ -81,7 +94,7 @@ fn rules_reject_bad_input() {
         let err = s.append(&"agent-a".into(), body(v)).unwrap_err().to_string();
         assert!(err.contains(says), "{err:?} does not say {says:?}");
     };
-    rejects(json!({"kind": "unit.created", "body": {"intent": "i9", "title": "x", "repo": "/r", "branch": "feat/b", "base": "main"}}), "no intent i9");
+    rejects(json!({"kind": "unit.created", "body": {"template": "bare", "intent": "i9", "title": "x", "repo": "/r", "branch": "feat/b", "base": "main"}}), "no intent i9");
     rejects(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "inputs": [{"from": "7"}]}}), "no task u1#7");
     // A finding without a where.
     rejects(

@@ -133,8 +133,22 @@ fn lists_findings_and_machines_from_the_cli() {
         format!("# Chat backlog\n\n{built}\n\n## Roadmap\n\n1. **Search** (i1) ([jira:CH-1](https://example.invalid/CH-1))\n   Find messages\n   See the spec.\n2. **Emoji** (i2)\n   React to messages\n\n## Deferred findings\n\n- P2 f1 from audit: Old dependency\n  Seen in the audit.\n")
     );
 
+    // The user's template of no steps; a unit names one made for its kind, or is refused with
+    // those that fit.
+    let bare = tmp.path().join("bare.yaml");
+    std::fs::write(&bare, "# For the test.\nname: bare\ndescription: Nothing placed.\nsteps: []\n").unwrap();
+    assert_eq!(run(&["template", "add", &bare.display().to_string()]), "saved template bare (0 steps); a change touches only units made after it\n");
+    assert_eq!(run(&["template", "show", "bare", "--yaml"]), "# For the test.\nname: bare\ndescription: Nothing placed.\nsteps: []\n");
+    let listed = run(&["template", "list", "--unit", "code"]);
+    assert!(listed.starts_with("bare  (the user's, for a code unit)\n  Nothing placed.\n  steps: none\n") && listed.contains("development  (built in, for a code unit)") && !listed.contains("research  (built in"), "{listed}");
+    let shown = run(&["template", "show", "spike"]);
+    assert!(shown.contains("experiment implement  after start") && shown.contains("learned research  after experiment"), "{shown}");
+    let refused = cli().args(["unit", "add", "i1", "--title", "Index", "--branch", "feat/index", "--base", "main", "--repo", &repo]).output().unwrap();
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success() && said.contains("--template") && said.contains("bare: Nothing placed.") && said.contains("development:"), "{said}");
+
     // A review's finding, shown in full, deferred, then dropped by the user.
-    run(&["unit", "add", "i1", "--title", "Index", "--branch", "feat/index", "--base", "main", "--repo", &repo]);
+    run(&["unit", "add", "i1", "--title", "Index", "--branch", "feat/index", "--base", "main", "--repo", &repo, "--template", "bare"]);
     run(&["task", "add", "u1", "--kind", "review", "--title", "Review it"]);
     let findings = tmp.path().join("findings.json");
     std::fs::write(&findings, json!([{ "severity": "P2", "problem": "No limit", "impact": "Out of memory", "where": ["src/index.rs"], "suggestion": { "decision": "defer", "reason": "later" } }]).to_string()).unwrap();

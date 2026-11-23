@@ -31,7 +31,7 @@ fn linked_commits_and_rebased_branches() {
 
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle)), ("p3".into(), live("s-x", "x", "w1", Idle))];
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -45,7 +45,7 @@ fn linked_commits_and_rebased_branches() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for (title, after) in [("First", "start"), ("Second", "1")] {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w", "inputs": [{ "from": after }] })).unwrap();
     }
@@ -115,7 +115,7 @@ fn a_task_shown_in_full() {
     git(&repo, &["switch", "-q", "-c", "feat/f"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle)), ("p4".into(), live("s-sec", "sec", "w1", Idle))];
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -129,7 +129,7 @@ fn a_task_shown_in_full() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login.", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
     rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P1", "problem": "Token never expires", "impact": "Stolen tokens work forever", "where": ["auth.rs"], "suggestion": { "decision": "accept", "reason": "Easy to fix" } }] })).unwrap();
@@ -209,7 +209,7 @@ fn a_task_shown_in_full() {
     assert!(s.earlier.is_empty() && !text.contains("before this task"));
     // A design for the whole intent, in a research unit, reaches the code unit's tasks once
     // delivered, before the unit's own; its research does not, nor a design not delivered.
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Sessions", "kind": "research" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare-research", "intent": "i1", "title": "Sessions", "kind": "research" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u2", "kind": "research", "title": "Compare stores", "agent": "s-rev" })).unwrap();
     rev.append("", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "Three stores compared." })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u2", "kind": "design", "title": "One session store", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
@@ -274,7 +274,7 @@ fn a_waiting_gate_carries_its_attachments() {
     git(&repo, &["switch", "-q", "-c", "feat/f"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-imp", "imp", "w1", Idle)), ("p3".into(), live("s-sec", "sec", "w1", Idle))];
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -288,7 +288,7 @@ fn a_waiting_gate_carries_its_attachments() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
     imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
     imp.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Done" })).unwrap();
@@ -355,7 +355,7 @@ fn files_two_open_units_change() {
     git(&one, &["worktree", "add", "-q", &work.to_string_lossy(), "feat/one"]);
     std::fs::write(work.join("d.txt"), "d.txt, being written\n").unwrap();
 
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -371,7 +371,7 @@ fn files_two_open_units_change() {
         d.append("user", "intent.created", json!({ "title": title, "project": project })).unwrap();
     }
     for (intent, r, b) in [("i1", &one, "feat/one"), ("i2", &one, "feat/two"), ("i1", &one, "feat/three"), ("i2", &one, "feat/four"), ("i2", &one, "feat/five"), ("i3", &other, "feat/six")] {
-        d.append("user", "unit.created", json!({ "intent": intent, "title": b, "repo": r, "branch": b, "base": "main" })).unwrap();
+        d.append("user", "unit.created", json!({ "template": "bare", "intent": intent, "title": b, "repo": r, "branch": b, "base": "main" })).unwrap();
     }
     d.append("user", "unit.merged", json!({ "unit": "u4" })).unwrap();
     d.append("user", "unit.done", json!({ "unit": "u5", "reason": "superseded" })).unwrap();
@@ -437,7 +437,7 @@ fn overlaps_are_of_the_net_change() {
     std::fs::write(work.join("r.txt"), "r\n").unwrap();
     std::fs::write(work.join("e9.txt"), latin("base")).unwrap();
 
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -451,7 +451,7 @@ fn overlaps_are_of_the_net_change() {
         d.append("user", "intent.created", json!({ "title": title, "project": repo })).unwrap();
     }
     for (intent, b) in [("i1", "feat/one"), ("i2", "feat/two")] {
-        d.append("user", "unit.created", json!({ "intent": intent, "title": b, "repo": repo, "branch": b, "base": "main" })).unwrap();
+        d.append("user", "unit.created", json!({ "template": "bare", "intent": intent, "title": b, "repo": repo, "branch": b, "base": "main" })).unwrap();
     }
     let overlaps = || {
         let ws = d.get("/api/workspace").unwrap();
@@ -495,7 +495,7 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
         ("p4".into(), at_dir("s-sec", "sec", "claude", "/w/sec")),
         ("p5".into(), { let mut a = at_dir("s-far", "far", "claude", "/far/repo"); a.machine = Some("box".into()); a }),
     ];
-    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = opened(&tmp.path().join("w.db"));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -509,7 +509,7 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
     let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for (title, agent) in [("Check tokens", "s-fix"), ("Expire tokens", "0c0d-ex")] {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": agent, "inputs": [{ "from": "start" }] })).unwrap();
     }
