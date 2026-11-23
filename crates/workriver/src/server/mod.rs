@@ -33,6 +33,7 @@ mod files;
 mod http;
 mod machines;
 mod planning;
+mod schedule;
 mod terminals;
 mod views;
 mod work;
@@ -58,6 +59,14 @@ pub(super) struct Options {
     /// The user's home on this machine, where harnesses keep their sessions; none (tests):
     /// nothing there is looked at, and a task's session file is shown from `~`.
     pub(super) user_home: Option<std::path::PathBuf>,
+    /// The jobs it runs by the clock (`jobs()`; a test's own, or none: no timer runs).
+    pub(super) jobs: Vec<schedule::Job>,
+}
+
+/// The service's jobs by the clock: each domain's constant, listed here where the service
+/// is put together (`schedule/` names no domain).
+pub(super) fn jobs() -> Vec<schedule::Job> {
+    vec![]
 }
 
 /// Serves on an already bound listener until Ctrl-C.
@@ -79,11 +88,13 @@ pub(super) struct Waits {
     rewatch: Duration,
     /// How long a manager's start waits for a session to seat (ten minutes; less in tests).
     start: Duration,
+    /// How often a scheduled job's timer looks at the wall clock (`schedule::LOOK`; less in tests).
+    look: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600) }
+        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), look: schedule::LOOK }
     }
 }
 
@@ -96,7 +107,7 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
 /// The service over whatever keeps the work, as the data port, with its data directory
 /// (`store_home`: the token, the caller socket, the attachments, the settings).
 pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn WorkStore>, store_home: std::path::PathBuf, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as, sample, procs, callers, user_home } = options;
+    let Options { warning, waits, machines, allow_as, sample, procs, callers, user_home, jobs } = options;
     let port = listener.local_addr()?.port();
     let (changed, _) = broadcast::channel(16);
     let shared = Arc::new(Mutex::new(views::Shared::default()));
@@ -157,6 +168,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         runs: Mutex::default(),
         terminals: terminals::Terminals::new(),
         wake: Arc::default(),
+        schedule: schedule::Schedule::of(jobs),
     });
     let poller = app.clone();
     tokio::spawn(async move {
@@ -225,6 +237,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
     }
     app.read_remote(shared, kicked);
     app.recover();
+    schedule::start(&app);
     // Nothing that signs anyone in is ever written here: this output is on a screen (a
     // terminal of the runtime's) that agents can read. The user opens the page with `workriver open`.
     tracing::info!("workriver on http://127.0.0.1:{port}  (open it as you with `workriver open`, from a terminal agents do not read)");

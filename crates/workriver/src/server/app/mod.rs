@@ -141,6 +141,8 @@ pub(super) struct App {
     pub(in crate::server) terminals: crate::server::terminals::Terminals,
     /// Wakes the poll before its tick: the runtime told of a change (`Runtime::watch`).
     pub(in crate::server) wake: Arc<tokio::sync::Notify>,
+    /// The jobs it runs by the clock, their timers' state and last results.
+    pub(in crate::server) schedule: crate::server::schedule::Schedule,
 }
 
 pub(super) type Shared = Arc<App>;

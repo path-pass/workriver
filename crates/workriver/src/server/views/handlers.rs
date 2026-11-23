@@ -77,13 +77,16 @@ pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller
     .await
 }
 
-pub(in crate::server) async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
+/// Whether the service runs, and what it holds, for anyone: on a followed machine's listener
+/// too, without asking who. So the jobs' last results (counts, times, the jobs' own words) are
+/// left out there: no CLI over there reads them.
+pub(in crate::server) async fn status(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
     let (s, storage) = {
         let store = app.store.lock().unwrap();
         (store.recorded()?, store.status()?)
     };
     let (files, bytes) = store::usage(&app.home);
-    Ok(Json(json!({
+    let mut out = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "commit": env!("WORKRIVER_COMMIT"),
         "build": BUILD,
@@ -98,7 +101,14 @@ pub(in crate::server) async fn status(State(app): State<Shared>) -> Result<Json<
         "runtime": { "connected": app.live().is_some(), "warning": app.warning },
         "machines": app.machines.as_ref().map(|m| m.states()).unwrap_or_default(),
         "attachments": { "dir": crate::common::home::attachments_dir(&app.home), "files": files, "bytes": bytes },
-    })))
+        "jobs": app.schedule.last(),
+    });
+    if caller.machine.is_some()
+        && let Some(o) = out.as_object_mut()
+    {
+        o.remove("jobs");
+    }
+    Ok(Json(out))
 }
 
 /// "Something changed", for the page: the user's.

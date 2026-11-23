@@ -11,6 +11,8 @@ mod ownership;
 mod planning;
 // Conversations read by their workspace only; a manager's seat (docs/security.md).
 mod scope;
+// Jobs by the clock (server/schedule/).
+mod schedule;
 mod seats;
 mod starts;
 pub(super) mod support;

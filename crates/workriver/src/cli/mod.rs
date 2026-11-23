@@ -341,6 +341,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
                 at["bytes"].as_f64().unwrap_or(0.0) / 1_048_576.0,
                 at["dir"].as_str().unwrap_or("?")
             );
+            print_jobs(&s["jobs"]);
             return Ok(());
         }
         Cmd::Open { print } => {

@@ -143,3 +143,24 @@ fn a_message_prints_whole_and_quoted() {
         )
     );
 }
+
+/// `workriver status`'s jobs: one line each, knowing no job; nothing when there are none.
+#[test]
+fn status_prints_each_job_without_knowing_it() {
+    assert!(crate::cli::jobs_lines(&json!([])).is_empty());
+    assert!(crate::cli::jobs_lines(&serde_json::Value::Null).is_empty());
+    let jobs = json!([
+        { "name": "attachments", "next": "2026-12-20T14:01:00Z", "running": false, "last": { "at": "2026-12-20T13:01:00Z", "by": "timer", "ms": 4200, "ok": true, "words": "412 files, 150 MB deleted", "detail": null } },
+        { "name": "other", "next": null, "running": true, "last": { "at": "2026-12-20T14:01:00Z", "by": "user", "ms": 0, "ok": false, "words": "the folder /Volumes/x is not there; nothing was deleted", "detail": null } },
+        { "name": "new", "next": "2026-12-20T12:02:00Z", "running": false, "last": null },
+    ]);
+    assert_eq!(
+        crate::cli::jobs_lines(&jobs),
+        [
+            "jobs (times in UTC):",
+            "  attachments  next 2026-12-20 14:01  last 2026-12-20 13:01 (timer, 4.2 s): 412 files, 150 MB deleted",
+            "  other        nothing due  last 2026-12-20 14:01 (user, 0.0 s): FAILED: the folder /Volumes/x is not there; nothing was deleted  running now",
+            "  new          next 2026-12-20 12:02  not run since the service started",
+        ]
+    );
+}

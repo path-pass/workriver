@@ -82,7 +82,7 @@ type Minted = std::collections::HashMap<Option<String>, (String, u32)>;
 impl Kernel {
     /// A service's options with this kernel, nothing else asked for.
     pub(super) fn options(&self) -> crate::server::Options {
-        crate::server::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false, procs: self.procs.clone(), callers: self.callers.clone(), user_home: None }
+        crate::server::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false, procs: self.procs.clone(), callers: self.callers.clone(), user_home: None, jobs: vec![] }
     }
 
     /// The CLI's client as the user's: with the user token of the daemon's home (made here if

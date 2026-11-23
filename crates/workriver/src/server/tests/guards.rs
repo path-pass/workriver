@@ -494,3 +494,22 @@ fn the_json_the_page_reads_keeps_its_shape() {
     let (g, w): (BTreeSet<&str>, BTreeSet<&str>) = (got.lines().collect(), want.lines().collect());
     assert!(g == w, "the page's JSON changed; gone: {:?}; new: {:?}", w.difference(&g).collect::<Vec<_>>(), g.difference(&w).collect::<Vec<_>>());
 }
+
+/// The schedule names no domain of the service: each domain gives its job as a constant and
+/// `server::jobs()` lists them, so a job is never added by editing the module. Searched by
+/// module path (`files::`, `super::files::`, `crate::server::files::`), not by bare word:
+/// the module's own words ("between two files") are no import.
+#[test]
+fn the_schedule_names_no_domain() {
+    const DOMAINS: [&str; 9] = ["files", "work", "planning", "conversations", "commands", "machines", "terminals", "delivery", "views"];
+    let files = sources(&crate_dir().join("src/server/schedule"), &["rs"]);
+    assert!(!files.is_empty());
+    for f in files {
+        let text = std::fs::read_to_string(&f).unwrap();
+        for d in DOMAINS {
+            let path = format!("{d}::");
+            let named = text.match_indices(&path).any(|(k, _)| !text[..k].ends_with(|c: char| c.is_alphanumeric() || c == '_'));
+            assert!(!named, "{} names the service's {d} module: a job is a constant of its domain, listed in server::jobs()", f.display());
+        }
+    }
+}

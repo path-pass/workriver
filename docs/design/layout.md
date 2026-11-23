@@ -246,7 +246,8 @@ crates/workriver/
 │   │   └── cli-tree.txt              # The command tree it pins.
 │   ├── server/                       # The service process.
 │   │   ├── mod.rs                    # Start/bind/serve, Options; the one place that assembles
-│   │   │                             # the concrete storage and runtime.
+│   │   │                             # the concrete storage and runtime, and lists the jobs
+│   │   │                             # by the clock (`jobs()`: each domain's constant).
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
@@ -260,6 +261,11 @@ crates/workriver/
 │   │   │   ├── caller.rs             # Unix peer identity, proof store and listener (caller-identity.md).
 │   │   │   ├── pins.rs               # Session-root pins (caller-identity.md, rule 5).
 │   │   │   └── tests.rs
+│   │   ├── schedule/                 # Jobs by the clock: part of the spine, names no domain.
+│   │   │   ├── mod.rs                # Job, Due (an interval, or the next time the job answers),
+│   │   │   │                         # Report, the timers (one task per job, off the poll), one
+│   │   │   │                         # run at a time (App::run_job), the last result (status).
+│   │   │   └── tests.rs              # The list alone (two of one name); timers: tests/schedule.rs.
 │   │   ├── http/                     # Transport wiring only; no domain policy.
 │   │   │   ├── mod.rs                # router() and the machine_router() allow-list; no route discovery.
 │   │   │   ├── guard.rs              # Host/Origin/proof/header extraction: what fills the Caller.
@@ -340,6 +346,7 @@ crates/workriver/
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
 │   │       ├── terminals.rs          # Reading, answering and watching an agent's terminal.
+│   │       ├── schedule.rs           # Jobs by the clock in a running service (test jobs, short waits).
 │   │       └── ownership.rs          # Who sets an intent's project, workspace and manager.
 │   ├── runtime/                      # Adapting outside programs: the facade and composition.
 │   │   ├── mod.rs                    # Neutral construction/context/wording facade (connect,
