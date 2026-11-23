@@ -14,6 +14,13 @@ pub enum IntentState {
     Dropped,
 }
 
+impl IntentState {
+    /// Done or dropped: no longer worked on.
+    pub fn over(self) -> bool {
+        matches!(self, IntentState::Done | IntentState::Dropped)
+    }
+}
+
 pub(crate) fn active() -> IntentState {
     IntentState::Active
 }
@@ -166,6 +173,10 @@ pub struct Intent {
     /// Free words for its area or theme, as kept by `tags`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// When it was last made done or dropped; none while planned or active. When the files
+    /// only it holds start to count towards the attachment rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<String>,
     /// Its versions, as far as the rules and the board need them; its history is read from
     /// its events (`intent_versions`). Never serialized: derived on replay, and the history
     /// is not what every read of the state should carry.
@@ -472,6 +483,7 @@ impl State {
                     kind: *kind,
                     size: *size,
                     tags: tags.clone(),
+                    closed: state.over().then(|| at.clone()),
                     edits: Edits::default(),
                 });
                 if let Some(i) = self.intents.last_mut() {
@@ -488,6 +500,7 @@ impl State {
                 {
                     let i = &mut self.intents[k];
                     i.state = *state;
+                    i.closed = state.over().then(|| at.clone());
                     if reason.is_some() {
                         i.reason = reason.clone();
                     }
@@ -535,6 +548,7 @@ impl State {
                         blocks.push(merged_note(x));
                         tags.extend(x.tags.iter().cloned());
                         x.state = IntentState::Dropped;
+                        x.closed = Some(at.clone());
                         x.reason = Some(format!("merged into {intent}"));
                     }
                     self.roadmap.retain(|r| r != f);

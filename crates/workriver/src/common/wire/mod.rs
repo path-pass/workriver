@@ -14,6 +14,7 @@ pub use task::*;
 /// CLI then fetches a new one and repeats its request.
 pub const EXPIRED: &str = "expired";
 
-/// The largest attachment taken, by the service and (before sending it) the CLI.
+/// The largest attachment taken, by the service and (before sending it) the CLI: core's
+/// number, which its rules hold a recorded size to.
 /// ponytail: raise it, or stream uploads, if real files need more.
-pub const MAX_ATTACHMENT: usize = 50 * 1024 * 1024;
+pub const MAX_ATTACHMENT: usize = workriver_core::MAX_ATTACHMENT;

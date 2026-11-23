@@ -88,8 +88,13 @@ workriver/
 │   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks; the
 │   │       │   │                     # user's discussion of a delivered result, its read mark.
 │   │       │   ├── messages.rs       # Manager messages, replies, read position, agents seen.
-│   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO.
-│   │       │   └── tests.rs
+│   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO. MAX_ATTACHMENT;
+│   │       │   │                     # who holds a file (attachment_holders, one walk of the records:
+│   │       │   │                     # as an attachment, or its id in any text), held_attachments
+│   │       │   │                     # (the blind view's part, no text read), attachments_due under
+│   │       │   │                     # a rule's Conditions; attachment.removed/restored (Gone, Target).
+│   │       │   ├── tests.rs
+│   │       │   └── tests/attachments.rs  # Holders, due, removal and restore; the guard for texts.
 │   │       ├── access/               # Authority and visibility.
 │   │       │   ├── mod.rs            # Principal/Rejected, reserved actors, Body::user_only, Body::service_only,
 │   │       │   │                     # message_for (who reads one message whole: as conversations_of cuts it).

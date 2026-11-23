@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::access::{Principal, Rejected};
 use crate::records::{Body, Event, State};
-use crate::{Agent, CommandRun, Delivery, DeliveryStep, Project, Question, Task, Thread, Unit, Workspace};
+use crate::{Agent, Attachment, CommandRun, Delivery, DeliveryStep, Project, Question, Task, Thread, Unit, Workspace};
 
 /// How far the record has got: the number of its last committed change (that event's
 /// `seq`), 0 before the first. History is read by it too: it is the cursor.
@@ -192,6 +192,11 @@ pub trait WorkStore: Send {
 
     fn question(&self, id: &str) -> Result<Question, DataError> {
         Ok(self.recorded()?.question(id)?.clone())
+    }
+
+    /// A stored attachment's record by its id, if there is one (removed or not).
+    fn attachment(&self, id: &str) -> Result<Option<Attachment>, DataError> {
+        Ok(self.recorded()?.attachments.iter().find(|a| a.id == id).cloned())
     }
 
     /// A question's thread, or any thread, by its id.

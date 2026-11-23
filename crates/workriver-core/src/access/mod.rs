@@ -98,9 +98,13 @@ impl Body {
     /// by the service: nobody names another agent, or points at another session's file. That
     /// a seated session has its seat back is what the service saw of its terminal. A start's
     /// seating and its end are what the service found of the user's start: the rules accept
-    /// them only for that workspace's pending start.
+    /// them only for that workspace's pending start. That an attachment's bytes left the store,
+    /// or are in it again, is what the service did with them: no agent's word changes it.
     pub fn service_only(&self) -> bool {
-        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. } | Body::ManagerStartSeated { .. } | Body::ManagerStartEnded { .. })
+        matches!(
+            self,
+            Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. } | Body::ManagerStartSeated { .. } | Body::ManagerStartEnded { .. } | Body::AttachmentRemoved { .. } | Body::AttachmentRestored { .. }
+        )
     }
 }
 

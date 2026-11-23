@@ -880,3 +880,6 @@ fn an_attachment_goes_only_when_all_that_names_it_is_cut() {
     assert_eq!((&v.units, &v.intents, &v.questions, &v.workspaces, &v.backlog), (&whole.units, &whole.intents, &whole.questions, &whole.workspaces, &whole.backlog));
     assert!(v.messages.is_empty() && v.read.is_empty() && !v.reduced);
 }
+
+// The attachment lifecycle: holders, due, removal and restore.
+mod attachments;

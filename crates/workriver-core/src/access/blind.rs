@@ -95,22 +95,6 @@ impl State {
     pub(crate) fn appointment_of(&self, session: &str) -> Option<(String, u64)> {
         self.seat_of(session).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)))
     }
-
-    /// The attachments the records hold as attachments: a task's files, its checks' reports,
-    /// its findings' files and the notes added to them or to what it asks, the backlog's
-    /// findings', and what a question or a message points at (an
-    /// "attachment" of its context). Never an id that only appears in words.
-    fn held_attachments(&self) -> std::collections::HashSet<String> {
-        fn finding(f: &Finding) -> impl Iterator<Item = &String> {
-            f.found.attachments.iter().chain(f.notes.iter().flat_map(|n| &n.attachments))
-        }
-        let tasks = self.units.iter().flat_map(|u| &u.tasks);
-        let of_tasks = tasks.flat_map(|t| t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(t.notes.iter().flat_map(|n| &n.attachments)).chain(t.findings.iter().flat_map(finding)));
-        let of_backlog = self.backlog.iter().flat_map(|b| finding(&b.finding));
-        let contexts = self.questions.iter().flat_map(|q| &q.context).chain(self.messages.iter().flat_map(|m| &m.context));
-        let pointed = contexts.filter(|c| c.kind == "attachment").filter_map(|c| c.id.as_ref());
-        of_tasks.chain(of_backlog).chain(pointed).cloned().collect()
-    }
 }
 
 /// Message `m` as `session` reads it in its conversations (`seat`: the workspace whose seat it
