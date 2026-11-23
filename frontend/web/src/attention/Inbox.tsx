@@ -225,7 +225,7 @@ export function InboxList({ ws, onOpen, onMachines, onTalk }: { ws: Workspace; o
     setFolds(next)
     try { localStorage.setItem(FOLDED, JSON.stringify(next)) } catch { /* not remembered */ }
   }
-  if (!GROUPS.some(g => box[g].length)) return <p className="px-2.5 text-sm text-ink-2">{t('inbox.empty')}</p>
+  if (!GROUPS.some(g => box[g].length)) return ws.gitPending ? null : <p className="px-2.5 text-sm text-ink-2">{t('inbox.empty')}</p>
   return GROUPS.map(g => box[g].length > 0 && (
     <Collapsible key={g} asChild open={!(folds[g] ?? (g === 'gaps' && box[g].length > 5))} onOpenChange={open => fold(g, !open)}>
       <section className="igroup" aria-labelledby={`inbox-${g}`}>

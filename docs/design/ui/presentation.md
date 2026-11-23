@@ -88,6 +88,9 @@ The page must stay quick with twenty agents committing, so it reads in two parts
   +/− lines (counted once by the service, as the diff package counts them), the uncommitted
   files the same way, and the repositories' trees (small: about 12 kB for this repository).
   Texts were nearly all of it: 8.7 MB with them, about 250 kB without.
+  On a cold service the first browser snapshot shows the recorded board while Git is
+  scanned in the background. A change on the existing event stream brings the Git fields
+  in the next snapshot. Commit-dependent empty states wait for those fields.
 - **A unit's code** (`/api/unit/{id}/code`: every text of its commits and of its uncommitted
   work) is read when its code layer is shown, and again only when the unit's `code` in the
   snapshot changes (a new commit, other uncommitted texts); then only the commits not read

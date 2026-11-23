@@ -56,6 +56,7 @@ function BaseLine({ lanes, top = false, children }: { lanes: number; top?: boole
 export function Commits({ ws, here, onCommit, commit: focus, project }: { ws: Workspace; here: { unit: string; pick: Pick } | null; onCommit: (unit: string, task: string, commit: string) => void; commit: CommitFocus | null; project: string | null }) {
   const { t, num, waited, date } = useT()
   const graphs = useMemo(() => commitGraph(project ? { ...ws, intents: ws.intents.filter(i => i.project === project) } : ws), [ws, project])
+  if (ws.gitPending) return null
   if (!graphs.length) return <p className="px-2.5 text-sm text-ink-2">{t('commits.none')}</p>
   return (
     <div className="flex flex-col gap-4">

@@ -20,18 +20,55 @@ use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
 
+#[derive(Default, PartialEq, Eq)]
+pub(in crate::server) enum BrowserGit {
+    #[default]
+    Cold,
+    Warming,
+    Ready,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::server) enum Snapshot {
+    Full,
+    Light,
+    RecordsOnly,
+}
+
 pub(in crate::server) async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<views::Workspace>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
-        let mut ws = app.snapshot(&state, r.light, "workspace");
+        let kind = if r.light {
+            Snapshot::Light
+        } else if caller.session && r.named.is_none() && *app.browser_git.lock().unwrap() != BrowserGit::Ready {
+            Snapshot::RecordsOnly
+        } else {
+            Snapshot::Full
+        };
+        let mut ws = app.snapshot(&state, kind, "workspace");
         // Machines in alert are the user's to see (Needs you), like their CPU and memory.
         // So are the commands they ran from the page.
         if app.user(&caller).is_ok() {
             ws.alerts = app.metrics.alerts();
             ws.runs = app.recent_runs(&state);
         }
-        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
-        app.record_merges(found);
+        if kind == Snapshot::RecordsOnly {
+            let mut phase = app.browser_git.lock().unwrap();
+            if *phase == BrowserGit::Cold {
+                *phase = BrowserGit::Warming;
+                let app = app.clone();
+                tokio::task::spawn_blocking(move || {
+                    app.snapshot(&state, Snapshot::Full, "workspace_warmup");
+                    let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+                    app.record_merges(found);
+                    *app.browser_git.lock().unwrap() = BrowserGit::Ready;
+                    let _ = app.changed.send(());
+                });
+            }
+        } else {
+            let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+            app.record_merges(found);
+        }
         Ok(Json(ws))
     })
     .await
@@ -174,8 +211,8 @@ pub(in crate::server) async fn stall_get(State(app): State<Shared>, Extension(ca
 
 impl App {
     /// What the page reads, of `state` as the reader may see it: files without their texts
-    /// (`unit_code` has them). `light`: not even uncommitted work or trees (board, `task show`).
-    pub(in crate::server) fn snapshot(&self, state: &core::State, light: bool, trigger: &str) -> views::Workspace {
+    /// (`unit_code` has them). Light callers (`task show`) also leave out live work and trees.
+    pub(in crate::server) fn snapshot(&self, state: &core::State, kind: Snapshot, trigger: &str) -> views::Workspace {
         let started = std::time::Instant::now();
         let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
         let blocked = self.blocked.lock().unwrap().clone();
@@ -183,10 +220,20 @@ impl App {
         let stalls = self.stalls.lock().unwrap().iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect();
         let proposals = self.proposals.lock().unwrap().clone();
         let live = self.live();
-        let mut cache = self.cache.lock().unwrap();
+        let mut records;
+        let mut shared_cache;
+        let cache = if kind == Snapshot::RecordsOnly {
+            records = views::Cache::following(self.machines.clone());
+            records.records_only = true;
+            &mut records
+        } else {
+            shared_cache = self.cache.lock().unwrap();
+            &mut *shared_cache
+        };
+        let light = kind != Snapshot::Full;
         (cache.light, cache.bare) = (light, true);
         cache.ready_after = Some(self.waits.hour * self.ready_hours);
-        let mut ws = views::build(state, &mut cache, live.as_deref(), &blocked, &idle, &stalls, &proposals);
+        let mut ws = views::build(state, cache, live.as_deref(), &blocked, &idle, &stalls, &proposals);
         views::mark_gone(&mut ws, &self.gone.lock().unwrap());
         let on_screen = self.on_screen();
         for s in ws.sessions.iter_mut().filter(|s| s.blocked_since.is_some()) {
@@ -215,7 +262,9 @@ impl App {
             views::hide(&mut ws, state);
         }
         let ms = started.elapsed().as_millis() as u64;
-        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= crate::common::config::defaults::SLOW_MS);
+        // A records-only snapshot runs no Git itself, even if another thread does.
+        let git = if cache.records_only { 0 } else { scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls };
+        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git, slow = ms >= crate::common::config::defaults::SLOW_MS);
         ws
     }
 }

@@ -92,16 +92,21 @@ export function Quiet({ since }: { since: number | null }) {
  * What a unit's line says: its two violet marks;
  * merged, its date; quiet for a while, since when; with nothing to say, whether it has started.
  */
-function Signals({ unit }: { unit: Unit }) {
+function Signals({ unit, gitPending }: { unit: Unit; gitPending?: boolean }) {
   const { t, date } = useT()
   const n = needs([unit])
-  const quiet = <Quiet since={quietSince(unit)} />
+  const since = gitPending ? null : quietSince(unit)
+  const quiet = <Quiet since={since} />
   const last = unit.commits.at(-1)
   const finished = unit.progress === 'merged' || unit.progress === 'done' || unit.status === 'merged'
   // Merged: when it was recorded so, else its last commit.
   const on = unit.merged ?? last?.date
   if (finished) return <><Progress unit={unit} />{on && <span className="text-xs text-rail-ink-2">{date(on, false)}</span>}</>
-  if (!n.blocking && !n.waiting) return unit.progress && unit.progress !== 'working' ? <><Progress unit={unit} />{quiet}</> : quietSince(unit) !== null ? quiet : <span className="tag">{t((noCode(unit) ? unit.status === 'active' : unit.commits.length) ? 'unit.active' : 'unit.untouched')}</span>
+  if (!n.blocking && !n.waiting) {
+    if (unit.progress && unit.progress !== 'working') return <><Progress unit={unit} />{quiet}</>
+    if (gitPending || since !== null) return quiet
+    return <span className="tag">{t((noCode(unit) ? unit.status === 'active' : unit.commits.length) ? 'unit.active' : 'unit.untouched')}</span>
+  }
   return (
     <>
       {unit.progress && unit.progress !== 'working' && <Progress unit={unit} />}
@@ -233,7 +238,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
           <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-normal empty:hidden">
             <SortChip intent={intent} />
             {!active && ran && <Tip text={t('rail.ranIn', { workspace: `${ran.name} ${ran.id}` })}><span className="max-w-full truncate"><span lang={contentLang(ran.name)}>{ran.name}</span> <span className="font-mono">{ran.id}</span></span></Tip>}
-            <Quiet since={intentQuietSince(intent)} />
+            {(!ws?.gitPending || intent.units.every(noCode)) && <Quiet since={intentQuietSince(intent)} />}
             {intent.complete && <Tip text={t('unit.complete')}><span className="tag font-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
           </span>
         </button>
@@ -251,7 +256,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
           >
             <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{unit.id}</span><span lang={contentLang(unit.title)}>{unit.title}</span></span>
             {unit.machine && <span className="mt-0.5 flex"><MachineChip machine={unit.machine} away={ws?.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws?.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} /></span>}
-            <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden">{unit.kind === 'spike' && <span className="tag font-normal">{t('unit.spike')}</span>}<Signals unit={unit} /></span>
+            <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden">{unit.kind === 'spike' && <span className="tag font-normal">{t('unit.spike')}</span>}<Signals unit={unit} gitPending={ws?.gitPending && !noCode(unit)} /></span>
           </button>
         ))}
       </CollapsibleContent>

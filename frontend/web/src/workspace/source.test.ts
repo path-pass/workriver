@@ -2,18 +2,20 @@
 // or be told of what comes (then at most once every few seconds); shown again, it catches up.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HIDDEN_READ } from '@/config/defaults'
+import type { Workspace } from './types'
 
 const stream = new EventTarget() as EventTarget & { onopen?: () => void; onerror?: () => void; close(): void }
 stream.close = () => {}
-const read = vi.fn(async () => ({ runtime: 'some-runtime', intents: [], sessions: [], alerts: [], messages: [] }))
+const snapshot: Workspace = { runtime: 'some-runtime', builtAt: '', repos: [], intents: [], sessions: [], alerts: [], messages: [] }
+const read = vi.fn(async () => snapshot)
 vi.mock('@/api/http', () => ({ changes: () => stream, read: () => read() }))
 const { watchWorkspace } = await import('./source')
 
-describe('a hidden tab', () => {
+describe('watching the workspace', () => {
   let hidden = false
   beforeEach(() => {
     vi.useFakeTimers()
-    read.mockClear()
+    read.mockReset().mockResolvedValue(snapshot)
     hidden = false
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
   })
@@ -22,8 +24,55 @@ describe('a hidden tab', () => {
   const changed = () => stream.dispatchEvent(new Event('changed'))
   const hide = (h: boolean) => { hidden = h; document.dispatchEvent(new Event('visibilitychange')) }
 
+  it('shows the board while the stream connects, then picks up Git data on changed', async () => {
+    const pending = { ...snapshot, gitPending: true }
+    read.mockResolvedValueOnce(pending).mockResolvedValueOnce(pending)
+    const seen = vi.fn()
+    const stop = watchWorkspace(seen, () => {}, () => false)
+    try {
+      await settle()
+      expect(seen).toHaveBeenNthCalledWith(1, pending)
+      stream.onopen?.()
+      await settle()
+      changed()
+      await settle()
+      expect(seen).toHaveBeenNthCalledWith(3, snapshot)
+    } finally {
+      stop()
+    }
+  })
+
+  it('catches up if the stream opens during a pending first read', async () => {
+    const pending = { ...snapshot, gitPending: true }
+    read.mockResolvedValueOnce(pending)
+    const seen = vi.fn()
+    const stop = watchWorkspace(seen, () => {}, () => false)
+    try {
+      stream.onopen?.()
+      await settle()
+      expect(seen.mock.calls).toEqual([[pending], [snapshot]])
+    } finally {
+      stop()
+    }
+  })
+
+  it('still tries the initial read if the stream fails, then reads again on reconnect', async () => {
+    const stop = watchWorkspace(() => {}, () => {}, () => false)
+    try {
+      stream.onerror?.()
+      await settle()
+      expect(read).toHaveBeenCalledTimes(1)
+      stream.onopen?.()
+      await settle()
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+    }
+  })
+
   it('reads nothing while neither the sound nor notifications is on, and once when shown', async () => {
     const stop = watchWorkspace(() => {}, () => {}, () => false)
+    stream.onopen?.()
     await settle()
     expect(read).toHaveBeenCalledTimes(1)
     hide(true)
@@ -39,6 +88,7 @@ describe('a hidden tab', () => {
   it('reads when told of a change while one is on, at most once every few seconds', async () => {
     const seen = vi.fn()
     const stop = watchWorkspace(seen, () => {}, () => true)
+    stream.onopen?.()
     await settle()
     hide(true)
     await vi.advanceTimersByTimeAsync(HIDDEN_READ)

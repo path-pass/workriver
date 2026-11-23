@@ -13,6 +13,8 @@ export interface Workspace {
   /** Every repository a unit works in. */
   repos: Repo[];
   builtAt: string;
+  /** Commits, trees and other Git-derived fields follow on the next change. */
+  gitPending?: boolean;
   /** The agent runtime's name, as its adapter in the service gives it: the texts that must name
    *  the runtime show it (i18n's setRuntime). */
   runtime: string;
