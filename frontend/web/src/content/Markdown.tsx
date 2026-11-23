@@ -18,6 +18,9 @@ const WHOLE_PATH = new RegExp(`^${PATH.source}$`)
 /** A link to a file of the unit, made by `filePaths`; never fetched. */
 const FILE = '#file:'
 const WORKRIVER_PATH = /^\/(?:[iu]\d+\/?|u\d+\/\d+\/?(?:\?finding=[^&#]+)?)$/
+const CJK_BOUNDARY = /[\p{Script=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\u3000-\u303f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]/u
+// Host labels can be internationalized. An ASCII final label can run into CJK prose.
+const HOST_PREFIX = /^(?:https?:\/\/)?(?:[\p{L}\p{M}\p{N}-]+\.)*(?:[a-z0-9-]+|(?=\P{ASCII})[\p{L}\p{M}\p{N}-]+)/iu
 
 function workriverPath(href: string | undefined): string | undefined {
   if (!href || href.startsWith('#')) return
@@ -32,7 +35,30 @@ function workriverPath(href: string | undefined): string | undefined {
   return finding ? `${route}?finding=${encodeURIComponent(finding)}` : route
 }
 
-type MdNode = { type: string; value?: string; url?: string; children?: MdNode[] }
+type MdNode = { type: string; value?: string; url?: string; children?: MdNode[]; position?: { start: { offset?: number } } }
+
+/** End GFM bare URLs where Chinese or Japanese prose begins. */
+function cjkAutolinks() {
+  const walk = (node: MdNode) => {
+    if (!node.children || node.type === 'linkReference') return
+    node.children = node.children.flatMap(child => {
+      if (child.type !== 'link') { walk(child); return [child] }
+      const label = child.children?.[0]
+      if (child.children?.length !== 1 || label?.type !== 'text' || !label.value || !child.url || !/^https?:\/\//i.test(child.url)) return [child]
+      // GFM literals share the label's start, or have no positions after GFM's text transform.
+      if (child.position?.start.offset !== label.position?.start.offset) return [child]
+      const host = label.value.match(HOST_PREFIX)?.[0] ?? ''
+      const afterHost = label.value.slice(host.length)
+      const end = afterHost.search(CJK_BOUNDARY)
+      if (end === -1) return [child]
+      const trailing = afterHost.slice(end)
+      label.value = label.value.slice(0, -trailing.length)
+      child.url = child.url.slice(0, -trailing.length)
+      return [child, { type: 'text', value: trailing }]
+    })
+  }
+  return (tree: unknown) => walk(tree as MdNode)
+}
 
 /** A remark plugin: paths in text and in inline code become links that pick the file. */
 function filePaths() {
@@ -75,7 +101,7 @@ export default function MarkdownView({ text, compact = false, onFile }: { text: 
   return (
     <div className={compact ? 'md md-sm' : 'md'} lang={contentLang(text)}>
       <Markdown
-        remarkPlugins={onFile ? [remarkGfm, filePaths] : [remarkGfm]}
+        remarkPlugins={onFile ? [remarkGfm, cjkAutolinks, filePaths] : [remarkGfm, cjkAutolinks]}
         skipHtml
         components={{
           pre: Pre,
