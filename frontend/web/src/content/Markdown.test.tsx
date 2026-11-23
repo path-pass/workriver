@@ -41,6 +41,13 @@ describe('Markdown an agent wrote', () => {
     ['https://a日本.jp/docsはこちら', 'https://a%E6%97%A5%E6%9C%AC.jp/docs', 'https://a日本.jp/docs', 'はこちら'],
     ['https://例え.テスト/docsはこちら', 'https://%E4%BE%8B%E3%81%88.%E3%83%86%E3%82%B9%E3%83%88/docs', 'https://例え.テスト/docs', 'はこちら'],
     ['https://example.invalid/docs.', 'https://example.invalid/docs', 'https://example.invalid/docs', '.'],
+    ['“https://example.invalid/docs”', 'https://example.invalid/docs', 'https://example.invalid/docs', '”'],
+    ['‘https://example.invalid/docs’', 'https://example.invalid/docs', 'https://example.invalid/docs', '’'],
+    ['https://example.invalid/docs“说明”', 'https://example.invalid/docs', 'https://example.invalid/docs', '“说明”'],
+    ['https://example.invalid/docs‘说明’', 'https://example.invalid/docs', 'https://example.invalid/docs', '‘说明’'],
+    ['https://example.invalid/docs——说明', 'https://example.invalid/docs', 'https://example.invalid/docs', '——说明'],
+    ['https://example.invalid/docs……', 'https://example.invalid/docs', 'https://example.invalid/docs', '……'],
+    ['https://example.invalid/docs·说明', 'https://example.invalid/docs', 'https://example.invalid/docs', '·说明'],
   ])('ends a bare link at its boundary in %s', (markdown, href, label, trailing) => {
     const host = document.createElement('div')
     host.innerHTML = html(markdown)
@@ -51,9 +58,27 @@ describe('Markdown an agent wrote', () => {
   })
 
   it.each([
+    ['https://one.invalid/docs、https://two.invalid/docs', [
+      ['https://one.invalid/docs', 'https://one.invalid/docs'],
+      ['https://two.invalid/docs', 'https://two.invalid/docs'],
+    ]],
+    ['https://one.invalid/docs和www.two.invalid/docs，http://three.invalid/docs。', [
+      ['https://one.invalid/docs', 'https://one.invalid/docs'],
+      ['http://www.two.invalid/docs', 'www.two.invalid/docs'],
+      ['http://three.invalid/docs', 'http://three.invalid/docs'],
+    ]],
+  ])('links each bare URL in %s', (markdown, links) => {
+    const host = document.createElement('div')
+    host.innerHTML = html(markdown)
+    expect(Array.from(host.querySelectorAll('a'), link => [link.getAttribute('href'), link.textContent])).toEqual(links)
+    expect(host.textContent).toBe(markdown)
+  })
+
+  it.each([
     ['https://日本/', 'https://%E6%97%A5%E6%9C%AC/'],
     ['https://日本.jp/', 'https://%E6%97%A5%E6%9C%AC.jp/'],
     ['https://www.日本.jp/', 'https://www.%E6%97%A5%E6%9C%AC.jp/'],
+    ['https://l·l.cat/docs', 'https://l%C2%B7l.cat/docs'],
   ])('keeps the complete internationalized host in %s', (markdown, href) => {
     expect(html(markdown)).toContain(`<a href="${href}" target="_blank" rel="noopener noreferrer">${markdown}</a>`)
   })

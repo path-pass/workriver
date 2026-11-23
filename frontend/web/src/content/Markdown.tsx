@@ -18,9 +18,11 @@ const WHOLE_PATH = new RegExp(`^${PATH.source}$`)
 /** A link to a file of the unit, made by `filePaths`; never fetched. */
 const FILE = '#file:'
 const WORKRIVER_PATH = /^\/(?:[iu]\d+\/?|u\d+\/\d+\/?(?:\?finding=[^&#]+)?)$/
-const CJK_BOUNDARY = /[\p{Script=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\u3000-\u303f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]/u
+const CJK_BOUNDARY = /[·—‘’“”…\p{Script=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\u3000-\u303f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]/u
+const NEXT_BARE_URL = /(?<!\w)(?:https?:\/\/|www\.)(?=[\p{L}\p{N}])/iu
 // Host labels can be internationalized. An ASCII final label can run into CJK prose.
-const HOST_PREFIX = /^(?:https?:\/\/)?(?:[\p{L}\p{M}\p{N}-]+\.)*(?:[a-z0-9-]+|(?=\P{ASCII})[\p{L}\p{M}\p{N}-]+)/iu
+// A middle dot between two l's can belong to a Catalan host label.
+const HOST_PREFIX = /^(?:https?:\/\/)?(?:(?:[\p{L}\p{M}\p{N}-]|(?<=l)·(?=l))+\.)*(?:[a-z0-9-]+|(?=\P{ASCII})[\p{L}\p{M}\p{N}-]+)/iu
 
 function workriverPath(href: string | undefined): string | undefined {
   if (!href || href.startsWith('#')) return
@@ -47,14 +49,27 @@ function cjkAutolinks() {
       if (child.children?.length !== 1 || label?.type !== 'text' || !label.value || !child.url || !/^https?:\/\//i.test(child.url)) return [child]
       // GFM literals share the label's start, or have no positions after GFM's text transform.
       if (child.position?.start.offset !== label.position?.start.offset) return [child]
-      const host = label.value.match(HOST_PREFIX)?.[0] ?? ''
-      const afterHost = label.value.slice(host.length)
-      const end = afterHost.search(CJK_BOUNDARY)
-      if (end === -1) return [child]
-      const trailing = afterHost.slice(end)
-      label.value = label.value.slice(0, -trailing.length)
-      child.url = child.url.slice(0, -trailing.length)
-      return [child, { type: 'text', value: trailing }]
+      const nodes: MdNode[] = []
+      let link = child, linkLabel = label
+      let value = label.value, url = child.url
+      while (true) {
+        nodes.push(link)
+        const host = value.match(HOST_PREFIX)?.[0] ?? ''
+        const end = value.slice(host.length).search(CJK_BOUNDARY)
+        if (end === -1) return nodes
+        const trailing = value.slice(host.length + end)
+        linkLabel.value = value.slice(0, -trailing.length)
+        link.url = url.slice(0, -trailing.length)
+
+        // GFM consumed the whole run, including any later URLs in the prose.
+        const next = trailing.search(NEXT_BARE_URL)
+        if (next === -1) return [...nodes, { type: 'text', value: trailing }]
+        nodes.push({ type: 'text', value: trailing.slice(0, next) })
+        value = trailing.slice(next)
+        url = /^www\./i.test(value) ? 'http://' + value : value
+        linkLabel = { type: 'text', value }
+        link = { type: 'link', url, children: [linkLabel] }
+      }
     })
   }
   return (tree: unknown) => walk(tree as MdNode)
