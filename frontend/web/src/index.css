@@ -561,7 +561,7 @@
 
   /* ---- the attachment viewer: plain text, and Markdown rendered ---- */
   .viewer-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono); color: var(--ink); }
-  .md { max-width: 80ch; font-size: 14px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
+  .md { font-size: 14px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
   .md > * + * { margin-top: 12px; }
   .md h1, .md h2, .md h3, .md h4 { font-weight: 650; line-height: 1.3; }
   .md h1 { font-size: 20px; } .md h2 { font-size: 15px; } .md h3, .md h4 { font-size: 14px; }
@@ -579,7 +579,7 @@
   .md hr { border: 0; border-top: 1px solid var(--line); }
   /* Compact, inside a task's detail or an answer: the surrounding size, small headings, tight
      lists; a single line break an agent typed stays a line break. */
-  .md.md-sm { max-width: none; font-size: inherit; line-height: 1.5; }
+  .md.md-sm { font-size: inherit; line-height: 1.5; }
   .md.md-sm > * + * { margin-top: 6px; }
   .md.md-sm :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; font-weight: 650; }
   .md.md-sm :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 10px; }
