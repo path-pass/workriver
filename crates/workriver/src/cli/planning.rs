@@ -159,9 +159,9 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             let w = d.get("/api/workspace?light=true")?;
             let title = |folder: &Value| w["projects"].as_array().into_iter().flatten().find(|p| &p["id"] == folder).map(|p| format!("{} ({})", s(&p["title"]), s(&p["key"]))).unwrap_or_else(|| "?".into());
             for g in w["workspaces"].as_array().into_iter().flatten() {
-                let manager = match g["manager"].as_object() {
-                    Some(m) => format!("manager {} ({}{})", s(&m["name"]), s(&m["state"]), m["machine"].as_str().map(|x| format!(", on {x}")).unwrap_or_default()),
-                    None => "no manager".into(),
+                let manager = match &g["manager"] {
+                    m @ Value::Object(_) => format!("manager {} ({}{})", s(&m["name"]), s(&m["state"]), m["machine"].as_str().map(|x| format!(", on {x}")).unwrap_or_default()),
+                    _ => "no manager".into(),
                 };
                 let current = g["current"].as_str().map(|i| format!("  current {i}")).unwrap_or_default();
                 println!("{}  {}  project {}  {manager}{current}{}", s(&g["id"]), s(&g["name"]), title(&g["project"]), if g["closed"] == true { "  (closed)" } else { "" });
