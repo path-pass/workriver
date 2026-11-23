@@ -119,9 +119,10 @@ its sections went.
     inputs reviews found too heavy among them, for under 15 ms.
   - One diagram is drawn at a time, with a pause between, so many do not hold the page; one
     no longer shown is skipped.
-  - Until it is drawn the block shows its code as any code block does; one mermaid cannot
-    draw, or one not drawn here, keeps its code, under a short note ("This diagram could not be drawn; its text is
-    below."), never a broken picture or an error. The diagram is drawn in the page's theme
+  - Until it is drawn the block shows its code as any code block does. A block that cannot
+    be drawn keeps its code under Mermaid's diagnostic as plain text, including any line
+    number it gives. When there is no diagnostic, the code is shown under a short note
+    ("This diagram could not be drawn; its text is below."). The diagram is drawn in the page's theme
     (mermaid's `neutral` in light, `dark` in dark) and again when the theme changes; it keeps
     its own size, on the code block's ground, scrolled sideways when wider than the text, as
     code and tables are.

@@ -1,11 +1,21 @@
 // Mermaid draws in a frame of its own, one diagram at a time, under rules a block cannot
 // change: strict security, no HTML labels, and a page that may fetch nothing.
 import { describe, expect, it } from 'vitest'
+import mermaid from 'mermaid'
+import relationships from './__fixtures__/relationships.mmd?raw'
 import { FRAME, inTurn, size } from './draw'
-import { BOUNDS } from './bounds'
+import { BOUNDS, drawable, withoutSettings } from './bounds'
 import { mermaidConfig } from './config'
 
 const later = () => new Promise(r => setTimeout(r))
+
+it('accepts ER self-relations, quoted Unicode relationship labels and keyed attributes', async () => {
+  expect(drawable(relationships)).toBe(true)
+  const text = withoutSettings(relationships)
+  mermaid.initialize(mermaidConfig(false, Object.keys(mermaid.mermaidAPI.defaultConfig)))
+  expect(mermaid.detectType(text)).toBe('er')
+  await expect(mermaid.parse(text)).resolves.toMatchObject({ diagramType: 'er' })
+})
 
 describe('drawing one diagram at a time', () => {
   it('starts the next only when the one before has finished, failed or not', async () => {

@@ -600,7 +600,7 @@
      when wider than the text, as code and tables are. */
   .md .md-diagram { overflow-x: auto; padding: 8px 12px; border-radius: 6px; background: var(--sunken); scrollbar-width: thin; }
   .md .md-diagram img { display: block; max-width: none; height: auto; }
-  .md .md-note { font-size: 12px; color: var(--ink-2); }
+  .md p.md-note { font-size: 12px; color: var(--ink-2); white-space: pre-wrap; }
   /* A long text cut to its first lines, fading out, until "show more". */
   .prose-fold { max-height: 9em; overflow: hidden; }
   .prose-fold[data-all] { max-height: none; }

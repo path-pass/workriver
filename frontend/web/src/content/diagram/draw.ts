@@ -11,6 +11,8 @@ import script from './frame.ts?worker&url'
 /** What mermaid drew, and its size in CSS pixels. */
 export type Picture = { svg: string; width: number; height: number }
 
+export class MermaidError extends Error {}
+
 const WAIT = 20_000
 let turn: Promise<unknown> = Promise.resolve()
 
@@ -76,6 +78,7 @@ function ask(f: HTMLIFrameElement, code: string, dark: boolean): Promise<string>
       if (e.source !== f.contentWindow || e.origin !== origin || e.data?.id !== id) return
       end()
       if (typeof e.data.svg === 'string') ok(e.data.svg)
+      else if (typeof e.data.error === 'string') fail(new MermaidError(e.data.error))
       else fail(new Error('mermaid could not draw it'))
     }
     addEventListener('message', answer)
