@@ -138,8 +138,9 @@ do what.
   any text) is closed: its intent done or dropped, its workspace with no active intent, a
   chore done, a question answered, a backlog finding dropped; then `days` after the latest
   of those closes and the last time the file was stored or named. A file of an active
-  intent never goes. Under `move`, a file with no bytes in the store has nothing to move
-  and is recorded as deleted.
+  intent never goes. Under `move`, a file with no bytes in the store is skipped and
+  counted in the run's `words`, never recorded as gone (a file never stored and a disk not
+  mounted at the store look the same); under `delete` it is recorded as deleted.
 - **`GET /api/settings/attachments`** → `{ rule, error, usage: { files, bytes }, lastRun,
   running, next }`. `rule` is null and `error` says why when the file's rule is out of
   range. `lastRun` is the last run since the service started (null before one): `{ at, by:

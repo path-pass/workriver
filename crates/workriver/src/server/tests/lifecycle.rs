@@ -561,10 +561,11 @@ fn the_data_directory_by_another_name_is_not_a_target() {
 }
 
 /// A file recorded and due whose bytes are not in the store (recorded with no upload, or
-/// deleted by hand) has nothing to move: under a move rule it is recorded as deleted, as a
-/// delete rule records it, and the run is not a failure that comes back every hour.
+/// deleted by hand) has nothing to move: under a move rule it is skipped and counted, never
+/// recorded as gone (an absent file and an absent disk look the same from the store), and
+/// the run is not a failure that comes back every hour. A delete rule records it deleted.
 #[test]
-fn a_due_file_with_no_bytes_does_not_fail_every_move() {
+fn a_due_file_with_no_bytes_is_skipped_by_a_move() {
     let s = setup(vec![lifecycle::JOB]);
     let out = tempfile::tempdir().unwrap();
     let a = s.store("a.png", b"picture a");
@@ -575,22 +576,80 @@ fn a_due_file_with_no_bytes_does_not_fail_every_move() {
     let (_, ran) = s.run();
     assert_eq!(ran["ok"], true, "{ran}");
     assert_eq!((ran["detail"]["how"].clone(), ran["detail"]["files"].clone(), ran["detail"]["failed"].clone()), (json!("moved"), json!(1), json!(0)), "{ran}");
-    assert!(ran["words"].as_str().unwrap().contains("1 with no file in the store, recorded as removed"), "{ran}");
-    let mut removals: Vec<(Value, Value)> = s.removals().iter().map(|r| (r["how"].clone(), r["ids"].clone())).collect();
-    removals.sort_by_key(|r| r.0.to_string());
-    assert_eq!(removals, [(json!("deleted"), json!([b])), (json!("moved"), json!([a]))]);
+    assert!(ran["words"].as_str().unwrap().contains("1 with no file in the store, skipped"), "{ran}");
+    let removals: Vec<(Value, Value)> = s.removals().iter().map(|r| (r["how"].clone(), r["ids"].clone())).collect();
+    assert_eq!(removals, [(json!("moved"), json!([a]))]);
     assert!(out.path().join(format!("{a}.png")).is_file());
-    assert_eq!(s.read(&b).0, 410);
-    // Nothing is left due: the next run is quiet.
+    assert_eq!(s.read(&b).0, 404, "never recorded gone: {:?}", s.read(&b));
+    // It stays due and is skipped again, quietly.
     let (_, ran) = s.run();
-    assert_eq!((ran["ok"].clone(), ran["words"].clone()), (json!(true), json!("nothing due")), "{ran}");
+    assert_eq!((ran["ok"].clone(), ran["words"].clone()), (json!(true), json!("1 with no file in the store, skipped")), "{ran}");
+    assert_eq!(s.removals().len(), 1);
+    // A delete rule records it deleted: nothing of it is anywhere to keep.
+    assert_eq!(s.rule(json!({ "after": "delete", "days": 1 })).0, 200);
+    let (_, ran) = s.run();
+    assert_eq!((ran["ok"].clone(), ran["detail"]["how"].clone(), ran["detail"]["files"].clone()), (json!(true), json!("deleted"), json!(1)), "{ran}");
+    assert_eq!(s.removals().last().map(|r| (r["how"].clone(), r["ids"].clone())), Some((json!("deleted"), json!([b]))));
+    assert_eq!(s.read(&b).0, 410);
+}
+
+/// Detaches a disk image mounted for a test, whatever the test did.
+struct Mounted(PathBuf);
+
+impl Drop for Mounted {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("hdiutil").args(["detach", "-force"]).arg(&self.0).output();
+    }
+}
+
+fn hdiutil(args: &[&std::ffi::OsStr]) -> bool {
+    std::process::Command::new("hdiutil").args(args).output().is_ok_and(|o| o.status.success())
+}
+
+/// The store's folder may be a mount point (an external disk or a share mounted there).
+/// While its disk is away the folder lists fine and holds nothing: a move run then finds no
+/// bytes of any due file and must not record them gone, or the sweep after the disk is back
+/// deletes them all. Here with a disk image (macOS, no root); skipped where hdiutil is not.
+#[test]
+fn a_store_whose_disk_is_away_loses_nothing_to_a_move() {
+    let s = setup(vec![lifecycle::JOB]);
+    let out = tempfile::tempdir().unwrap();
+    let dir = crate::common::home::attachments_dir(&s.home);
+    std::fs::create_dir_all(&dir).unwrap();
+    let img = s.files.parent().unwrap().join("disk.dmg");
+    let (img, dir_os) = (img.as_os_str(), dir.as_os_str());
+    if !hdiutil(&["create".as_ref(), "-size".as_ref(), "4m".as_ref(), "-fs".as_ref(), "HFS+".as_ref(), "-volname".as_ref(), "wrtest".as_ref(), img]) {
+        eprintln!("no hdiutil here (or it cannot make a disk image): nothing to probe");
+        return;
+    }
+    let attach = || hdiutil(&["attach".as_ref(), img, "-mountpoint".as_ref(), dir_os, "-nobrowse".as_ref()]);
+    assert!(attach());
+    let mounted = Mounted(dir.clone());
+    let a = s.store("a.png", b"picture a");
+    assert_eq!(s.stored(), [format!("{a}.png")]);
+    assert_eq!(s.rule(json!({ "after": "move", "days": 1, "target": folder(out.path()) })).0, 200);
+    s.age(2);
+    assert!(hdiutil(&["detach".as_ref(), dir_os]));
+    assert!(dir.is_dir() && s.stored().is_empty(), "the folder is there and empty while the disk is away");
+    let (_, ran) = s.run();
+    assert_eq!(ran["ok"], true, "{ran}");
+    assert!(ran["words"].as_str().unwrap().contains("1 with no file in the store, skipped"), "{ran}");
+    assert!(s.removals().is_empty(), "nothing recorded: {:?}", s.removals());
+    assert!(attach());
+    assert_eq!(s.stored(), [format!("{a}.png")]);
+    // With the disk back the file is moved as ever.
+    let (_, ran) = s.run();
+    assert_eq!((ran["ok"].clone(), ran["detail"]["how"].clone(), ran["detail"]["files"].clone()), (json!(true), json!("moved"), json!(1)), "{ran}");
+    assert_eq!(std::fs::read(out.path().join(format!("{a}.png"))).unwrap(), b"picture a");
+    assert!(s.stored().is_empty());
+    assert_eq!(s.read(&a).0, 200);
+    drop(mounted);
 }
 
 /// A store folder that cannot be listed (no permission here; in the service also too many
 /// open files, the system's privacy rules, a disk not mounted) is a failed run with nothing
-/// recorded, never an empty store: under a move rule its files would be recorded as having
-/// no bytes, and the next run's sweep would delete them. The next run that can list it
-/// moves the file as ever.
+/// recorded, never an empty store: nothing is decided from a folder that says nothing of
+/// what it holds. The next run that can list it moves the file as ever.
 #[test]
 fn a_store_that_cannot_be_listed_fails_the_run_and_records_nothing() {
     use std::os::unix::fs::PermissionsExt;

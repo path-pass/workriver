@@ -31,8 +31,8 @@ struct Done {
     failed: Vec<String>,
     /// Files the rule took this run.
     due: u64,
-    /// Files a move took that had no bytes in the store: recorded as deleted.
-    empty: u64,
+    /// Files a move found no bytes of in the store: skipped, never recorded as gone.
+    skipped: u64,
     stopped: bool,
 }
 
@@ -112,18 +112,6 @@ fn local_files(home: &Path) -> Result<HashMap<String, Vec<PathBuf>>, String> {
     Ok(out)
 }
 
-/// Whether a file the listing found no bytes of has none, looked at by its own name under
-/// the upload's lock: only "not there" is none; a file there after all, or one that cannot
-/// be looked at, is a failure of that file (left for the next run).
-fn none_of(home: &Path, a: &Attachment) -> Result<(), String> {
-    let Some(at) = store::path(home, &a.id, &a.name) else { return Ok(()) };
-    match std::fs::symlink_metadata(&at) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("{}: cannot look at {}: {e}", a.id, at.display())),
-        Ok(_) => Err(format!("{}: {} is in the store after all; left for the next run", a.id, at.display())),
-    }
-}
-
 /// The bytes of a stored file: its file of the recorded name, else any of its id's.
 fn bytes_of(home: &Path, a: &Attachment, files: &[PathBuf]) -> std::io::Result<Vec<u8>> {
     let named = store::path(home, &a.id, &a.name);
@@ -185,16 +173,17 @@ fn take(app: &App, rule: &Rule, state: &State, local: &mut HashMap<String, Vec<P
     let how = if rule.after == After::Move { Removed::Moved } else { Removed::Deleted };
     let to = (how == Removed::Moved).then(|| rule.target.clone()).flatten();
     let mut ready: Vec<&Attachment> = vec![];
-    // A move's files that have no bytes in the store (recorded with no upload, deleted by
-    // hand): there is nothing to move, so they are recorded as a delete rule records them.
-    let mut empty: Vec<&Attachment> = vec![];
     for a in due {
         if stopping(app) {
             done.stopped = true;
             break;
         }
+        // A move's file with no bytes in the store is skipped and counted, never recorded as
+        // gone: a file never uploaded or deleted by hand looks the same from the store as one
+        // on a disk not mounted there now, and a record of it gone would have the sweep
+        // delete it once the disk is back. A delete rule records it: nothing of it is kept.
         if to.is_some() && local.get(&a.id).is_none_or(Vec::is_empty) {
-            empty.push(a);
+            done.skipped += 1;
             continue;
         }
         if let Some(to) = &to {
@@ -206,7 +195,7 @@ fn take(app: &App, rule: &Rule, state: &State, local: &mut HashMap<String, Vec<P
         }
         ready.push(a);
     }
-    if ready.is_empty() && empty.is_empty() {
+    if ready.is_empty() {
         return;
     }
     let _held = app.attachments.lock().unwrap();
@@ -218,25 +207,7 @@ fn take(app: &App, rule: &Rule, state: &State, local: &mut HashMap<String, Vec<P
         }
     };
     let still: Vec<&str> = now.attachments_due(&conditions, SystemTime::now()).iter().map(|a| a.id.as_str()).collect();
-    let still = |list: &[&Attachment]| -> Vec<String> { list.iter().filter(|a| still.contains(&a.id.as_str())).map(|a| a.id.clone()).collect() };
-    // What has no bytes is taken only while it still has none (an upload under this lock
-    // has stored it again, and named it, so it is not due any more anyway).
-    let taken = still(&empty);
-    let mut gone_empty: Vec<String> = vec![];
-    for a in empty.iter().filter(|a| taken.contains(&a.id) && local.get(&a.id).is_none_or(Vec::is_empty)) {
-        match none_of(&app.home, a) {
-            Ok(()) => gone_empty.push(a.id.clone()),
-            Err(why) => done.failed.push(why),
-        }
-    }
-    if !gone_empty.is_empty() {
-        let body = Body::AttachmentRemoved { ids: gone_empty.clone(), how: Removed::Deleted, to: None, rule: conditions };
-        match app.record(&Principal::Service, body) {
-            Ok(_) => done.empty = gone_empty.len() as u64,
-            Err(e) => done.failed.push(format!("the removal could not be recorded: {}", e.1)),
-        }
-    }
-    let ids = still(&ready);
+    let ids: Vec<String> = ready.iter().filter(|a| still.contains(&a.id.as_str())).map(|a| a.id.clone()).collect();
     if ids.is_empty() {
         return;
     }
@@ -265,15 +236,15 @@ fn report(done: Done) -> Report {
     };
     let mb = done.bytes as f64 / 1_048_576.0;
     let mut words = match (done.files, done.failed.len()) {
-        (0, 0) if done.empty > 0 => String::new(),
+        (0, 0) if done.skipped > 0 => String::new(),
         (0, 0) => "nothing due".to_string(),
         (n, 0) => format!("{n} files, {mb:.1} MB {how}"),
         (0, f) => format!("{f} failed: {}", done.failed.join("; ")),
-        (n, f) => format!("{n} of {} {}; {f} failed: {}", (done.due - done.empty).max(n + f as u64), if how.is_empty() { "removed" } else { how }, done.failed.join("; ")),
+        (n, f) => format!("{n} of {} {}; {f} failed: {}", (done.due - done.skipped).max(n + f as u64), if how.is_empty() { "removed" } else { how }, done.failed.join("; ")),
     };
-    if done.empty > 0 {
-        let empty = format!("{} with no file in the store, recorded as removed", done.empty);
-        words = if words.is_empty() { empty } else { format!("{words}; {empty}") };
+    if done.skipped > 0 {
+        let skipped = format!("{} with no file in the store, skipped", done.skipped);
+        words = if words.is_empty() { skipped } else { format!("{words}; {skipped}") };
     }
     if done.stopped {
         words += "; stopped with the service, the rest at the next run";
