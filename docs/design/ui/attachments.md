@@ -91,6 +91,9 @@ its sections went.
       weight of at most 80. The weight counts, statement by statement (lines, or parts between
       `;`), the links (`a & b --> c & d` as every edge it makes), or the things named besides
       a link's ends, at least one; labels, strings and text after a spaced `:` are left out.
+      In an ER diagram, each entity declaration with a closed attribute block weighs one.
+      Its attributes and closing brace add no weight. The full source still counts towards
+      both text bounds, and ER relations and state composites keep their usual weight.
       A link's length (`A ------> B`) costs nothing measurable (10 000 characters of them: 144
       ms at most). Mermaid's own limits (`maxTextSize`, `maxEdges`) are set to the same, and
       what it draws in place of a diagram it refuses (its error diagram, "Maximum text size in
@@ -104,7 +107,9 @@ its sections went.
       10 000 characters (306–357); the same without labels, as lines, one-line chains or
       `;`-joined: 205–216 (210–264); random and complete graphs, nested subgraphs, long
       links, labels filling 10 000 characters on 80 nodes: 74–203;
-    - ER: 254 ms, 78 relations of that shape (300–350); entities of 8 attributes: 35;
+    - ER (Mermaid 12.3.0): 378 ms, the heaviest kind, 78 relations plus one entity holding
+      attribute lines up to 10 000 characters; 77 relations with 2 attribute blocks: 332–371;
+      69 relations with 10 blocks: 289–316; 79 relations alone: 161–180;
     - class: 244 ms, 78 relations of that shape (357–412); namespaces, classes of 8
       members: 30–55;
     - state: 221 ms, 78 transitions of that shape (286–390); composite states nested 14
@@ -115,13 +120,17 @@ its sections went.
     them 0.3–0.7 s, 200 of them 1.6–2.9 s, the 499 of a review's input 24 s, so the weight bound
     sits where the worst is under half the budget, room for a slower machine. In the page
     itself (the app, then the first diagram, mermaid loaded then; production build) the
-    heaviest allowed held it for 364 ms (404 in the earlier measurement); every refused block, the
+    heaviest allowed held it for 364 ms (404 in the earlier measurement; both before attribute
+    blocks stopped counting in ER, not measured in the page since); every refused block, the
     inputs reviews found too heavy among them, for under 15 ms.
   - One diagram is drawn at a time, with a pause between, so many do not hold the page; one
     no longer shown is skipped.
-  - Until it is drawn the block shows its code as any code block does; one mermaid cannot
-    draw, or one not drawn here, keeps its code, under a short note ("This diagram could not be drawn; its text is
-    below."), never a broken picture or an error. The diagram is drawn in the page's theme
+  - Until it is drawn the block shows its code as any code block does. A block refused by
+    the bounds shows one translated reason above its source. A size refusal gives the
+    actual weight, character count or longest word length and the corresponding limit.
+    An unsupported kind has its own message. A rendering failure shows Mermaid's diagnostic
+    as plain text, including any line number it gives, or a short translated note when
+    no diagnostic is available. The diagram is drawn in the page's theme
     (mermaid's `neutral` in light, `dark` in dark) and again when the theme changes; it keeps
     its own size, on the code block's ground, scrolled sideways when wider than the text, as
     code and tables are.

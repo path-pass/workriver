@@ -1,9 +1,9 @@
 // Runs in the frame the diagrams are drawn in (draw.ts): takes a block's text from the
-// page, draws it with mermaid and sends back the SVG text, or that it could not. The page
-// shows that only as an image (Diagram.tsx).
+// page, draws it with mermaid and sends back the SVG text or a diagnostic. The page
+// shows the SVG only as an image (Diagram.tsx).
 // Its own file: a separate build entry that acts on import, and the only one to import mermaid.
 import mermaid from 'mermaid'
-import { drawable, withoutSettings } from './bounds'
+import { refusal, withoutSettings } from './bounds'
 import { mermaidConfig } from './config'
 
 /** Mermaid's SVG is HTML text (an `xlink:href` with its prefix undeclared, say); an image
@@ -26,12 +26,16 @@ addEventListener('message', async (e: MessageEvent<{ id: number; code: string; d
   try {
     // The page refuses these already; nothing of another kind or too heavy reaches mermaid
     // in any case, and the kind is the one mermaid itself finds.
-    if (!drawable(code)) throw new Error('not drawn here')
+    if (refusal(code)) throw new Error('not drawn here')
     // Mermaid is never given a block's own settings (front matter, directives): ours stand.
     const text = withoutSettings(code)
     mermaid.initialize(mermaidConfig(dark, Object.keys(mermaid.mermaidAPI.defaultConfig)))
     if (!KINDS.has(mermaid.detectType(text))) throw new Error('not drawn here')
-    const { svg } = await mermaid.render(`d${n++}`, text)
+    const result = await mermaid.render(`d${n++}`, text).catch((error: unknown) => {
+      parent.postMessage({ id, error: error instanceof Error ? error.message : undefined }, origin)
+    })
+    if (!result) return
+    const { svg } = result
     // What mermaid draws in place of a diagram it refuses is not one.
     if (/aria-roledescription="error"|Maximum text size in diagram exceeded/.test(svg)) throw new Error('refused')
     parent.postMessage({ id, svg: asXml(svg) }, origin)

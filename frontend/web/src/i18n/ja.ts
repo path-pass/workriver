@@ -762,6 +762,10 @@ export const ja: OneForm<typeof en> = {
     cut: '{{size}} のうち先頭の {{shown}} を表示しています。残りはダウンロードしてください。',
     mdImage: '画像：{{name}}',
     mdDiagram: '図',
+    mdDiagramUnsupported: 'この種類の Mermaid 図には対応していません。',
+    mdDiagramChars: 'この図は {{actual}} 文字あり、上限の {{limit}} 文字を超えています。',
+    mdDiagramWord: 'この図で空白を挟まない最長の文字列は {{actual}} 文字あり、上限の {{limit}} 文字を超えています。',
+    mdDiagramWeight: 'この図の描画負荷は {{actual}} で、上限の {{limit}} を超えています。',
     mdDiagramFailed: 'この図は描けませんでした。元のテキストを下に表示しています。'
   },
   deliver: {

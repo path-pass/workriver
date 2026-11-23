@@ -780,6 +780,10 @@ export const en = {
     cut: 'Shows the first {{shown}} of {{size}}; download it for the rest.',
     mdImage: 'Image: {{name}}',
     mdDiagram: 'Diagram',
+    mdDiagramUnsupported: 'This kind of Mermaid diagram is not supported here.',
+    mdDiagramChars: 'This diagram has {{actual}} characters, exceeding the limit of {{limit}}.',
+    mdDiagramWord: 'The longest word in this diagram has {{actual}} characters, exceeding the limit of {{limit}}.',
+    mdDiagramWeight: 'This diagram has a weight of {{actual}}, exceeding the limit of {{limit}}.',
     mdDiagramFailed: 'This diagram could not be drawn; its text is below.'
   },
   deliver: {

@@ -762,6 +762,10 @@ export const zhCN: OneForm<typeof en> = {
     cut: '只显示前 {{shown}}（共 {{size}}），其余请下载。',
     mdImage: '图片：{{name}}',
     mdDiagram: '图表',
+    mdDiagramUnsupported: '此处不支持这种 Mermaid 图表。',
+    mdDiagramChars: '这张图有 {{actual}} 个字符，超过了 {{limit}} 个字符的上限。',
+    mdDiagramWord: '这张图中最长的连续非空白文本有 {{actual}} 个字符，超过了 {{limit}} 个字符的上限。',
+    mdDiagramWeight: '这张图的绘制权重为 {{actual}}，超过了 {{limit}} 的上限。',
     mdDiagramFailed: '这张图画不出来，下面是它的原文。'
   },
   deliver: {

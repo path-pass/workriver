@@ -1,0 +1,12 @@
+erDiagram
+    CATEGORY ||--o{ CATEGORY : "parent_code (階層)"
+    CATEGORY ||--o{ PROJECT : "各 *_code (触发器检查)"
+    PROJECT ||--o{ CONTRACT : "1 : N"
+    CONTRACT |o--o{ ENTRY : "contract_id (optional)"
+    EVENT |o--o{ EVENT : "base_event_id 继承 / compare_event_id 比較 / このリレーションの意味を説明する長いラベル"
+    ENTRY }o--|| BALANCE : "同一キーの delta を集計"
+    PROJECT {
+        uuid project_id PK
+        text reference UK "管理番号 (可空)"
+        text expense_code "部門・費目"
+    }

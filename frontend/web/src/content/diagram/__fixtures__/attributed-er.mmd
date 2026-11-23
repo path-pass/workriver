@@ -1,0 +1,75 @@
+erDiagram
+    %% References between the seven entities
+    CATEGORY ||--o{ CATEGORY : "parent_code (階層)"
+    CATEGORY ||--o{ PROJECT : "各 *_code (触发器检查)"
+    CATEGORY ||--o{ CONTRACT : "contract_type"
+    CATEGORY |o--o{ ENTRY : "expense_code"
+    PROJECT ||--o{ CONTRACT : "1 : N"
+    PROJECT ||--o{ ENTRY : "project_id"
+    PROJECT ||--o{ EVENT : "計画変更"
+    CONTRACT |o--o{ ENTRY : "contract_id (optional)"
+    CONTRACT |o--o{ EVENT : "contract_id"
+    EVENT |o--o{ EVENT : "base_event_id 继承"
+    EVENT |o--o{ EVENT : "compare_event_id 比較"
+    EVENT ||--o{ ENTRY : "変更イベント"
+    ENTRY }o--|| BALANCE : "同一キーの delta を集計"
+    BALANCE }o--|| PERIOD : "集計期間"
+
+    CATEGORY {
+        text code PK
+        text parent_code FK
+        text classification
+        text label "区分名称"
+        int sort_order
+        boolean active
+    }
+    PROJECT {
+        uuid project_id PK
+        text reference UK "管理番号 (可空)"
+        text expense_code FK "部門・費目"
+        text title
+        date starts_on
+        date ends_on
+        timestamp recorded_at
+    }
+    CONTRACT {
+        uuid contract_id PK
+        uuid project_id FK
+        text reference UK
+        text contract_type FK
+        decimal signed_amount
+        date signed_on
+    }
+    ENTRY {
+        uuid entry_id PK
+        uuid project_id FK
+        uuid contract_id FK
+        uuid event_id FK
+        text expense_code FK
+        decimal delta "正负变动额"
+        timestamp entered_at
+    }
+    EVENT {
+        uuid event_id PK
+        uuid project_id FK
+        uuid contract_id FK
+        uuid base_event_id FK
+        uuid compare_event_id FK
+        text explanation "理由 {参考}; 改訂履歴"
+        timestamp happened_at
+    }
+    BALANCE {
+        uuid balance_id PK
+        uuid period_id FK
+        text expense_code FK
+        decimal opening_amount
+        decimal movement
+        decimal closing_amount
+    }
+    PERIOD {
+        uuid period_id PK
+        text code UK
+        date starts_on
+        date ends_on
+        boolean closed
+    }
