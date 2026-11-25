@@ -218,9 +218,12 @@ its sections went.
   as the search and intent filters. The currently open unit stays in the rail if it meets
   those other filters, regardless of its state. While a unit state is checked, active and
   done intent groups with no visible units and workspaces with no matching intents are
-  hidden. The roadmap keeps its own filters and order. The browser remembers the unit-state
-  choice across project switches and reloads. The filter button counts checked states and
-  intent filters together, and "Clear" clears both.
+  hidden. The rail temporarily opens the intents, workspaces and Done sections that
+  contain visible units, keeping their manual fold choices. The roadmap keeps its own
+  filters and order. The browser remembers the unit-state choice across project switches
+  and reloads. The filter button counts checked states and intent filters together. The
+  notice under the top row lists the checked unit states using the popover's labels, with
+  the intent count also shown when intent filters are active. "Clear" clears both.
 
 ## An intent's page
 

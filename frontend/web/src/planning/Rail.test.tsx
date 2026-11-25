@@ -18,12 +18,19 @@ const ws: Workspace = {
   ],
   intents: [
     {
-      id: 'i1', title: 'Mixed states', workspace: 'ws1', project: '/example', chores: [],
+      id: 'i1', title: 'Mixed states', workspace: 'ws1', project: '/example', chores: [], kind: 'feature',
       units: [unit('u1', 'Current work', 'working'), unit('u2', 'Another unit'), unit('u3', 'Waiting work', 'waiting'), unit('u4', 'Closed work', 'done')],
     },
     { id: 'i2', title: 'Only working', workspace: 'ws2', project: '/example', chores: [], units: [unit('u5', 'Other work', 'working')] },
     { id: 'i3', title: 'Planned work', project: '/example', state: 'planned', units: [], chores: [] },
   ],
+}
+const withDone: Workspace = {
+  ...ws,
+  intents: [...ws.intents, {
+    id: 'i4', title: 'Finished intent', workspace: 'ws1', project: '/example', state: 'done', chores: [],
+    units: [unit('u6', 'Delivered work', 'done')],
+  }],
 }
 
 let host: HTMLDivElement
@@ -40,13 +47,14 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   localStorage.removeItem('workriver.rail.unitStates')
+  localStorage.removeItem('workriver.filter.*')
   globalThis.IS_REACT_ACT_ENVIRONMENT = actEnvironment ?? false
 })
 
 const noop = () => {}
-const show = (unitId = 'i1', q = '') => act(() => root.render(
+const show = (unitId = 'i1', q = '', data = ws) => act(() => root.render(
   <TooltipProvider>
-    <Rail ws={ws} unitId={unitId} onUnit={noop} q={q} onQ={noop} open onToggle={noop}
+    <Rail ws={data} unitId={unitId} onUnit={noop} q={q} onQ={noop} open onToggle={noop}
       project={null} onProject={noop} onStart={noop} onIntent={noop} onDashboard={noop} />
   </TooltipProvider>,
 ))
@@ -119,4 +127,53 @@ it('hides workspaces with no matching intents and reports that no units match', 
   expect(host.textContent).not.toContain('No open workspace')
   expect(host.textContent).toContain('No units match the current filters.')
   expect(host.textContent).toContain('Planned work')
+})
+
+it('reveals a matching unit in another intent inside a folded workspace', () => {
+  show()
+  const workspace = 'Show or hide the intents of workspace Second workspace'
+  act(() => button(workspace).click())
+  expect(unitRows()).not.toContain('u5')
+  openFilters()
+  pick('Working')
+  expect(unitRows()).toEqual(['u1', 'u2', 'u5'])
+  act(() => button('Clear').click())
+  expect(button(workspace).getAttribute('aria-expanded')).toBe('false')
+  expect(unitRows()).not.toContain('u5')
+})
+
+it('opens the Done section for matching units and restores its default fold on clear', () => {
+  show('i1', '', withDone)
+  expect(button('Done1').getAttribute('aria-expanded')).toBe('false')
+  openFilters()
+  pick('Done')
+  expect(button('Done1').getAttribute('aria-expanded')).toBe('true')
+  expect(unitRows()).toEqual(['u4', 'u6'])
+  act(() => button('Clear').click())
+  expect(button('Done1').getAttribute('aria-expanded')).toBe('false')
+})
+
+it('keeps a manual Done expansion through state filtering and resets when search alone hides it', () => {
+  show('i1', '', withDone)
+  act(() => button('Done1').click())
+  openFilters()
+  pick('Waiting')
+  expect(button('Done1')).toBeUndefined()
+  act(() => button('Clear').click())
+  expect(button('Done1').getAttribute('aria-expanded')).toBe('true')
+  show('i1', 'i1', withDone)
+  expect(button('Done1')).toBeUndefined()
+  show('i1', '', withDone)
+  expect(button('Done1').getAttribute('aria-expanded')).toBe('false')
+})
+
+it('names selected unit states even when intent filters are also active', () => {
+  show()
+  openFilters()
+  pick('Waiting')
+  pick('Done')
+  expect(host.textContent).toContain('Showing units: Waiting, Done')
+  pick('Feature')
+  expect(host.textContent).toContain('Showing units: Waiting, Done')
+  expect(host.textContent).toContain('Filtered: 1 of 3')
 })

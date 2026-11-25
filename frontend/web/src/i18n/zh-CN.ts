@@ -105,6 +105,7 @@ export const zhCN: OneForm<typeof en> = {
     filter: '筛选侧栏',
     filterCount: '筛选侧栏（已启用 {{count}} 项）',
     filterUnitState: '单元状态',
+    showingUnits: '显示单元：{{states}}',
     filterNoUnits: '没有单元符合当前筛选条件。',
     filterKind: '类型',
     filterSize: '规模',

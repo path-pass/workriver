@@ -108,6 +108,7 @@ export const en = {
     filter: 'Filter the rail',
     filterCount: 'Filter the rail ({{count}} on)',
     filterUnitState: 'Unit state',
+    showingUnits: 'Showing units: {{states}}',
     filterNoUnits: 'No units match the current filters.',
     filterKind: 'Kind',
     filterSize: 'Size',

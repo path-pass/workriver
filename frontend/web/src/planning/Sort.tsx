@@ -8,7 +8,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { Choice } from '@/ui/Choice'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { contentLang, useT } from '@/i18n'
+import { contentLang, useT, type T } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { filtersOn, KINDS, MAX_TAGS, SIZES, withTyped, type Filter, type Kind, type Size } from './classify'
 import { UNIT_PROGRESS, type Intent, type UnitProgress } from './types'
@@ -39,6 +39,10 @@ function Check({ label, on, onChange, lang }: { label: string; on: boolean; onCh
       <span lang={lang} className="min-w-0 wrap-anywhere">{label}</span>
     </label>
   )
+}
+
+export function unitStateLabel(t: T, state: UnitProgress) {
+  return state === 'ready' ? `${t('unit.progress.ready')} / ${t('unit.progress.readyClose')}` : t(`unit.progress.${state}`)
 }
 
 /**
@@ -73,7 +77,7 @@ export function RailFilter({ filter, onChange, tags, unitStates, onUnitStates }:
       <PopoverContent align="end" className="max-h-(--radix-popover-content-available-height) w-64 gap-3 overflow-y-auto border border-line bg-surface text-ink ring-0">
         {group(t('rail.filterUnitState'), UNIT_PROGRESS.map(p => (
           <Check key={p}
-            label={p === 'ready' ? `${t('unit.progress.ready')} / ${t('unit.progress.readyClose')}` : t(`unit.progress.${p}`)}
+            label={unitStateLabel(t, p)}
             on={unitStates.includes(p)}
             onChange={on => onUnitStates(on ? [...unitStates, p] : unitStates.filter(x => x !== p))}
           />

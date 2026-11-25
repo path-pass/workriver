@@ -105,6 +105,7 @@ export const ja: OneForm<typeof en> = {
     filter: 'サイドバーを絞り込む',
     filterCount: 'サイドバーを絞り込む（{{count}} 件適用中）',
     filterUnitState: 'ユニットの状態',
+    showingUnits: '表示するユニット：{{states}}',
     filterNoUnits: '絞り込み条件に一致するユニットはありません。',
     filterKind: '種類',
     filterSize: '規模',
