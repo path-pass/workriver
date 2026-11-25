@@ -50,7 +50,7 @@ What workriver uses of Herdr for this, all through the same socket:
   that rule's own fixed phrases (`bash_permission_prompt: …`), Herdr's
   words, not the screen's: the evidence preview Herdr reads off the screen is left out, since
   the gate shows the screen itself; `pane.send_keys` sends the keys, in
-  Herdr's names (`up`, `down`, `enter`, `esc`, `tab`, digits); a message goes to that pane
+  Herdr's names (`up`, `down`, `enter`, `esc`, `tab`, `space`, digits); a message goes to that pane
   (a seated manager's to the pane it is held to, never resolved again) with `agent.prompt`,
   once a fresh `agent.list` still shows the session there.
 - **The terminal view.** Herdr streams a pane's terminal on its client socket,

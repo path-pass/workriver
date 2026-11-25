@@ -29,7 +29,7 @@ const codeOf = (c: string): Code => ((CODES as readonly string[]).includes(c) ? 
 const asRefusal = (e: unknown): Refusal => (e && typeof e === 'object' && 'code' in e ? (e as Refusal) : { code: 'failed', reason: String(e) })
 
 /** What a key looks like on its cap: an arrow, ↵, Esc, Tab, or the digit. */
-export const cap = (t: T, k: string) => (/^[1-9]$/.test(k) ? k : (KEYS as string[]).includes(k) ? t(`screen.cap.${k as Exclude<Key, `${number}`>}`) : k)
+export const cap = (t: T, k: string) => (/^[1-9]$/.test(k) ? k : k === 'space' || (KEYS as string[]).includes(k) ? t(`screen.cap.${k as Exclude<Key, `${number}`>}`) : k)
 const keyName = (t: T, k: Key) => (/^[1-9]$/.test(k) ? k : t(`screen.keyName.${k as Exclude<Key, `${number}`>}`))
 
 /** The keys an option sends: its digit when numbered; else arrows from the marked one, then Enter. */
@@ -153,7 +153,7 @@ export function Answer({ screen, onView }: { screen: Screen; onView?: () => void
         </Collapsible>
       )}
       {view && !d && <p className="text-xs text-ink-2">{t('screen.noDialog')}</p>}
-      {d && (
+      {d && !d.checklist && (
         <ul className="flex flex-col gap-1" aria-label={t('screen.options')}>
           {d.options.map((o, i) => (
             <li key={i}>
@@ -169,7 +169,12 @@ export function Answer({ screen, onView }: { screen: Screen; onView?: () => void
         </ul>
       )}
       {d && d.hints.length > 0 && (
-        <div className="flex flex-wrap gap-1.5" aria-label={t('screen.hints')} role="group">
+        <div className="flex flex-wrap gap-1.5" aria-label={t(d.checklist ? 'screen.answer' : 'screen.hints')} role="group">
+          {d.checklist && (['up', 'down'] as const).map(k => (
+            <Button key={k} variant="outline" size="xs" className="rounded-sm" disabled={off} aria-label={t('screen.press', { key: keyName(t, k) })} onClick={() => press({ key: k })}>
+              <Caps keys={[k]} />
+            </Button>
+          ))}
           {d.hints.map((h, k) => (
             <Button key={k} variant="outline" size="xs" className="rounded-sm" disabled={off} onClick={() => press({ key: h.key })}>
               <Caps keys={[h.key]} /><TerminalText text={h.words} className="font-mono font-normal" />

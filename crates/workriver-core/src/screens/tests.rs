@@ -92,6 +92,43 @@ fn claude_trust_is_a_marked_list() {
 }
 
 #[test]
+fn a_checklist_keeps_its_rows_while_the_marker_and_check_state_change() {
+    for (state, selected, label, hints) in [
+        ("initial", 0, "❯ [✔] alpha", vec![("space", "Space to select"), ("escape", "Esc to reject all")]),
+        ("down", 1, "❯ [✔] beta", vec![("space", "Space to select"), ("escape", "Esc to reject all")]),
+        ("toggled", 1, "❯ [ ] beta", vec![("space", "Space to select"), ("escape", "Esc to reject all")]),
+        ("submit", 2, "❯    Enable selected", vec![("escape", "Esc to reject all"), ("enter", "Enable selected")]),
+    ] {
+        let name = format!("claude-mcp-{state}.txt");
+        let text = fixture(&name);
+        let d = dialog(&name);
+        assert_eq!(words(&d), ["alpha", "beta", "Enable selected"], "{state}");
+        assert_eq!(serde_json::to_value(&d).unwrap()["checklist"], true, "{state}");
+        assert_eq!(d.selected(), Some(selected), "{state}");
+        assert_eq!(line(&text, d.options[selected].row).trim(), label, "{state}");
+        assert_eq!(d.hints.iter().map(|h| (h.key.name(), h.words.as_str())).collect::<Vec<_>>(), hints.into_iter().map(|(k, w)| (k.to_string(), w)).collect::<Vec<_>>(), "{state}");
+        assert!(d.waiting(), "{state}");
+        assert_eq!(line(&text, d.top).trim(), "2 new MCP servers found in this project");
+    }
+}
+
+#[test]
+fn a_checklist_can_have_one_checkbox_and_a_submit_row() {
+    let text = fixture("claude-mcp-initial.txt").replace("2 new MCP servers", "1 new MCP server").replace("    [✔] beta\n", "");
+    let d = parse(&text).unwrap();
+    assert_eq!(words(&d), ["alpha", "Enable selected"]);
+    assert_eq!(d.selected(), Some(0));
+}
+
+#[test]
+fn numbered_options_with_checkbox_text_are_not_a_checklist() {
+    let text = fixture("claude-mcp-initial.txt").replace("[✔] alpha", "1. [✔] alpha").replace("[✔] beta", "2. [✔] beta");
+    let d = parse(&text).unwrap();
+    assert!(d.numbered && !d.checklist);
+    assert_eq!(keys(&d), [Key::Escape]);
+}
+
+#[test]
 fn codex_dialogs() {
     for (name, first, question) in [
         ("codex-command.txt", "Yes, proceed (y)", None),
@@ -157,7 +194,7 @@ fn keys_by_name() {
         assert_eq!(serde_json::to_value(key).unwrap(), name);
         assert_eq!(serde_json::from_value::<Key>(serde_json::json!(name)).unwrap(), key);
     }
-    for bad in ["0", "10", "a", "y", "ctrl+c", "Enter ", "", "space", "backspace"] {
+    for bad in ["0", "10", "a", "y", "ctrl+c", "Enter ", "", " ", "backspace"] {
         assert_eq!(Key::named(bad), None, "{bad}");
         assert!(serde_json::from_value::<Key>(serde_json::json!(bad)).is_err(), "{bad}");
     }

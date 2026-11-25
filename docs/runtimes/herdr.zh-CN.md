@@ -39,7 +39,7 @@ Herdr 的 socket 是 `~/.config/herdr/herdr.sock`（或 `HERDR_SOCKET_PATH`）�
   `visible`，纯文本）就是屏幕；`agent.explain` 给出 Herdr 判定 blocked 的原因，workriver 只保留命中规则的 id 和这条规则自己的固定
   短语（`bash_permission_prompt: …`），是 Herdr 的话，不是屏幕上的：Herdr 从屏幕上读出的
   证据预览不保留，因为门里显示的就是屏幕本身；
-  `pane.send_keys` 发键，用 Herdr 的键名（`up`、`down`、`enter`、`esc`、`tab`、数字）；消息用
+  `pane.send_keys` 发键，用 Herdr 的键名（`up`、`down`、`enter`、`esc`、`tab`、`space`、数字）；消息用
   `agent.prompt` 发到那个窗格（已指定的管理者发到它固定的窗格，不再重新解析），发之前重新读一次
   `agent.list`，确认那个窗格仍显示这个会话。
 - **终端视图。** Herdr 在它的 client socket 上推送窗格的终端画面：`herdr.sock` 旁边的

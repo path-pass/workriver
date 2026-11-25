@@ -458,8 +458,8 @@ export const zhCN: OneForm<typeof en> = {
     other: '其他按键',
     press: '按 {{key}}',
     openView: '打开终端视图',
-    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab' },
-    keyName: { up: '上', down: '下', enter: '回车', escape: 'Esc', tab: 'Tab' },
+    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab', space: '空格' },
+    keyName: { up: '上', down: '下', enter: '回车', escape: 'Esc', tab: 'Tab', space: '空格' },
     outcome: {
       answered: '已回答。',
       open: '已发送；问题仍然开着。需要输入文字的回答请在它的终端里给出。',

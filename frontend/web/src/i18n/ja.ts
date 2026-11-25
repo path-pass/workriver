@@ -458,8 +458,8 @@ export const ja: OneForm<typeof en> = {
     other: 'その他のキー',
     press: '{{key}} を押す',
     openView: 'ターミナルビューを開く',
-    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab' },
-    keyName: { up: '上', down: '下', enter: 'Enter', escape: 'Esc', tab: 'Tab' },
+    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab', space: 'Space' },
+    keyName: { up: '上', down: '下', enter: 'Enter', escape: 'Esc', tab: 'Tab', space: 'スペース' },
     outcome: {
       answered: '回答しました。',
       open: '送信しました。質問はまだ開いています。文字入力が必要な回答はターミナルで行ってください。',

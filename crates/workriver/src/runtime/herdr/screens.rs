@@ -20,6 +20,7 @@ pub(super) fn key_name(k: Key) -> String {
         Key::Enter => "enter".into(),
         Key::Escape => "esc".into(),
         Key::Tab => "tab".into(),
+        Key::Space => "space".into(),
         Key::Digit(d) => d.to_string(),
     }
 }

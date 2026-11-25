@@ -113,7 +113,7 @@ export interface Session {
 // ---- an agent's screen, as the service reads it, and the keys the user may press ----
 
 /** The keys the service will ever send. */
-export type Key = 'up' | 'down' | 'enter' | 'escape' | 'tab' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+export type Key = 'up' | 'down' | 'enter' | 'escape' | 'tab' | 'space' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 export const KEYS: Key[] = ['up', 'down', 'enter', 'escape', 'tab', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 
 /** One option of a dialog read off a screen. */
@@ -135,6 +135,8 @@ export interface Dialog {
   options: DialogItem[]
   /** Answered by its digit; otherwise a marked list, answered by arrows then Enter. */
   numbered: boolean
+  /** Checkboxes are adjusted with individual keys on the visible screen. */
+  checklist?: boolean
   hints: DialogHint[]
   above: string | null
   question: string | null

@@ -102,6 +102,40 @@ describe('the gate', () => {
     expect([0, 1, 2, 3].map(i => sends(list, i).join(' '))).toEqual(['up enter', 'enter', 'down enter', 'down down enter'])
   })
 
+  it('moves and toggles a checklist before confirming on its final row', async () => {
+    const checklist = (rows: string[], digest: string, submit = false) => screen(
+      ['  2 new MCP servers found in this project', ...rows, ' Space to select · Esc to reject all'],
+      {
+        checklist: true, numbered: false,
+        options: [item(null, 'alpha', 1), item(null, 'beta', 2), item(null, 'Enable selected', 3)],
+        hints: [submit ? { key: 'enter', words: 'Enable selected' } : { key: 'space', words: 'Space to select' }, { key: 'escape', words: 'Esc to reject all' }],
+      }, digest,
+    )
+    const initial = checklist(['  ❯ [✔] alpha', '    [✔] beta', '       Enable selected'], 'initial')
+    const moved = checklist(['    [✔] alpha', '  ❯ [✔] beta', '       Enable selected'], 'moved')
+    const toggled = checklist(['    [✔] alpha', '  ❯ [ ] beta', '       Enable selected'], 'toggled')
+    const ready = checklist(['    [✔] alpha', '    [ ] beta', '  ❯    Enable selected'], 'ready', true)
+    answers.screen.push(json(initial))
+    answers.keys.push(
+      ...[moved, toggled, ready].map((next, i) => json({ outcome: 'open', keys: [i === 1 ? 'space' : 'down'], screen: next })),
+      json({ outcome: 'answered', keys: ['enter'] }),
+    )
+    const d = await open()
+    expect(d.querySelector('ul[aria-label=Answers] button')).toBeNull()
+    expect(button(d, 'Enable selected')).toBeUndefined()
+    for (const label of ['Press Down', 'Space to select', 'Press Down', 'Enable selected']) {
+      act(() => button(d, label).click())
+      await settle()
+      if (label === 'Space to select') expect(texts(d).some(e => e.textContent!.includes('❯ [ ] beta'))).toBe(true)
+    }
+    expect(sent.slice(1).map(r => r.body)).toEqual([
+      { agent: 's-1', shown: 'initial', press: { key: 'down' } },
+      { agent: 's-1', shown: 'moved', press: { key: 'space' } },
+      { agent: 's-1', shown: 'toggled', press: { key: 'down' } },
+      { agent: 's-1', shown: 'ready', press: { key: 'enter' } },
+    ])
+  })
+
   it('opens with the whole screen when the region was cut, saying why', async () => {
     const long = screen(['line 1', 'line 2', ' ❯ 1. Yes', '   2. No'], { options: [item(1, 'Yes', 2, true), item(2, 'No', 3)], top: 2, bottom: 3, cut: true })
     answers.screen.push(json(long))

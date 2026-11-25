@@ -13,12 +13,13 @@ pub enum Key {
     Enter,
     Escape,
     Tab,
+    Space,
     /// 1 to 9.
     Digit(u8),
 }
 
 impl Key {
-    /// The key of that name (`up`, `down`, `enter`, `escape`, `tab`, `1`..`9`); nothing else.
+    /// The key of that name (`up`, `down`, `enter`, `escape`, `tab`, `space`, `1`..`9`); nothing else.
     pub fn named(name: &str) -> Option<Key> {
         Some(match name {
             "up" => Key::Up,
@@ -26,6 +27,7 @@ impl Key {
             "enter" => Key::Enter,
             "escape" => Key::Escape,
             "tab" => Key::Tab,
+            "space" => Key::Space,
             d if d.len() == 1 && matches!(d.as_bytes()[0], b'1'..=b'9') => Key::Digit(d.as_bytes()[0] - b'0'),
             _ => return None,
         })
@@ -38,6 +40,7 @@ impl Key {
             Key::Enter => "enter".into(),
             Key::Escape => "escape".into(),
             Key::Tab => "tab".into(),
+            Key::Space => "space".into(),
             Key::Digit(d) => d.to_string(),
         }
     }
@@ -52,7 +55,7 @@ impl Serialize for Key {
 impl<'de> Deserialize<'de> for Key {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Key, D::Error> {
         let name = String::deserialize(d)?;
-        Key::named(&name).ok_or_else(|| serde::de::Error::custom(format!("not a key workriver presses: {name:?} (up, down, enter, escape, tab, 1-9)")))
+        Key::named(&name).ok_or_else(|| serde::de::Error::custom(format!("not a key workriver presses: {name:?} (up, down, enter, escape, tab, space, 1-9)")))
     }
 }
 
@@ -91,6 +94,8 @@ pub struct Dialog {
     pub options: Vec<Item>,
     /// Numbered options (answered by their digit); else a marked list (answered by arrows).
     pub numbered: bool,
+    /// Checkboxes followed by a separate submit row.
+    pub checklist: bool,
     /// The keys its last lines name, each with the words that name it.
     pub hints: Vec<Hint>,
     /// The nearest non-empty line above the first option, as read.
@@ -228,8 +233,9 @@ fn hints_of(l: &str) -> Vec<Hint> {
 /// lowest non-empty lines that are not options are its hints; above them its options,
 /// numbered (`[marker] N. words` counting down to 1, with the lines indented under each, and
 /// blank lines and rules between them passed over) or, with no numbers, a run of two or more
-/// lines at one indent with one of them marked; above the first option, the lines up to the
-/// harness's own rule (`frame_rule`), at most twelve.
+/// lines at one indent with one of them marked, or a checklist (`checklist_above`).
+/// Above the first option, the lines go up to the harness's own rule (`frame_rule`), at most
+/// twelve.
 pub fn parse(text: &str) -> Option<Dialog> {
     let lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
     let mut i = lines.len();
@@ -240,6 +246,36 @@ pub fn parse(text: &str) -> Option<Dialog> {
         return None;
     }
     let bottom = i - 1;
+    let checklist = checklist_above(&lines, bottom);
+    let is_checklist = checklist.is_some();
+    let (options, hints, numbered) = checklist.or_else(|| choices(&lines, i))?;
+    let first = options[0].row;
+    // The region: up to the harness's rule above the first option, at most twelve lines.
+    let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let mut top = first;
+    let mut cut = false;
+    loop {
+        if top == 0 {
+            break;
+        }
+        if frame_rule(lines[top - 1], width) {
+            break;
+        }
+        if first - top == REGION {
+            cut = true;
+            break;
+        }
+        top -= 1;
+    }
+    while top < first && blank(lines[top]) {
+        top += 1;
+    }
+    let above = lines[..first].iter().rev().find(|l| !blank(l)).map(|l| l.trim().to_string());
+    let question = question_line(above.as_deref());
+    Some(Dialog { options, numbered, checklist: is_checklist, hints, above, question, top, bottom, cut })
+}
+
+fn choices(lines: &[&str], i: usize) -> Option<(Vec<Item>, Vec<Hint>, bool)> {
     // The hints: the block of lines at the bottom that are not options or rules.
     let mut hints_top = i;
     while hints_top > 0 {
@@ -268,31 +304,43 @@ pub fn parse(text: &str) -> Option<Dialog> {
             }
         }
     }
-    let (options, numbered) = numbered_above(&lines, hints_top).map(|o| (o, true)).or_else(|| marked_above(&lines, hints_top).map(|o| (o, false)))?;
-    let first = options[0].row;
-    // The region: up to the harness's rule above the first option, at most twelve lines.
-    let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-    let mut top = first;
-    let mut cut = false;
-    loop {
-        if top == 0 {
-            break;
-        }
-        if frame_rule(lines[top - 1], width) {
-            break;
-        }
-        if first - top == REGION {
-            cut = true;
-            break;
-        }
-        top -= 1;
+    let (options, numbered) = numbered_above(lines, hints_top).map(|o| (o, true)).or_else(|| marked_above(lines, hints_top).map(|o| (o, false)))?;
+    Some((options, hints, numbered))
+}
+
+/// Checkboxes above an indented submit row and a footer naming Space. The check state stays
+/// in the screen text, so changing it does not change an option's identity.
+fn checklist_above(lines: &[&str], footer: usize) -> Option<(Vec<Item>, Vec<Hint>, bool)> {
+    let space = lines[footer].split(['·', '|']).map(str::trim).find(|w| w.eq_ignore_ascii_case("Space to select"))?;
+    let row = footer.checked_sub(1)?;
+    let submit = read_line(lines[row]);
+    if submit.number.is_some() || submit.words.is_empty() || checkbox_label(submit.words).is_some() {
+        return None;
     }
-    while top < first && blank(lines[top]) {
-        top += 1;
+    // The submit label is indented three columns past the start of a checkbox.
+    let col = submit.at.checked_sub(3)?;
+    let mut options = vec![Item { number: None, words: submit.words.to_string(), more: vec![], marked: submit.marked, row }];
+    for row in (0..row).rev() {
+        let r = read_line(lines[row]);
+        let Some(label) = checkbox_label(r.words).filter(|w| r.number.is_none() && r.at == col && !w.is_empty()) else { break };
+        options.push(Item { number: None, words: label.to_string(), more: vec![], marked: r.marked, row });
     }
-    let above = lines[..first].iter().rev().find(|l| !blank(l)).map(|l| l.trim().to_string());
-    let question = question_line(above.as_deref());
-    Some(Dialog { options, numbered, hints, above, question, top, bottom, cut })
+    if options.len() < 2 || options.iter().filter(|o| o.marked).count() != 1 {
+        return None;
+    }
+    options.reverse();
+    let mut hints = hints_of(lines[footer]);
+    if submit.marked {
+        hints.retain(|h| h.key != Key::Enter);
+        hints.push(Hint { key: Key::Enter, words: submit.words.to_string() });
+    } else {
+        hints.insert(0, Hint { key: Key::Space, words: space.to_string() });
+    }
+    Some((options, hints, false))
+}
+
+fn checkbox_label(words: &str) -> Option<&str> {
+    words.strip_prefix("[✔] ").or_else(|| words.strip_prefix("[ ] ")).map(str::trim_start)
 }
 
 /// Numbered options going up from row `from`: the last one first, counting down to 1.
@@ -421,7 +469,7 @@ pub fn marked(text: &str) -> String {
 pub enum Outcome {
     /// The dialog is gone and the runtime no longer reports the agent waiting.
     Answered,
-    /// The same dialog is still there (a key that only moved the selection).
+    /// The same dialog is still there (a key moved the selection or toggled a checkbox).
     Open,
     /// Another dialog is there now.
     New,

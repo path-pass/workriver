@@ -398,6 +398,9 @@ its sections went.
   with Enter only on the option's words); the hint keys ("Esc · cancel"); last, the generic
   keys ↑ ↓ ↵ Esc Tab 1–9, one key each, for doing it by hand: folded under "Other keys" when
   options were read, open when none could be, and then "Open terminal view" stands out.
+  A checklist shows its checked boxes in the screen region, with Up and Down beside the
+  hint keys in place of answer buttons. Space toggles the marked box. On the submit row,
+  the Enter button shows that row's label and confirms the selection.
   Nothing else can be sent: no text, never a key outside these (an option that is a text
   field is a button like any other; after it the dialog is still there with the selection
   on the field, the gate says so, and such an answer is given in the terminal).
