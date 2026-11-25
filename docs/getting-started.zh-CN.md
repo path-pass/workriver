@@ -282,8 +282,8 @@ Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` �
   answer*：运行时在那边没有运行，或者它在别处（[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#排错)）。
 - **有东西很慢**：服务在 `~/workriver-data/logs/` 里记一份计时日志（`perf.jsonl`，最多 5 个文件、
   每个 5 MB）。`workriver perf [--since 1h]` 给出汇总：最慢的请求、每次快照和每个单元花了多久、
-  服务两次检查之间超过 10 秒的空档，以及其他机器断开了多久。要连每一次 git 和 ssh 调用也记下来，
-  用 `workriver serve --perf-detail`
+  服务何时暂停（例如所在电脑休眠或卡死），以及其他机器断开了多久。"Service pauses" 一节显示两次
+  检查之间超过 10 秒的空档。要连每一次 git 和 ssh 调用也记下来，用 `workriver serve --perf-detail`
   （或者 `WORKRIVER_PERF=detail`）启动服务。`workriver perf --bundle` 把汇总和最新的几行写进一个
   文件并打印路径：要发的就是这个文件。里面只有时间、次数、路由模板（`/api/task`，从不含查询参数）、
   单元 id 和机器名；从不包含提交说明、文件内容、任务文本、发现、补充说明、提示词、令牌、cookie 或
@@ -293,8 +293,10 @@ Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` �
   电脑醒来时立刻重连。这期间不会有任何操作卡在那台机器上：它的单元和 agent 显示为上次看到的
   状态，标着"14:02 起断开"，`workriver machine list` 会给出最后一次的错误和下次重连的时间。每次
   连接在那边用一个新端口，所以那台机器的 sshd 还留着的死连接会话（它不检查客户端是否还活着，
-  可能留半小时）挡不着任何事。那边的 `workriver` 命令几秒内就会放弃，提示 "cannot reach
-  workriver … through the ssh tunnel (it may be reconnecting); try again shortly"，而不会卡住。
+  可能留半小时）挡不着任何事。几秒后，那边的 `workriver` 命令会提示 "cannot reach workriver
+  through the SSH tunnel (port N, …). The service runs on HOST and starts the tunnel
+  there." HOST 恢复后，隧道会自动重连，新端口会写入 `~/.config/workriver/port`。被跟踪的机器
+  无需修复。大约每分钟重试一次同一条命令，直到收到响应。等待时间取决于 HOST 何时恢复。
   如果那台机器的 sshd 归你管，可以让它更快丢掉这种会话：在 `/etc/ssh/sshd_config` 里设
   `ClientAliveInterval 15` 和 `ClientAliveCountMax 3`。不是必需的。想看一眼的话，在那边运行
   `ss -tnp | grep sshd`（每个连接一个会话，有的还有数据等着发给已经不在的对端）；它们会自己

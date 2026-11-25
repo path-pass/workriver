@@ -122,7 +122,7 @@ pub fn log_pause(last: &mut SystemTime, now: SystemTime) {
     if let Ok(gap) = now.duration_since(from)
         && gap > Duration::from_secs(10)
     {
-        tracing::info!(target: "perf", kind = "service_pause", from = %humantime::format_rfc3339(from), to = %humantime::format_rfc3339(now), ms = gap.as_millis() as u64);
+        tracing::info!(target: "perf", kind = "service_pause", from = %humantime::format_rfc3339_seconds(from), to = %humantime::format_rfc3339_seconds(now), ms = gap.as_millis() as u64);
     }
 }
 
@@ -134,7 +134,7 @@ mod tests {
     fn a_service_pause_is_logged_and_reported_once() {
         let home = tempfile::tempdir().unwrap();
         let subscriber = tracing_subscriber::fmt().json().flatten_event(true).with_writer(Log::new(home.path())).finish();
-        let start = humantime::parse_rfc3339("2026-01-01T01:00:00Z").unwrap();
+        let start = humantime::parse_rfc3339("2026-01-01T01:00:00.125Z").unwrap();
         let mut last = start;
         tracing::subscriber::with_default(subscriber, || {
             for seconds in [2, 4, 964, 966, 954, 956] {

@@ -152,7 +152,7 @@ fn the_cli_over_there_never_hangs() {
         assert!(err.contains(&format!("cannot reach workriver through the SSH tunnel (port {port}, {cause}")), "{err}");
         assert!(err.contains("The service runs on the-mac and starts the tunnel there."), "{err}");
         assert!(err.contains("When the-mac returns, including after sleep, the tunnel reconnects automatically and the new port is written to ~/.config/workriver/port."), "{err}");
-        assert!(err.contains("Nothing to start or fix here. Retry the same command shortly."), "{err}");
+        assert!(err.contains("Nothing to start or fix here. Retry the same command every minute or so until it answers. This can take as long as the-mac is away."), "{err}");
     }
     drop(dead);
 }

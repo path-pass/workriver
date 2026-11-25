@@ -69,7 +69,7 @@ impl Daemon {
                 "cannot reach workriver through the SSH tunnel (port {}, {e}). \
                  The service runs on {host} and starts the tunnel there. \
                  When {host} returns, including after sleep, the tunnel reconnects automatically and the new port is written to ~/{}. \
-                 Nothing to start or fix here. Retry the same command shortly.",
+                 Nothing to start or fix here. Retry the same command every minute or so until it answers. This can take as long as {host} is away.",
                 self.port,
                 crate::common::home::PORT_FILE
             ),
