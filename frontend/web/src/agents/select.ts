@@ -53,7 +53,7 @@ export interface TreeAgent {
 }
 
 /** A workspace (`key`: its id): its manager, and the workers (with their question agents)
- *  under it. `key` empty: the agents with tasks that are in no one workspace. */
+ *  under it. `key` empty: no recorded workspace or applicable task workspace. */
 export interface TreeGroup {
   key: string
   /** The workspace's name. */
@@ -86,8 +86,8 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
     return { s, state, since, at: live ?? last, current: !!live, closable: state === 'idle' && !live && own.length > 0, kids: [] }
   }
   const groups = new Map<string, TreeGroup>()
-  // By the workspace the records say (its seat, else its tasks'), never by where the runtime
-  // shows its terminal; with none, under "In no workspace" (`key` empty).
+  // Group by the recorded workspace, with a task workspace fallback for live workers
+  // without running work. With no workspace, use the empty key for "In no workspace".
   const group = (id: string | undefined) => {
     const space = ws.workspaces?.find(w => w.id === id)
     const key = space?.id ?? ''
@@ -124,7 +124,8 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
     }
     if (!held.length) { own.push(agent(s, [])); continue }
     const a = agent(s, held)
-    group(s.workspace ?? (a.at ? intentOfUnit(a.at.unit).workspace : undefined)).workers.push(a)
+    const workspace = s.workspace ?? (a.at && a.at.node.state !== 'running' ? intentOfUnit(a.at.unit).workspace : undefined)
+    group(workspace).workers.push(a)
   }
   // A question agent hangs under the worker whose task was asked about, else in its own workspace.
   const workers = [...groups.values()].flatMap(g => g.workers)

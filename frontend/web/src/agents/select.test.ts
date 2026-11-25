@@ -17,9 +17,10 @@ const intent = (id: string, workspace: string, node: Task): Intent => ({
 it.each([
   { label: 'the last delivery', queued: false, running: false, expected: 'ws1' },
   { label: 'queued work', queued: true, running: false, expected: 'ws2' },
-  { label: 'running work', queued: true, running: true, expected: 'ws3' },
+  { label: 'the recorded workspace of running work', queued: true, running: true, explicit: 'ws3', expected: 'ws3' },
   { label: 'its recorded workspace', queued: true, running: true, explicit: 'ws1', expected: 'ws1' },
-])('groups a live worker by $label', ({ queued, running, explicit, expected }) => {
+  { label: 'no workspace for running work across workspaces', queued: false, running: true, alsoRunning: true, expected: '' },
+])('groups a live worker by $label', ({ queued, running, explicit, alsoRunning, expected }) => {
   const ws: Workspace = {
     builtAt: '2026-11-21T12:00:00Z', runtime: 'test', repos: [],
     workspaces: [
@@ -30,7 +31,7 @@ it.each([
     sessions: [{ agent: 'worker', session: 'worker-session', ended: false, state: 'idle', workspace: explicit }],
     intents: [
       { ...intent('i1', 'ws1', task('done', '2026-11-21T11:00:00Z')), state: 'done' },
-      intent('i2', 'ws2', queued ? task('todo') : task('done', '2026-11-21T10:00:00Z')),
+      intent('i2', 'ws2', alsoRunning ? task('running') : queued ? task('todo') : task('done', '2026-11-21T10:00:00Z')),
       ...(running ? [intent('i3', 'ws3', task('running'))] : []),
     ],
   }
