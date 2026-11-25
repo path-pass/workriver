@@ -22,6 +22,8 @@ export interface Asked {
   open?: boolean
 }
 
+export type Vote = 'up' | 'down'
+
 /** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. Or one the manager started (`workriver say`). Or one to every manager (`to`). */
 export interface ManagerMessage extends Asked {
   /** "m3"; a local one the service refused has none. */
@@ -49,13 +51,14 @@ export interface ManagerMessage extends Asked {
   reason?: string;
   blocked?: { agent: string; session: string };
   /** Each reply is the manager's; unread: written after the user last read this workspace's conversation. */
-  replies: ({ by: string; text: string; at: string; unread?: boolean } & Asked)[];
+  replies: ({ by: string; text: string; at: string; unread?: boolean; reply?: number; vote?: Vote } & Asked)[];
   /** To every manager: each copy, where it is, with its manager's replies (`replies` then empty). */
   to?: Copy[];
   /** The user's message that answers a manager's question (then `text` is the user's note). */
   answer?: Answer;
   /** Started by the manager (`workriver say`): `text` is the manager's, and nothing above it is the user's. */
   byManager?: boolean;
+  vote?: Vote;
   /** The manager's message (byManager), not read yet. */
   unread?: boolean;
 }

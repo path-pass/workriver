@@ -104,6 +104,10 @@ impl State {
 /// manager, only when a copy went to that appointment, with that copy and its own replies
 /// only; nothing else.
 pub(crate) fn copy_for(mut m: Message, session: &str, seat: Option<&(String, u64)>) -> Option<Message> {
+    m.rating = None;
+    for reply in &mut m.replies {
+        reply.rating = None;
+    }
     if m.to.is_empty() {
         return seat.is_some_and(|(w, _)| *w == m.workspace).then_some(m);
     }

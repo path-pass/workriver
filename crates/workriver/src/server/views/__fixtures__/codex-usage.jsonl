@@ -1,0 +1,8 @@
+{"type":"session_meta","payload":{"id":"codex-session"}}
+{"type":"turn_context","payload":{"model":"gpt-6.2-sol"}}
+{"type":"compacted","payload":{"message":"PRIVATE_TRANSCRIPT_WORDS"}}
+{"type":"event_msg","payload":{"type":"context_compacted"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500000},"last_token_usage":{"input_tokens":31000,"cached_input_tokens":30000},"model_context_window":230000}}}
+{"type":"event_msg","payload":{"type":"token_count","info":null}}
+{"type":"token_usage_record","payload":{"usage":{"input_tokens":32000,"cached_input_tokens":30000},"thread_token_usage":{"input_tokens":800000}}}
+{"type":"response_item","payload":{"type":"message","content":["PRIVATE_TRANSCRIPT_WORDS"]}}

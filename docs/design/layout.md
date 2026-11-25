@@ -366,7 +366,7 @@ crates/workriver/
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).
 │   │   │   ├── trace.rs              # A task's trace: harness, model, and where each harness keeps the
-│   │   │   │                         # session (the one place that knows; never reads the file).
+│   │   │   │                         # session. Reads log metadata when a manager's reply is rated.
 │   │   │   └── tests.rs
 │   │   ├── delivery/                 # Pure delivery plans and text.
 │   │   │   ├── mod.rs                # Plan, event-to-recipient planning.

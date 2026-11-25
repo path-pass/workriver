@@ -6,7 +6,7 @@ import type { Decision, GateResult, Finding, Task } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
 import type { Intent, IntentText, IntentVersion, Template, Unit } from '@/planning/types'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
-import type { Answer, AskContext, Sent } from '@/conversations/types'
+import type { Answer, AskContext, Sent, Vote } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import type { RunView, RunReview, RunAsk } from '@/commands/types'
 import type { StartSettings } from '@/agents/types'
@@ -158,6 +158,11 @@ export async function tellManager(to: { intent?: string; workspace: string; all?
  * naming the question and the value picked, with the user's note as its text. */
 export async function answerManager(workspace: string, answer: Answer, note: string) {
   await post('/api/message', { workspace, text: note, answer })
+}
+
+/** The user's vote on one manager reply. Reply zero addresses a message the manager started. */
+export async function rateReply(message: string, reply: number, vote: Vote | null, note?: string) {
+  if (!MOCK) await post('/api/messages/rate', { message, reply, vote, note })
 }
 
 /** The user has read a workspace's conversation with its manager, up to `at`. */

@@ -22,6 +22,8 @@ pub struct MessageShow {
     #[serde(default)]
     pub other: bool,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<workriver_core::Rating>,
     pub replies: Vec<ReplyShow>,
 }
 
@@ -31,4 +33,6 @@ pub struct ReplyShow {
     pub by: String,
     pub at: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<workriver_core::Rating>,
 }

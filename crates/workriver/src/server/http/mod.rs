@@ -82,6 +82,7 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/here", post(here))
         .route("/api/ask", post(ask_why))
         .route("/api/message", post(message))
+        .route("/api/messages/rate", post(message_rate))
         .route("/api/message/{id}", get(message_show))
         .route("/api/messages/read", post(messages_read))
         .route("/api/discuss", post(discuss))

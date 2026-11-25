@@ -67,6 +67,8 @@ pub struct Message {
     /// is the session it is about, and there is no text (the page words it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<Notice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<Rating>,
 }
 
 fn is_none_yet(n: &u64) -> bool {
@@ -83,6 +85,17 @@ pub enum Notice {
 }
 
 impl Message {
+    /// The manager who wrote the addressed reply, and the appointment it was written under.
+    /// Reply zero addresses a message the manager started.
+    pub fn rating_author(&self, reply: u32) -> Result<(&str, u64), Rejected> {
+        if reply == 0 {
+            return if self.by_manager { Ok((&self.manager, self.since)) } else { no("only a manager's words can be rated") };
+        }
+        let Some(r) = self.replies.get(reply as usize - 1) else { return no(format!("{} has no reply {reply}", self.id)) };
+        let since = self.to.iter().find(|copy| copy.manager == r.by).map_or(self.since, |copy| copy.since);
+        Ok((&r.by, since))
+    }
+
     /// A line of workriver's own in workspace `workspace`'s conversation, about `session`.
     pub(crate) fn notice(id: &str, workspace: &str, session: &str, at: &str, notice: Notice) -> Message {
         Message { id: id.into(), workspace: workspace.into(), manager: session.into(), at: at.into(), notice: Some(notice), ..Message::default() }
@@ -112,6 +125,41 @@ pub struct Reply {
     pub choice: Option<Choice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answered: Option<Answered>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<Rating>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Vote {
+    Up,
+    Down,
+}
+
+/// Session metadata available at the time of the rating. Context use is the last input's
+/// tokens, including cached input. The window is kept when the log reports it.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct SessionUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactions: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Rating {
+    pub vote: Vote,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    pub at: String,
+    pub session: String,
+    pub usage: SessionUsage,
 }
 
 /// What the user's message answers: a manager's message (`m7`) or its `reply`-th reply (from
@@ -391,6 +439,16 @@ impl State {
                 }
                 MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.id.clone(), text, choice }
             }
+            MessageRated { message, reply, vote, note, usage, .. } => {
+                let (session, _) = self.message(&message)?.rating_author(reply)?;
+                let note = note.map(|s| s.trim().to_string()).filter(|s| !shows_nothing(s));
+                if let Some(s) = &note
+                    && (vote != Some(Vote::Down) || s.contains(['\n', '\r', '\u{2028}', '\u{2029}']))
+                {
+                    return no("only a thumbs down takes a note, on one line");
+                }
+                MessageRated { message, reply, vote, note, session: session.to_string(), usage }
+            }
             MessagesRead { workspace, at } => {
                 // Empty: the conversation with every manager.
                 if !workspace.is_empty() {
@@ -476,7 +534,20 @@ impl State {
             }
             MessageReplied { message, text, choice } => {
                 if let Some(m) = self.messages.iter_mut().find(|m| &m.id == message) {
-                    m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone(), choice: choice.clone(), answered: None });
+                    m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone(), choice: choice.clone(), answered: None, rating: None });
+                }
+            }
+            MessageRated { message, reply, vote, note, session, usage } => {
+                if let Some(m) = self.messages.iter_mut().find(|m| &m.id == message) {
+                    let rating = vote.map(|vote| Rating { vote, note: note.clone(), at: at.clone(), session: session.clone(), usage: usage.clone() });
+                    match *reply {
+                        0 => m.rating = rating,
+                        k => {
+                            if let Some(r) = m.replies.get_mut(k as usize - 1) {
+                                r.rating = rating;
+                            }
+                        }
+                    }
                 }
             }
             // Only told: the record is the event itself.

@@ -54,6 +54,7 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/ask", &["POST"]),
     ("/api/message", &["POST"]),
     ("/api/message/{id}", &["GET"]),
+    ("/api/messages/rate", &["POST"]),
     ("/api/messages/read", &["POST"]),
     ("/api/discuss", &["POST"]),
     ("/api/discuss/read", &["POST"]),
@@ -231,6 +232,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
     ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
     ("GET", "/api/message/m1", ""),
+    ("POST", "/api/messages/rate", r#"{"message":"m1","reply":0,"vote":"up"}"#),
     ("POST", "/api/messages/read", r#"{"workspace":"ws1","at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/discuss", r#"{"unit":"u1","task":1,"text":"Why?"}"#),
     ("POST", "/api/discuss/read", r#"{"unit":"u1","task":1,"at":"2026-01-01T00:00:00Z"}"#),
@@ -521,6 +523,9 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.append("s-boss", "message.said", json!({ "text": "Then which?", "choice": choice })).unwrap();
     d.call("/api/message", Some(json!({ "all": true, "text": "Shutting down at six." }))).unwrap();
     d.append("s-boss", "message.replied", json!({ "message": "m7", "text": "Nothing running here." })).unwrap();
+    d.call("/api/messages/rate", Some(json!({ "message": "m2", "vote": "up" }))).unwrap();
+    d.call("/api/messages/rate", Some(json!({ "message": "m4", "reply": 2, "vote": "up" }))).unwrap();
+    d.call("/api/messages/rate", Some(json!({ "message": "m7", "reply": 1, "vote": "down" }))).unwrap();
     d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Other", "purpose": "", "repo": repo, "branch": "feat/other", "base": "main" })).unwrap();
     // A unit made with a built-in template: a step filled and delivered, one left out, the
     // rest still to fill; its go gate lists them.

@@ -699,6 +699,20 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         choice: Option<Choice>,
     },
+    /// A user's rating (or its removal) of a manager's words, with the session as read by the service.
+    #[serde(rename = "message.rated")]
+    MessageRated {
+        message: String,
+        #[serde(default, skip_serializing_if = "crate::records::is_zero")]
+        reply: u32,
+        vote: Option<Vote>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+        #[serde(default)]
+        session: String,
+        #[serde(default)]
+        usage: SessionUsage,
+    },
     /// The user has read a workspace's conversation (by its id; empty: the one with every
     /// manager) up to `at` (the time of the newest message of the manager's the page showed);
     /// the page records it.
@@ -740,7 +754,7 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
             QuestionsRead { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
-            MessageDelivery { .. } | MessageReplied { .. } | MessagesRead { .. } => (None, None, None),
+            MessageDelivery { .. } | MessageReplied { .. } | MessageRated { .. } | MessagesRead { .. } => (None, None, None),
             ManagerTold { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageSent { intent, .. } | MessageSaid { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
             QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),

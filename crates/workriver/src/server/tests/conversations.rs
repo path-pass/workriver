@@ -1928,3 +1928,64 @@ fn a_notice_by_name_waits_for_a_blind_agent() {
     d.append("s-later", "task.delivered", json!({ "unit": "u1", "task": 4, "note": "seen" })).unwrap();
     wait_until("given once its blind task is delivered", || sent(&fake, "s-later").iter().any(|m| m.contains("DROP_WHILE_BLIND")));
 }
+
+#[test]
+fn only_the_user_rates_manager_replies_and_the_ratings_round_trip() {
+    use workriver_core::runtime::AgentState::Idle;
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let project = home.join(".claude/projects/test");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("s-boss.jsonl"), include_str!("__fixtures__/manager-claude.jsonl")).unwrap();
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let user = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
+    let boss = kernel.daemon(user.port, Some("p1".into()), None);
+    let options = crate::server::Options { user_home: Some(home), ..kernel.options() };
+    let store = opened(&db);
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, fake, options)));
+    wait_until("the service", || user.get("/api/status").is_ok());
+    let workspace = seat_at(&user, &boss);
+    user.call("/api/message", Some(json!({ "workspace": workspace, "text": "Hello" }))).unwrap();
+    boss.append("", "message.replied", json!({ "message": "m1", "text": "First reply" })).unwrap();
+    boss.append("", "message.replied", json!({ "message": "m1", "text": "Second reply" })).unwrap();
+    boss.append("", "message.said", json!({ "text": "One more thing" })).unwrap();
+
+    let rate = |message, reply, vote, note| json!({ "message": message, "reply": reply, "vote": vote, "note": note });
+    let down = rate("m1", 2, Some("down"), Some("off track"));
+    assert_eq!(from_place(&user, "p1", "POST", "/api/messages/rate", Some(&down)).0, 403);
+    assert!(boss.append("", "message.rated", down.clone()).unwrap_err().to_string().contains("only the user does this (message.rated)"));
+    let token = format!("Bearer {}", user.token().unwrap());
+    assert_eq!(http_at(&user, user.port, "p1", "POST", "/api/messages/rate", &[("authorization", &token)], Some(&down.to_string())).0, 403);
+    assert!(user.append("", "message.rated", down.clone()).is_err());
+    for bad in [rate("m1", 0, Some("up"), None), rate("m1", 3, Some("up"), None), rate("m2", 0, Some("down"), Some("two\nlines"))] {
+        assert!(user.call("/api/messages/rate", Some(bad)).is_err());
+    }
+    let e = user.call("/api/messages/rate", Some(down)).unwrap();
+    assert_eq!(e["kind"], "message.rated");
+    assert_eq!(e["actor"], "user");
+    assert_eq!(e["body"]["session"], "s-boss");
+    assert_eq!(e["body"]["usage"], json!({"harness":"claude", "model":"claude-opus-5-5", "compactions":1, "context_tokens":700}));
+    assert!(!e.to_string().contains("PRIVATE_TRANSCRIPT_WORDS"));
+    let shown = user.get("/api/message/m1").unwrap();
+    assert!(shown["replies"][0].get("rating").is_none());
+    assert_eq!(shown["replies"][1]["rating"]["at"], e["at"]);
+    assert_eq!(shown["replies"][1]["rating"]["note"], "off track");
+    assert!(boss.get("/api/message/m1").unwrap()["replies"][1].get("rating").is_none());
+    assert_eq!(user.get("/api/workspace?light=true").unwrap()["messages"][0]["replies"][1]["vote"], "down");
+
+    user.call("/api/messages/rate", Some(rate("m1", 2, Some("up"), None))).unwrap();
+    assert_eq!(user.get("/api/message/m1").unwrap()["replies"][1]["rating"]["vote"], "up");
+    user.call("/api/messages/rate", Some(rate("m1", 2, None, None))).unwrap();
+    assert!(user.get("/api/message/m1").unwrap()["replies"][1].get("rating").is_none());
+    user.call("/api/messages/rate", Some(rate("m2", 0, Some("down"), None))).unwrap();
+    let replay = workriver_data::Store::open(&db).unwrap();
+    let m = serde_json::to_value(&replay.state().messages).unwrap();
+    assert!(m[0]["replies"][1].get("rating").is_none());
+    assert_eq!(m[1]["rating"]["vote"], "down");
+    assert_eq!(stored(&db).iter().filter(|e| serde_json::to_value(e).unwrap()["kind"] == "message.rated").count(), 4);
+}
