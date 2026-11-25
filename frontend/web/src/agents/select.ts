@@ -123,7 +123,8 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
       continue
     }
     if (!held.length) { own.push(agent(s, [])); continue }
-    groupOf(s).workers.push(agent(s, held))
+    const a = agent(s, held)
+    group(s.workspace ?? (a.at ? intentOfUnit(a.at.unit).workspace : undefined)).workers.push(a)
   }
   // A question agent hangs under the worker whose task was asked about, else in its own workspace.
   const workers = [...groups.values()].flatMap(g => g.workers)
