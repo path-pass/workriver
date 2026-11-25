@@ -134,6 +134,8 @@ pub(crate) struct MessageOut {
     /// Started by the manager (`workriver say`): `text` is the manager's.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) by_manager: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) vote: Option<core::Vote>,
     /// The manager's message, not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
@@ -174,6 +176,10 @@ pub(crate) struct CopyOut {
 
 #[derive(Serialize)]
 pub(crate) struct ReplyOut {
+    /// The original ordinal, also when the page groups replies by recipient.
+    pub(crate) reply: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) vote: Option<core::Vote>,
     pub(crate) by: String,
     pub(crate) text: String,
     pub(crate) at: String,

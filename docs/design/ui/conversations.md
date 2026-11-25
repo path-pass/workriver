@@ -340,6 +340,15 @@ by `unit#task`. Rules (`prepare_questions`), each a refusal in the service's wor
   label is only the page's). All three are `serde(default)`, so messages recorded without
   them replay. `/api/message` takes the same three; the state's `Message` keeps them; the
   page shows them under the message.
+- **Ratings.** Each message started by a manager and each manager reply has thumbs-up and
+  thumbs-down buttons. The active button is pressed. Press it again to clear the vote or
+  press the other one to switch. A thumbs down can carry a one-line note. Each change is a
+  `message.rated` event addressed by message id and original reply number (zero for a
+  message the manager started). It records the rating time and the replying session's
+  metadata as of the reply. The service stops at the first session log entry later than
+  the reply's stored `at` (whole seconds). It keeps only the harness version, model and
+  numeric metrics from the log. Missing values stay unknown. `workriver message show`
+  includes the user's current ratings.
 - **Rules** (`MessageSent`, `State::picked`), each a refusal in the service's words:
   - `unit` must be a unit of the message's intent; with no intent
     named, of an intent that runs in the very workspace named (by its id). `task` must be one of the unit's tasks.
@@ -465,6 +474,10 @@ then the user's text quoted. For example:
   machine listener (`machine_router`). The recipients are the service's (the records and
   the runtime), never the request's; one recorded through `/api/append` may still name only
   managers on record.
+- Rating uses `POST /api/messages/rate` with `App::user` on the local listener.
+  `MessageRated` is in `Body::user_only`. `/api/append` refuses rating events because the
+  rating route reads the session metadata itself. `copy_for` removes ratings from
+  the conversations agents can read.
 - A discussion: `POST /api/discuss` and `POST /api/discuss/read` ask for `App::user` and
   are not on `machine_router`. `question.asked` stays out of `Body::user_only` (agents
   ask), so core refuses a `discuss` question from anyone but the user, whatever route

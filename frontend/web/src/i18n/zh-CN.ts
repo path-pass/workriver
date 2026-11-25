@@ -610,6 +610,13 @@ export const zhCN: OneForm<typeof en> = {
     atGate: '和 {{agent}} 讨论 {{task}}'
   },
   talk: {
+    rating: {
+      up: '赞',
+      down: '踩',
+      note: '备注（可选）',
+      save: '保存备注',
+      failed: '评分保存失败。',
+    },
     notice: { 'manager-back': '{{manager}} 回到了它的终端，重新成为管理者' },
     readOnly: '这个工作区已关闭：对话保留，只能查看。要写消息，先在设置里重新打开它。',
     closed: '已关闭的工作区',

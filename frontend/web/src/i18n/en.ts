@@ -625,6 +625,13 @@ export const en = {
     atGate: 'Discuss {{task}} with {{agent}}'
   },
   talk: {
+    rating: {
+      up: 'Thumbs up',
+      down: 'Thumbs down',
+      note: 'Optional note',
+      save: 'Save note',
+      failed: 'Could not save the rating.',
+    },
     notice: { 'manager-back': '{{manager}} is back in its terminal and is the manager again' },
     readOnly: 'This workspace is closed: its conversation is kept to read. Open it again in Settings to write.',
     closed: 'Closed workspaces',

@@ -4,9 +4,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Button } from '@/ui/primitives/button'
 import { ms } from '@/planning/select'
 import { contentLang, useT } from '@/i18n'
-import { focusAgent } from '@/api/actions'
+import { focusAgent, rateReply } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { Answer, AskContext, Asked, Copy, ManagerMessage, Thread, Turn } from './types'
+import type { Answer, AskContext, Asked, Copy, ManagerMessage, Thread, Turn, Vote } from './types'
 import { ChoiceSurface, Chose } from '@/content/choice/Choice'
 import { needsNote, noteWords, showsNothing, type Choice } from '@/content/choice/surface'
 import { Input } from '@/ui/primitives/input'
@@ -354,6 +354,53 @@ function Question({ q, onAnswer }: { q: Asked; onAnswer: (selected: string, note
   )
 }
 
+function Rating({ message, reply, vote }: { message: string; reply: number; vote?: Vote }) {
+  const { t } = useT()
+  const [pending, setPending] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  // Keep the saved vote visible until the workspace snapshot catches up.
+  const [saved, setSaved] = useState<{ from?: Vote; to: Vote | null } | null>(null)
+  if (saved && saved.from !== vote) setSaved(null)
+  const shown = saved && saved.from === vote ? saved.to : vote
+  const save = async (to: Vote | null, words?: string) => {
+    setPending(true)
+    setFailed(false)
+    try {
+      await rateReply(message, reply, to, words)
+      setSaved({ from: vote, to })
+      setNote(to === 'down' && words === undefined ? '' : null)
+    } catch {
+      setFailed(true)
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <div className="mt-1.5">
+      {(['up', 'down'] as const).map(v => (
+        <Button
+          key={v} type="button" variant="ghost" size="icon-xs"
+          className="text-ink-2 aria-pressed:bg-sunken aria-pressed:text-ink aria-pressed:[&_svg]:fill-current"
+          aria-label={t(`talk.rating.${v}`)} title={t(`talk.rating.${v}`)} aria-pressed={shown === v}
+          disabled={pending} onClick={() => void save(shown === v ? null : v)}
+        ><Icon name={v === 'up' ? 'thumbs-up' : 'thumbs-down'} /></Button>
+      ))}
+      {shown === 'down' && note !== null && (
+        <form className="mt-1 flex items-center gap-1.5" onSubmit={e => { e.preventDefault(); void save('down', note.trim()) }}>
+          <Input
+            value={note} onChange={e => setNote(e.target.value)} disabled={pending}
+            onKeyDown={e => { if (e.key === 'Escape') setNote(null) }}
+            aria-label={t('talk.rating.note')} placeholder={t('talk.rating.note')} className="h-7 min-w-0 text-sm md:text-sm"
+          />
+          <Button type="submit" variant="outline" size="xs" disabled={pending}>{t('talk.rating.save')}</Button>
+        </form>
+      )}
+      {failed && <p className="text-xs text-del" role="alert">{t('talk.rating.failed')}</p>}
+    </div>
+  )
+}
+
 /** `onAnswer`: the user answers a manager's question; `asked`: the options a message of the user's answered. */
 export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswer: (a: Answer, note: string) => void; asked: (a: Answer) => Choice | undefined }) {
   const { t } = useT()
@@ -369,7 +416,11 @@ export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswe
     <>
       {/* One the manager started: its words alone, nothing of the user's above them. */}
       {m.byManager
-        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /><Question q={m} onAnswer={answer(0)} /></Theirs>
+        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}>
+            <Prose text={m.text} fold={false} />
+            <Question q={m} onAnswer={answer(0)} />
+            {m.id && <Rating message={m.id} reply={0} vote={m.vote} />}
+          </Theirs>
         : (
           <Mine who={t('ask.you')} at={m.at}>
             {m.answer?.selected.map(v => <Chose key={v} choice={asked(m.answer!)} value={v} />)}
@@ -381,10 +432,11 @@ export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswe
           </Mine>
         )}
       {replies.map((r, j) => (
-        <Theirs key={j} who={<>{<Named name={r.by} manager />}{r.place && <span className="min-w-0 truncate">{r.place}</span>}</>} at={r.at}>
+        <Theirs key={r.reply ?? j} who={<>{<Named name={r.by} manager />}{r.place && <span className="min-w-0 truncate">{r.place}</span>}</>} at={r.at}>
           <Prose text={r.text} fold={false} />
           {/* A reply to every manager asks nothing to choose (the service refuses one). */}
           {'k' in r && <Question q={r} onAnswer={answer(r.k)} />}
+          {m.id && <Rating message={m.id} reply={r.reply ?? j + 1} vote={r.vote} />}
         </Theirs>
       ))}
     </>

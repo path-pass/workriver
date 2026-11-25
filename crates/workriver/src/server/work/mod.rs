@@ -105,6 +105,9 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
     }
     blocking(move || {
         let who = app.who(&caller, a.named.as_deref())?;
+        if who == Principal::User && matches!(body, Body::MessageRated { .. }) {
+            return Err(bad("a rating is recorded by the rating action, which reads the replying session".into()));
+        }
         let e = app.record(&who, body)?;
         let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         // A requirement added to a task: whether its agent was told, apart from the note.

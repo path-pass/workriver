@@ -122,7 +122,7 @@ fn a_proof_answered_and_closed_before_it_is_read_is_still_taken() {
 #[test]
 fn a_message_prints_whole_and_quoted() {
     use crate::common::wire::{MessageShow, ReplyShow};
-    let m = MessageShow {
+    let mut m = MessageShow {
         id: "m5".into(),
         at: "2026-11-22T10:00:00Z".into(),
         by: "the user".into(),
@@ -132,7 +132,8 @@ fn a_message_prints_whole_and_quoted() {
         selected: "other".into(),
         other: true,
         text: "x".repeat(2100) + " but only after Friday",
-        replies: vec![ReplyShow { by: "boss".into(), at: "2026-11-22T10:01:00Z".into(), text: "Noted.".into() }],
+        rating: None,
+        replies: vec![ReplyShow { by: "boss".into(), at: "2026-11-22T10:01:00Z".into(), text: "Noted.".into(), rating: None }],
     };
     let out = super::conversations::message_text(&m);
     assert_eq!(
@@ -142,6 +143,13 @@ fn a_message_prints_whole_and_quoted() {
             "x".repeat(2100)
         )
     );
+    m.replies[0].rating = Some(serde_json::from_value(json!({
+        "vote": "down", "note": "off track", "at": "2026-11-22T10:02:00Z",
+        "session": "s-boss", "usage": { "harness": "claude", "harness_version": "2.1.2", "compactions": 1 }
+    })).unwrap());
+    let rated = super::conversations::message_text(&m);
+    assert!(rated.contains(r#"    Rating: {"at":"#) && rated.contains(r#""note":"off track""#), "{rated}");
+    assert!(rated.contains(r#""harness_version":"2.1.2""#), "{rated}");
 }
 
 /// `workriver status`'s jobs: one line each, knowing no job; nothing when there are none.

@@ -2,7 +2,7 @@
 // as the answer's text with the value other.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { en } from '@/i18n/en'
 import '@/i18n'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
@@ -43,4 +43,39 @@ describe('a manager’s question answered with Other', () => {
     answer()
     expect(sent).toEqual([[{ message: 'm1', selected: ['other'] }, 'Keyset paging']])
   })
+})
+
+it('rates the original broadcast reply, saves an optional note, changes and clears the vote', async () => {
+  const post = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+  try {
+    const reply = { by: 'boss', text: 'Reply', at: m.at, reply: 2 }
+    const broadcast: ManagerMessage = { ...m, byManager: false, choice: undefined, to: [{ workspace: 'chat', manager: 'boss', step: 'delivered', replies: [reply] }] }
+    act(() => root.render(<TooltipProvider><MessageView m={broadcast} onAnswer={() => undefined} asked={() => undefined} /></TooltipProvider>))
+    const button = (name: string) => el.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!
+    const click = async (name: string) => act(async () => button(name).click())
+    const lastBody = () => JSON.parse(String(post.mock.lastCall?.[1]?.body))
+    const up = 'Thumbs up'
+    const down = 'Thumbs down'
+
+    expect(button(down)?.getAttribute('aria-pressed')).toBe('false')
+    await click(down)
+    expect(lastBody()).toEqual({ message: 'm1', reply: 2, vote: 'down' })
+    expect(button(down).getAttribute('aria-pressed')).toBe('true')
+    const note = el.querySelector('input')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(note, 'off track')
+      note.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => el.querySelector<HTMLButtonElement>('button[type=submit]')!.click())
+    expect(lastBody()).toEqual({ message: 'm1', reply: 2, vote: 'down', note: 'off track' })
+    await click(up)
+    expect(lastBody()).toEqual({ message: 'm1', reply: 2, vote: 'up' })
+    expect(button(up).getAttribute('aria-pressed')).toBe('true')
+    expect(button(down).getAttribute('aria-pressed')).toBe('false')
+    await click(up)
+    expect(lastBody()).toEqual({ message: 'm1', reply: 2, vote: null })
+    expect(button(up).getAttribute('aria-pressed')).toBe('false')
+  } finally {
+    post.mockRestore()
+  }
 })

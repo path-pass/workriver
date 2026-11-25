@@ -487,8 +487,10 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 - **Being another agent.** Naming another agent's terminal is refused. What is left takes
   more: see "A session whose terminal is gone" below.
 - **Files.** Agents run as you: the database and the attachments in `~/workriver-data`
-  can be read from disk, and so can every harness's session files (workriver only says
-  where they are, when asked; it never reads them).
+  can be read from disk, and so can every harness's session files. workriver reports
+  their location when asked. It reads a manager's session file only when you rate a
+  reply, up to its recorded time. From the file it keeps only the harness version,
+  model name and numeric session metrics.
 - **Who manages.** A workspace has no machine of its own; its seat's machine and folder are
   an agent's, and are cleared for a blind agent like any other agent's. That a workspace
   has a manager, and its name, stays visible.

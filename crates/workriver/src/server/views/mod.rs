@@ -35,6 +35,8 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                     .enumerate()
                     .filter(|(_, r)| by.is_none_or(|b| r.by == b))
                     .map(|(k, r)| ReplyOut {
+                        reply: k as u32 + 1,
+                        vote: r.rating.as_ref().map(|r| r.vote),
                         by: names.of(&r.by),
                         text: r.text.clone(),
                         at: r.at.clone(),
@@ -84,6 +86,7 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 replies: if to.is_empty() { replies(None) } else { vec![] },
                 to,
                 by_manager: m.by_manager,
+                vote: m.rating.as_ref().map(|r| r.vote),
                 unread: m.by_manager && unread(&m.at),
                 choice: m.choice.clone(),
                 answered: m.answered.clone(),

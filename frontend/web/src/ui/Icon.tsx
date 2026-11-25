@@ -1,5 +1,5 @@
 // The icon set, and the marks and counts made of it.
-import { Archive, Ellipsis, ArrowLeft, GitCompareArrows, ListFilter, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListChecks, ListTodo, MessageSquare, Moon, OctagonAlert, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, X, type LucideIcon } from 'lucide-react'
+import { Archive, Ellipsis, ArrowLeft, GitCompareArrows, ListFilter, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListChecks, ListTodo, MessageSquare, Moon, OctagonAlert, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, X, ThumbsDown, ThumbsUp, type LucideIcon } from 'lucide-react'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { Tip } from './Tip'
@@ -35,6 +35,8 @@ const ICONS: Record<string, LucideIcon> = {
   permalink: Link2,
   terminal: SquareTerminal,
   talk: MessageSquare,
+  'thumbs-up': ThumbsUp,
+  'thumbs-down': ThumbsDown,
   send: ArrowUp,
   attach: ImagePlus,
   file: FileText,

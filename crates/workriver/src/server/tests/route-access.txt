@@ -45,6 +45,7 @@ local POST /api/here  anonymous 401  agent 200  user 200
 local POST /api/ask  anonymous 401  agent 422  user 422
 local POST /api/message  anonymous 401  agent 403  user 422
 local GET /api/message/m1  anonymous 401  agent 200  user 200
+local POST /api/messages/rate  anonymous 401  agent 403  user 422
 local POST /api/messages/read  anonymous 401  agent 403  user 200
 local POST /api/discuss  anonymous 401  agent 403  user 422
 local POST /api/discuss/read  anonymous 401  agent 403  user 200

@@ -610,6 +610,13 @@ export const ja: OneForm<typeof en> = {
     atGate: '{{task}} を {{agent}} と議論'
   },
   talk: {
+    rating: {
+      up: '高評価',
+      down: '低評価',
+      note: 'メモ（任意）',
+      save: 'メモを保存',
+      failed: '評価を保存できませんでした。',
+    },
     notice: { 'manager-back': '{{manager}} がターミナルに戻り、再びマネージャーになりました' },
     readOnly: 'このワークスペースは閉じています。会話は閲覧のみです。書くには設定で開き直します。',
     closed: '閉じたワークスペース',

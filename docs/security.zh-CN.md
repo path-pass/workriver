@@ -338,7 +338,10 @@ agent，其他 agent 也不能问它；关于其他工作的内容不会被打�
   workriver 自己的视图只给哈希；它藏不住 git。给审查者的说明是：看 diff。
 - **冒充别的 agent。** 报上别的 agent 的终端会被拒绝。剩下的办法代价更高：见下面"终端已经没了
   的会话"。
-- **文件。** agent 用的是你的账户：`~/workriver-data` 里的数据库和附件可以直接从磁盘读，各个 harness 的会话文件也一样（workriver 只在被问到时说出它们在哪里，从不读取）。
+- **文件。** agent 用的是你的账户，可以直接从磁盘读取 `~/workriver-data` 里的数据库和附件，以及各个
+  harness 的会话文件。有人查询时，workriver 会给出会话文件的位置。只有在你给管理者的回复评分时，
+  workriver 才会读取该管理者的会话文件，以记录的回复时间为截止点。从文件中只保留 harness 版本、
+  模型名称和会话指标数值。
 - **谁在管理。** 工作区自己没有机器；席位上的机器和文件夹是某个 agent 的，对盲审 agent 和别的 agent 的一样被清掉。工作区有没有管理者、管理者叫什么，仍然看得到。
 - **别的终端。** 运行时允许任何 agent 读别的终端时（Herdr 允许：
   [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#herdr-下的安全)），别的 agent 终端上显示的内容，

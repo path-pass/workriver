@@ -87,6 +87,28 @@ pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extens
     .await
 }
 
+#[derive(Deserialize)]
+pub(super) struct Rate {
+    message: String,
+    #[serde(default)]
+    reply: u32,
+    vote: Option<core::Vote>,
+    note: Option<String>,
+}
+
+pub(super) async fn message_rate(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<Rate>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || {
+        let state = app.store.lock().unwrap().recorded()?;
+        let (session, at) = state.message(&r.message)?.rating_target(r.reply)?;
+        let agent = state.agents.iter().find(|a| a.session == session);
+        let usage = app.sessions.usage(agent, at);
+        let body = Body::MessageRated { message: r.message, reply: r.reply, vote: r.vote, note: r.note, session: session.to_string(), usage };
+        app.record(&who, body).map(Json)
+    })
+    .await
+}
+
 /// One message whole, with its replies (`workriver message show`): what a cut quote in a
 /// manager's terminal points at. Of the records the caller may see (`App::view`: an agent,
 /// its own workspace's conversation by id), as `State::message_for` lets it read them; each
@@ -122,7 +144,8 @@ pub(super) async fn message_show(State(app): State<Shared>, Extension(caller): E
             selected: delivery::quote::name(&selected),
             other,
             text: delivery::quote::whole(&m.text),
-            replies: m.replies.iter().map(|x| crate::common::wire::ReplyShow { by: name(&x.by), at: x.at.clone(), text: delivery::quote::whole(&x.text) }).collect(),
+            rating: m.rating,
+            replies: m.replies.into_iter().map(|x| crate::common::wire::ReplyShow { by: name(&x.by), at: x.at, text: delivery::quote::whole(&x.text), rating: x.rating }).collect(),
         }))
     })
     .await

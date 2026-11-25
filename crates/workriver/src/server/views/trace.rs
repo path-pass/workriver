@@ -1,12 +1,13 @@
 //! A task's trace, the light part: which harness and model did it, and where the harness
 //! keeps the session on the machine the agent ran on. Where each harness keeps it is known
-//! here and nowhere else. A session file is never opened: its path is worked out, or, where
-//! the harness names it by more than the id, folders' names are listed to find it.
+//! here and nowhere else. Task traces only show the path. Rating a manager's words reads
+//! session metadata from its log, without storing the transcript.
 
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use workriver_core as core;
 
@@ -44,6 +45,21 @@ pub(in crate::server) struct Sessions {
 impl Sessions {
     pub(in crate::server) fn new(home: Option<PathBuf>) -> Sessions {
         Sessions { home, looked: Mutex::default(), recheck: Duration::from_secs(SESSION_RECHECK_SECS) }
+    }
+
+    pub(in crate::server) fn usage(&self, agent: Option<&core::Agent>, at: &str) -> core::SessionUsage {
+        let Some(a) = agent else { return core::SessionUsage::default() };
+        let mut usage = core::SessionUsage { harness: Some(a.harness.clone()).filter(|h| !h.is_empty()), ..Default::default() };
+        let Ok(until) = humantime::parse_rfc3339(at) else { return usage };
+        let Ok((path, true)) = self.file(usage.harness.as_deref(), &a.session, &a.cwd, a.machine.is_some()) else { return usage };
+        let path = Path::new(&path);
+        // The trace also locates archived, compressed logs. Usage can only be read from JSONL.
+        if path.extension().is_none_or(|ext| ext != "jsonl") {
+            return usage;
+        }
+        let Ok(file) = std::fs::File::open(path) else { return usage };
+        read_usage(BufReader::new(file), &a.harness, until, &mut usage);
+        usage
     }
 
     /// The trace of work done by the agent of `session`, as `state` records that agent;
@@ -111,6 +127,77 @@ impl Sessions {
     }
 }
 
+fn read_usage(log: impl BufRead, harness: &str, until: SystemTime, usage: &mut core::SessionUsage) {
+    // Reply times are stored to whole seconds.
+    let cutoff = until + Duration::from_secs(1);
+    let mut count = None;
+    for line in log.split(b'\n') {
+        let Ok(line) = line else { return };
+        let Ok(entry) = serde_json::from_slice::<serde_json::Value>(&line) else { continue };
+        if let Some(at) = entry["timestamp"].as_str()
+            && humantime::parse_rfc3339(at).is_ok_and(|at| at >= cutoff)
+        {
+            break;
+        }
+        let kind = entry["type"].as_str();
+        let version = match (harness, kind) {
+            ("claude", _) => entry["version"].as_str(),
+            ("codex", Some("session_meta")) => entry["payload"]["cli_version"].as_str(),
+            _ => None,
+        };
+        if let Some(version) = version.filter(|v| !v.is_empty()) {
+            usage.harness_version = Some(version.to_string());
+        }
+        let Some(kind) = kind else { continue };
+        let seen = count.get_or_insert(0);
+        let mut model = None;
+        match (harness, kind) {
+            ("claude", "system") if entry["subtype"] == "compact_boundary" => *seen += 1,
+            ("claude", "assistant") if entry["isSidechain"] != true && entry["message"]["model"] != "<synthetic>" => {
+                let m = &entry["message"];
+                model = m["model"].as_str();
+                let u = &m["usage"];
+                if let Some(tokens) = u["input_tokens"].as_u64() {
+                    usage.context_tokens = tokens
+                        .checked_add(u["cache_creation_input_tokens"].as_u64().unwrap_or(0))
+                        .and_then(|n| n.checked_add(u["cache_read_input_tokens"].as_u64().unwrap_or(0)));
+                }
+            }
+            ("codex", "compacted") => *seen += 1,
+            ("codex", "turn_context") => {
+                let p = &entry["payload"];
+                model = p["model"].as_str().or_else(|| p["collaboration_mode"]["settings"]["model"].as_str());
+            }
+            ("codex", "event_msg") => {
+                let p = &entry["payload"];
+                match p["type"].as_str() {
+                    Some("token_count") => {
+                        let info = &p["info"];
+                        if let Some(n) = info["last_token_usage"]["input_tokens"].as_u64() {
+                            usage.context_tokens = Some(n);
+                        }
+                        usage.context_window = info["model_context_window"].as_u64().or(usage.context_window);
+                    }
+                    Some("turn_started") => {
+                        usage.context_window = p["model_context_window"].as_u64().or(usage.context_window);
+                    }
+                    _ => {}
+                }
+            }
+            ("codex", "token_usage_record") => {
+                if let Some(n) = entry["payload"]["usage"]["input_tokens"].as_u64() {
+                    usage.context_tokens = Some(n);
+                }
+            }
+            _ => {}
+        }
+        if let Some(model) = model.filter(|m| !m.is_empty()) {
+            usage.model = Some(model.to_string());
+        }
+    }
+    usage.compactions = count;
+}
+
 /// The entries of folder `p`, by name; none if it cannot be listed.
 fn names(p: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(p).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default()
@@ -147,6 +234,24 @@ fn claude_folder(cwd: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn codex_usage_reads_the_latest_input_and_counts_each_compaction_once() {
+        let home = tempfile::tempdir().unwrap();
+        let records = state(json!([{ "session": "codex-session", "name": "boss", "harness": "codex" }]));
+        let here = Sessions::new(Some(home.path().to_path_buf()));
+        let a = records.agents.first();
+        let logs = home.path().join(".codex/sessions/2026/11/25");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::write(logs.join("rollout-2026-11-25T10-00-00-codex-session.jsonl"), include_str!("__fixtures__/codex-usage.jsonl")).unwrap();
+        let at = "2026-11-25T10:00:00Z";
+        let usage = here.usage(a, at);
+        assert_eq!(serde_json::to_value(usage).unwrap(), json!({
+            "harness": "codex", "harness_version": "0.150.0", "model": "gpt-6.2-sol", "compactions": 1, "context_tokens": 32000, "context_window": 230000
+        }));
+        let remote = core::Agent { machine: Some("box".into()), ..a.unwrap().clone() };
+        assert_eq!(serde_json::to_value(here.usage(Some(&remote), at)).unwrap(), json!({"harness":"codex"}));
+    }
 
     fn state(agents: serde_json::Value) -> core::State {
         let mut s = core::State::default();
