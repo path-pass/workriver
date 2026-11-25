@@ -144,7 +144,7 @@ impl State {
                     None => return no(format!("{at}#{} has no finding {id}", c.task)),
                     Some(f) if !f.state.leads_to_work() => {
                         return no(format!(
-                            "finding {id} of {at}#{} is neither accepted, revised nor scheduled; decide it first (workriver finding decide {at}#{} {id} accept)",
+                            "finding {id} of {at}#{} is neither accepted, revised nor scheduled; decide it first (workriver finding decide {at}#{} {id} accept --note \"...\")",
                             c.task, c.task
                         ));
                     }

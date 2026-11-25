@@ -116,8 +116,8 @@ fn picks_the_receiver_and_writes_the_message() {
     let mixed = at(&mut s, "rev", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 9, "findings": [
         {"severity": "P1", "problem": "Loses data", "impact": "i", "where": ["a"]}, {"severity": "P3", "problem": "Name", "impact": "i", "where": ["a"]}]}}));
     let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &mixed).unwrap();
-    assert!(p.message.contains("Findings: P1 1, P3 1. They are yours to decide: `workriver finding decide u1#9 <id> accept|revise|reject|defer") && !p.message.contains("waiting for the user"), "{}", p.message);
-    let own = at(&mut s, "boss", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 9, "finding": "P1-1", "decision": "accept"}}));
+    assert!(p.message.contains("Findings: P1 1, P3 1. They are yours to decide: `workriver finding decide u1#9 <id> accept|revise|reject|defer --note \"...\"`") && !p.message.contains("waiting for the user"), "{}", p.message);
+    let own = at(&mut s, "boss", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 9, "finding": "P1-1", "decision": "accept", "note": "It loses data"}}));
     assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &own), None);
     at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Keep the data", "causes": [{"task": 9, "findings": ["P1-1"]}], "agent": "worker"}}));
 

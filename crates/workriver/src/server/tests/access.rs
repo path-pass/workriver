@@ -53,17 +53,18 @@ fn only_the_user_is_the_user() {
         { "severity": "P1", "problem": evil, "impact": "i", "where": ["a"] }, { "severity": "P2", "problem": "second", "impact": "i", "where": ["a"] }] })).unwrap();
 
     // An agent with the token in reach still decides only as an agent, and cannot do what is the user's.
-    let decide = |d: &Daemon, finding: &str| d.append("", "finding.decided", json!({ "unit": "u1", "task": 3, "finding": finding, "decision": "reject", "by": "user" }));
+    let decide = |d: &Daemon, note: &str| d.append("", "finding.decided", json!({ "unit": "u1", "task": 3, "finding": "P2-1", "decision": "reject", "note": note, "by": "user" }));
     // Findings are the manager's to decide by default, never another agent's; the user (nobody
     // else) may keep them; and what the manager decides is an agent's decision.
-    assert!(decide(&rev, "P2-1").unwrap_err().to_string().contains("for the manager of intent i1"));
+    assert!(decide(&rev, "").unwrap_err().to_string().contains("for the manager of intent i1"));
     assert!(boss.append("", "intent.updated", json!({ "intent": "i1", "findings": "user" })).unwrap_err().to_string().contains("only the user says who decides"));
     user.append("", "intent.updated", json!({ "intent": "i1", "findings": "user" })).unwrap();
-    assert!(decide(&boss, "P2-1").unwrap_err().to_string().contains("is the user's to decide"));
+    assert!(decide(&boss, "").unwrap_err().to_string().contains("is the user's to decide"));
     user.append("", "intent.updated", json!({ "intent": "i1", "findings": "manager" })).unwrap();
-    let own = decide(&boss, "P2-1").unwrap();
+    assert!(decide(&boss, "").unwrap_err().to_string().contains("needs a reason"));
+    let own = decide(&boss, "Already handled").unwrap();
     assert_eq!((own["actor"].as_str(), own["body"]["by"].as_str()), (Some("s-boss"), Some("agent")));
-    assert!(decide(&boss, "P2-1").unwrap_err().to_string().contains("only the user changes a decision"));
+    assert!(decide(&boss, "").unwrap_err().to_string().contains("only the user changes a decision"));
     for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 2, "result": "done" })), ("chore.done", json!({ "chore": "c1" })), ("workspace.created", json!({ "name": "a", "project": "p1" })), ("workspace.manager_set", json!({ "workspace": "ws1", "manager": "s-far" })), ("project.added", json!({ "path": tmp.path(), "title": "P" }))] {
         let e = boss.append("", kind, body).unwrap_err().to_string();
         assert!(e.contains("only the user does this"), "{kind}: {e}");

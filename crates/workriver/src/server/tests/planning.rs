@@ -209,8 +209,8 @@ fn units_finish() {
     rev.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
     rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P2", "problem": "No log", "impact": "Blind ops", "where": ["1.rs"] }, { "severity": "P3", "problem": "Naming", "impact": "Taste", "where": ["2.rs"] }] })).unwrap();
     assert_eq!(progress("u1"), "waiting", "open findings; the last task delivered is not the end");
-    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P3-1", "decision": "defer" })).unwrap();
-    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept" })).unwrap();
+    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P3-1", "decision": "defer", "note": "Save for the next batch" })).unwrap();
+    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "note": "Fix in this unit" })).unwrap();
     assert_eq!(progress("u1"), "waiting", "accepted, and nothing handed out for it");
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Log it", "causes": [{ "task": 2, "findings": ["P2-1"] }], "agent": "s-w" })).unwrap();
     assert_eq!(progress("u1"), "working");

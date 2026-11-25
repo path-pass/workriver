@@ -52,8 +52,10 @@ fn only_the_user_does_what_is_the_users() {
     add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager-except-p1"}})).unwrap();
     assert_eq!(replayed(&s).intent("i1").unwrap().findings, FindingsPolicy::User);
     add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager"}})).unwrap();
-    let e = add(&mut s, "agent-a", decide("reject")).unwrap();
-    assert_eq!(e.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "reject", "by": "agent"}})));
+    let mut rejection = decide("reject");
+    rejection["body"]["note"] = json!("No duplicate notice");
+    let e = add(&mut s, "agent-a", rejection).unwrap();
+    assert_eq!(e.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "reject", "note": "No duplicate notice", "by": "agent"}})));
     // A decision is made once, except by the user, who may change the manager's (or their own).
     assert!(add(&mut s, "agent-a", decide("accept")).unwrap_err().contains("only the user changes a decision"));
     let over = add(&mut s, "user", decide("accept")).unwrap();
@@ -64,6 +66,38 @@ fn only_the_user_does_what_is_the_users() {
     // The user does all of it.
     for v in theirs {
         add(&mut s, "user", v).unwrap();
+    }
+}
+
+#[test]
+fn an_agents_finding_decision_needs_a_reason() {
+    for (decision, state) in [
+        ("accept", FindingState::Accepted), ("revise", FindingState::Revised),
+        ("reject", FindingState::Rejected), ("defer", FindingState::Deferred),
+    ] {
+        let mut s = Records::default();
+        seeded(&mut s);
+        managed(&mut s, "agent-a", "i1");
+        let raw = json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": decision}});
+        let mut with_note = raw.clone();
+        with_note["body"]["note"] = json!(" \t\n");
+        for proposed in [raw.clone(), with_note.clone()] {
+            let e = add(&mut s, "agent-a", proposed).expect_err(decision);
+            assert!(e.contains("needs a reason"), "{decision}: {e}");
+        }
+        with_note["body"]["note"] = json!("Reason for this decision");
+        add(&mut s, "agent-a", with_note).unwrap();
+        let replay = replayed(&s);
+        let finding = &replay.task("u1", 2).unwrap().findings[0];
+        assert_eq!((finding.state, finding.decided_by, finding.decisions[0].note.as_str()), (state, Some(Who::Agent), "Reason for this decision"));
+
+        if decision != "revise" {
+            let mut user_decision = raw;
+            user_decision["body"]["finding"] = json!("P2-2");
+            add(&mut s, "user", user_decision).unwrap();
+            let finding = &s.state().task("u1", 2).unwrap().findings[1];
+            assert_eq!((finding.state, finding.decided_by, finding.note.as_deref()), (state, Some(Who::User), None));
+        }
     }
 }
 

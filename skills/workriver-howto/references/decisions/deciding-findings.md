@@ -3,6 +3,8 @@
 **When:** a review, tests task or gate was delivered with findings. By default **the
 intent's manager decides**; the delivery message lists them.
 
+Give a reason with `--note` for every decision. For `revise`, say how the finding should be fixed.
+
     workriver board u1
     workriver finding show u1#4 P2-1                                          # one in full
     workriver finding decide u1#4 P2-1 accept --note "Real risk"
@@ -20,6 +22,6 @@ behind it is a taste, to reject or defer.
 handed out (`workriver task drop u1#5 --reason "P2-1 rejected by the user"` for work no longer
 needed; its agent is told). The user's switch: `workriver intent set i3 --findings user|manager`.
 
-**Refusals:** "revise needs a note". "… is the user's to decide (intent i3: findings user)" -
+**Refusals:** "an agent's finding decision needs a reason". "… is the user's to decide (intent i3: findings user)" -
 wait. "… is for the manager of intent i3 to decide (or the user), not for other agents".
 "… is already accepted; only the user changes a decision".
