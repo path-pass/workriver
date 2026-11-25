@@ -1965,11 +1965,15 @@ fn only_the_user_rates_manager_replies_and_the_ratings_round_trip() {
 
     wait_until("a later second for the manager's message", || replied["at"] != workriver_core::now());
     let said = boss.append("", "message.said", json!({ "text": "One more thing" })).unwrap();
+    let reply_at = replied["at"].as_str().unwrap();
     let said_at = said["at"].as_str().unwrap();
+    let next_second = |at| humantime::format_rfc3339_seconds(humantime::parse_rfc3339(at).unwrap() + std::time::Duration::from_secs(1)).to_string();
     let transcript = include_str!("__fixtures__/manager-claude.jsonl")
-        .replace("REPLY_AT", replied["at"].as_str().unwrap())
+        .replace("REPLY_AT", reply_at)
+        .replace("REPLY_SECOND", reply_at.trim_end_matches('Z'))
+        .replace("AFTER_REPLY", &next_second(reply_at))
         .replace("SAY_AT", said_at)
-        .replace("SAY_SECOND", said_at.trim_end_matches('Z'));
+        .replace("AFTER_SAY", &next_second(said_at));
     std::fs::write(&log, transcript).unwrap();
 
     let down = rate("m1", 2, Some("down"), Some("off track"));

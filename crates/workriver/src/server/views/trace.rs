@@ -128,12 +128,14 @@ impl Sessions {
 }
 
 fn read_usage(log: impl BufRead, harness: &str, until: SystemTime, usage: &mut core::SessionUsage) {
+    // Reply times are stored to whole seconds.
+    let cutoff = until + Duration::from_secs(1);
     let mut count = None;
     for line in log.split(b'\n') {
         let Ok(line) = line else { return };
         let Ok(entry) = serde_json::from_slice::<serde_json::Value>(&line) else { continue };
         if let Some(at) = entry["timestamp"].as_str()
-            && humantime::parse_rfc3339(at).is_ok_and(|at| at > until)
+            && humantime::parse_rfc3339(at).is_ok_and(|at| at >= cutoff)
         {
             break;
         }

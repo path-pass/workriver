@@ -6,5 +6,5 @@
 {"type":"event_msg","payload":{"type":"token_count","info":null}}
 {"timestamp":"2026-11-25T10:00:00.000Z","type":"token_usage_record","payload":{"usage":{"input_tokens":32000,"cached_input_tokens":30000},"thread_token_usage":{"input_tokens":800000}}}
 {"type":"response_item","payload":{"type":"message","content":["PRIVATE_TRANSCRIPT_WORDS"]}}
-{"timestamp":"2026-11-25T10:00:00.001Z"}
+{"timestamp":"2026-11-25T10:00:01Z"}
 {"timestamp":"2026-11-25T10:00:00Z","type":"token_usage_record","payload":{"usage":{"input_tokens":90000}}}
