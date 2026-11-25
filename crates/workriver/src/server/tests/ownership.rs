@@ -193,11 +193,14 @@ fn a_runtime_group_made_renamed_or_closed_changes_no_record() {
     assert_eq!(before.0, ["ws1:chat:s-boss:p1:i1"]);
     // boss's group gets a new id and another name; a new group takes the old id and name.
     *fake.agents.lock().unwrap() = vec![("p1".into(), labelled("s-boss", "boss", "w9", "renamed")), ("p2".into(), live("s-new", "new", "w1", Idle))];
-    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll reads the runtime
     let (boss, new) = (at_place(&d, "p1"), at_place(&d, "p2"));
-    let mine = boss.call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((mine["workspace"]["id"].as_str(), mine["manager"].as_bool(), mine["intent"].as_str()), (Some("ws1"), Some(true), Some("i1")), "{mine}");
-    let theirs = new.call("/api/here", Some(json!({}))).unwrap();
+    let page = || d.get("/api/workspace").unwrap();
+    wait_until("the page sees the new session", || page()["sessions"].as_array().unwrap().iter().any(|s| s["session"] == "s-new"));
+    let page = page();
+    let session = |id: &str| page["sessions"].as_array().unwrap().iter().find(|s| s["session"] == id).unwrap();
+    let mine = session("s-boss");
+    assert_eq!((mine["workspace"].as_str(), mine["manager"].as_bool(), mine["intent"].as_str()), (Some("ws1"), Some(true), Some("i1")), "{mine}");
+    let theirs = session("s-new");
     assert_eq!((theirs["workspace"].is_null(), theirs["manager"].as_bool(), theirs["intent"].is_null()), (true, Some(false), true), "{theirs}");
     let e = new.append("", "message.said", json!({ "text": "Mine now" })).unwrap_err().to_string();
     assert!(e.contains("only a workspace's manager says something to the user"), "{e}");
@@ -309,7 +312,6 @@ fn a_workspace_is_closed_only_without_an_active_intent() {
     d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "done" })).unwrap();
     d.call("/api/workspaces", Some(close)).unwrap();
     assert_eq!(records(&d)[0], "ws1:chat:-:p1:-:closed", "its seat is emptied");
-    assert_eq!(boss.call("/api/here", Some(json!({}))).unwrap()["manager"], false);
     let next = planned(&d, "Next", Some(&project(tmp.path())));
     assert!(d.append("user", "intent.state_changed", start(&next, Some("ws1"))).unwrap_err().to_string().contains("workspace ws1 is closed"));
     assert!(d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "Anyone?" }))).unwrap_err().to_string().contains("workspace ws1 has no manager"));
@@ -321,9 +323,8 @@ fn a_workspace_is_closed_only_without_an_active_intent() {
     assert_eq!(records(&d)[0], "ws1:chat:s-boss:p1:-");
 }
 
-/// An agent's workspace, wherever a command leaves the intent out, is the records': the
-/// seat it holds; else the workspace of the tasks it has started, when that is one. A
-/// worker with tasks running in two workspaces is in neither: it is asked for the intent.
+/// The page reads an agent's workspace from its seat, else the one workspace of its
+/// running tasks. It shows no workspace when those tasks span two workspaces.
 #[test]
 fn an_agents_workspace_is_the_one_its_tasks_are_in_when_that_is_one() {
     let tmp = tempfile::tempdir().unwrap();
@@ -332,17 +333,12 @@ fn an_agents_workspace_is_the_one_its_tasks_are_in_when_that_is_one() {
         let u = manager.append("", "unit.created", json!({ "template": "bare-research", "intent": intent, "title": "Survey", "kind": "research" })).unwrap()["body"]["id"].as_str().unwrap().to_string();
         manager.append("", "task.created", json!({ "unit": u, "kind": "research", "title": "Read", "agent": "s-w" })).unwrap();
     }
-    let here = || worker.call("/api/here", Some(json!({}))).unwrap();
-    let at = |h: &Value| (h["workspace"]["id"].as_str().map(str::to_string), h["intent"].as_str().map(str::to_string), h["manager"].as_bool());
-    assert_eq!(at(&here()), (None, None, Some(false)), "given, not started: in none");
+    let session = |name: &str| d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == name).unwrap().clone();
+    assert!(session("w")["workspace"].is_null(), "given, not started: in none");
     worker.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
-    assert_eq!(at(&here()), (Some("ws1".into()), Some("i1".into()), Some(false)));
+    assert_eq!(session("w")["workspace"], "ws1");
     worker.append("", "task.started", json!({ "unit": "u2", "task": 1 })).unwrap();
-    assert_eq!(at(&here()), (None, None, Some(false)), "in two: nothing picks one");
+    assert!(session("w")["workspace"].is_null(), "in two: nothing picks one");
     worker.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Read." })).unwrap();
-    assert_eq!(at(&here()), (Some("ws2".into()), Some("i2".into()), Some(false)));
-    // The page shows each agent's the same way.
-    let ws = d.get("/api/workspace").unwrap();
-    let session = |name: &str| ws["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == name).unwrap().clone();
     assert_eq!((session("w")["workspace"].as_str(), session("boss")["workspace"].as_str(), session("other")["workspace"].as_str()), (Some("ws2"), Some("ws1"), Some("ws2")));
 }

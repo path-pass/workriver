@@ -247,9 +247,9 @@ impl App {
                 let patch_id = scan::patch_id(&at, repo, &full).unwrap_or_default();
                 Body::CommitLinked { unit, hash: full, patch_id, subject: c.subject, date: c.date, task }
             }
-            // A chore of no intent belongs to a project, if one is given or can be told.
+            // Find the registered project of a project chore.
             Body::ChoreCreated { id, intent, project, unit, title, steps } if intent.is_empty() && !project.is_empty() => {
-                let project = self.project_folder(&project, machine).unwrap_or_default();
+                let project = self.project_folder(&project, machine)?;
                 Body::ChoreCreated { id, intent, project, unit, title, steps }
             }
             Body::UnitMerged { unit, commits } if commits.is_empty() => {

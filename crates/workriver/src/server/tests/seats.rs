@@ -54,7 +54,8 @@ fn the_user_seats_a_manager_never_over_a_seat_not_shown() {
     assert_eq!(first["session"], "s-boss");
     wait_until("the manager is told", || told(&fake, "s-boss", "[workriver] The user made you the manager of workspace ws1 «chat» of project «chat»") == 1);
     assert_eq!(told(&fake, "s-boss", "`workriver guide manager`"), 1);
-    assert_eq!((here(&d, "p1").unwrap()["manager"].as_bool(), here(&d, "p2").unwrap()["manager"].as_bool()), (Some(true), Some(false)));
+    assert_eq!(here(&d, "p1").unwrap()["actor"], "s-boss");
+    assert_eq!(here(&d, "p2").unwrap()["actor"], "s-rev");
 
     // The page was shown an empty seat, and the seat is boss's by now: refused, 409.
     let stale = json!({ "action": "manager", "workspace": ws, "manager": "s-rev", "replaces": null });
@@ -81,7 +82,7 @@ fn the_user_seats_a_manager_never_over_a_seat_not_shown() {
     seat(&d, &side, None).unwrap();
     assert!(seat_of(&d, &side).is_null());
     assert!(seat(&d, &side, None).unwrap_err().to_string().contains("ws2 has no manager"));
-    assert_eq!(here(&d, "p2").unwrap()["manager"], false);
+    assert_eq!(here(&d, "p2").unwrap()["actor"], "s-rev");
 }
 
 /// The session's root is read at the seating, where its runtime shows it: one that does
@@ -156,7 +157,7 @@ fn a_seat_comes_back_by_itself_only_where_it_was() {
     kernel.procs.kill(root("p1"));
     set("p2", boss());
     let again = here(&d, "p2").unwrap();
-    assert_eq!((again["workspace"]["id"].as_str(), again["manager"].as_bool()), (Some("ws1"), Some(true)), "{again}");
+    assert_eq!(again["actor"], "s-boss");
     wait_until("the conversation says so", || back(&d).len() == 1);
     let line = back(&d)[0].clone();
     assert_eq!((line["workspace"].as_str(), line["manager"].as_str(), line["text"].as_str(), line.get("unread"), line.get("byManager")), (Some("ws1"), Some("boss"), Some(""), None, None), "{line}");
@@ -198,7 +199,7 @@ fn a_seat_comes_back_by_itself_only_where_it_was() {
     assert_eq!(confirmed["body"]["folder"], "/w/elsewhere");
     let now = seat_of(&d, "ws1");
     assert!(now["session"] == "s-boss" && now["since"].as_u64() > since["since"].as_u64(), "{now}");
-    assert!(here(&d, "p4").unwrap()["manager"] == true);
+    assert_eq!(here(&d, "p4").unwrap()["actor"], "s-boss");
     wait_until("no longer proposed", || workspace(&d, "ws1").get("proposal").is_none() && workspace(&d, "ws1")["manager"]["state"] == "idle");
     // What the earlier appointment asked is closed, and takes no answer.
     let asked = message(&d, "And deploy?");
@@ -256,14 +257,14 @@ fn the_agent_now_in_the_managers_terminal_is_only_proposed() {
     let w = workspace(&d, "ws1");
     assert_eq!((w["manager"]["session"].as_str(), w["manager"]["state"].as_str()), (Some("s-boss"), Some("gone")), "{w}");
     let next = here(&d, "p1").unwrap();
-    assert_eq!((next["actor"].as_str(), next["manager"].as_bool(), next["workspace"].is_null()), (Some("s-next"), Some(false), true), "{next}");
+    assert_eq!(next["actor"], "s-next");
     let e = from_place(&d, "p1", "POST", "/api/append", Some(&json!({ "kind": "message.said", "body": { "text": "I am the manager now" } }))).1;
     assert!(e.contains("only a workspace's manager says something to the user"), "{e}");
     let e = from_place(&d, "p1", "POST", "/api/append", Some(&json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "done" } }))).1;
     assert!(e.contains("only the user or the manager of intent i1"), "{e}");
     seat(&d, "ws1", Some("s-next")).unwrap();
     wait_until("seated, no longer proposed", || workspace(&d, "ws1").get("proposal").is_none() && workspace(&d, "ws1")["manager"]["state"] == "idle");
-    assert_eq!(here(&d, "p1").unwrap()["manager"], true);
+    assert_eq!(here(&d, "p1").unwrap()["actor"], "s-next");
 }
 
 /// On another machine the seat's root is the one that machine's runtime shows for the
@@ -302,7 +303,7 @@ fn a_manager_on_another_machine_is_seated_at_the_root_its_runtime_shows() {
     all.poll_all();
     let seated = seat(&user, &ws, Some("s-new")).unwrap();
     assert_eq!((seated["body"]["machine"].as_str(), seated["body"]["folder"].as_str()), (Some("box"), Some("/srv/n")), "{seated}");
-    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    assert_eq!(here(&there, "p3").unwrap()["actor"], "s-new");
     // Another root that reports the session, while p3's shell runs: refused.
     set(vec![("p4", started_in("s-new", "new", "/srv/n"))]);
     all.poll_all();
@@ -338,7 +339,7 @@ fn a_remote_seat_whose_terminal_holds_another_agent_is_lost() {
     let ws = workspace_named(&user, "chat");
     all.poll_all();
     seat(&user, &ws, Some("s-new")).unwrap();
-    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    assert_eq!(here(&there, "p3").unwrap()["actor"], "s-new");
     set(vec![("p3", started_in("s-other", "other", "/srv/n")), ("p4", started_in("s-new", "new", "/srv/x"))]);
     all.poll_all();
     let e = here(&there, "p4").unwrap_err().to_string();
@@ -486,7 +487,7 @@ fn a_remote_seat_shown_at_its_root_and_at_another_is_lost() {
     let ws = workspace_named(&user, "chat");
     all.poll_all();
     seat(&user, &ws, Some("s-new")).unwrap();
-    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    assert_eq!(here(&there, "p3").unwrap()["actor"], "s-new");
     user.call("/api/message", Some(json!({ "workspace": ws, "text": "Hello far" }))).unwrap();
     wait_until("delivered", || message(&user, "Hello far")["step"] == "delivered");
     assert_eq!(typed_at(&far, "Hello far"), ["p3"]);
@@ -516,7 +517,7 @@ fn a_remote_seat_shown_on_this_machine_too_is_lost() {
     let ws = workspace_named(&user, "chat");
     all.poll_all();
     seat(&user, &ws, Some("s-new")).unwrap();
-    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    assert_eq!(here(&there, "p3").unwrap()["actor"], "s-new");
     *local.agents.lock().unwrap() = vec![("p4".into(), started_in("s-new", "new", "/srv/x"))];
     let e = here(&user, "p4").unwrap_err().to_string();
     assert!(e.contains("s-new"), "{e}");
@@ -597,7 +598,7 @@ fn an_agent_here_named_after_a_remote_seated_session_is_not_it() {
     let ws = workspace_named(&user, "chat");
     all.poll_all();
     seat(&user, &ws, Some("s-new")).unwrap();
-    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    assert_eq!(here(&there, "p3").unwrap()["actor"], "s-new");
     *local.agents.lock().unwrap() = vec![("p9".into(), started_in("s-evil", "s-new", "/w/e"))];
     all.poll_all();
     let (one, copy) = both_settled(&user, &ws, "NAMED");
@@ -833,7 +834,7 @@ fn an_agent_named_after_a_remote_seated_session_not_listed_gets_nothing() {
     let ws = workspace_named(&user, "chat");
     all.poll_all();
     seat(&user, &ws, Some("s-new")).unwrap();
-    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    assert_eq!(here(&there, "p3").unwrap()["actor"], "s-new");
     let made = user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     let intent = made["body"]["id"].as_str().unwrap().to_string();
     user.append("", "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": ws })).unwrap();

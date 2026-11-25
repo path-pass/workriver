@@ -499,34 +499,24 @@ impl App {
         })
     }
 
-    /// Who and where the CLI is: the agent at the place its process runs at (recorded by name
-    /// the first time), its workspace by the records (the seat it holds, else the one
-    /// workspace of the tasks it has) with that workspace's current intent, and the runtime's
-    /// group of its place, which is only shown. At no place: nobody. Answered without the
-    /// token, but not without a process.
+    /// The session of the agent where the CLI's process runs, if one is there.
+    /// A process proof is required. A user token is optional.
     fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
         if caller.machine.is_none() && caller.chain.is_none() {
             return Err(ApiError(StatusCode::UNAUTHORIZED, words::NO_PROCESS.into()));
         }
         let chain = self.chain_of(caller)?;
-        let Some(root) = self.place(caller, &chain)? else {
-            return Ok(json!({ "actor": null, "name": null, "workspace": null, "manager": false, "intent": null }));
-        };
-        let at = &root.at;
-        let mut workspace = None;
-        if let Some(a) = &at.agent {
-            self.one_place(caller.machine.as_deref(), &root, a, &chain)?;
+        let root = self.place(caller, &chain)?;
+        let actor = if let Some(root) = &root
+            && let Some(a) = &root.at.agent
+        {
+            self.one_place(caller.machine.as_deref(), root, a, &chain)?;
             self.seen(a)?;
-            let all = self.store.lock().unwrap().recorded()?;
-            workspace = all.workspace_of_agent(&a.session).map(|w| (w.id.clone(), w.name.clone(), w.current.clone(), w.manager.as_ref().is_some_and(|m| m.session == a.session)));
-        }
-        Ok(json!({
-            "actor": at.agent.as_ref().map(|a| &a.session),
-            "name": at.agent.as_ref().map(|a| &a.name),
-            "workspace": workspace.as_ref().map(|(id, name, ..)| json!({ "id": id, "name": name })),
-            "manager": workspace.as_ref().is_some_and(|w| w.3),
-            "intent": workspace.and_then(|w| w.2),
-        }))
+            Some(&a.session)
+        } else {
+            None
+        };
+        Ok(json!({ "actor": actor }))
     }
 }
 
@@ -570,7 +560,7 @@ impl Seating {
     }
 }
 
-/// The CLI asks who and where it is: see `App::here`. Nothing it sends is read for that.
+/// The CLI checks for an agent where its process runs. See `App::here`.
 pub(super) async fn here(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || app.here(&caller).map(Json)).await
 }

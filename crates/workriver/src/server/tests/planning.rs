@@ -27,9 +27,9 @@ fn identity_intents_and_delivery() {
     let options = crate::server::Options { allow_as: true, ..kernel.options() };
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
 
-    // An agent is in no workspace until the user seats it, or it has a task in one.
+    // The process is identified before the user seats the agent.
     let here = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((here["actor"].as_str(), here["intent"].as_str(), here["workspace"].is_null()), (Some("s-boss"), None, true), "{here}");
+    assert_eq!(here["actor"], "s-boss");
     manage(&d, "p1", "s-boss");
     // The runtime gives its group a new id and another name: nothing of the workspace
     // changes, which is workriver's own. The manager is in it by its seat; an agent with no
@@ -38,9 +38,9 @@ fn identity_intents_and_delivery() {
     renamed.group.as_mut().unwrap().label = "other".into();
     *fake.agents.lock().unwrap() = vec![("p1".into(), renamed), ("p2".into(), live("s-rev", "rev", "w9", Idle))];
     let again = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((again["actor"].as_str(), again["intent"].as_str(), again["workspace"]["id"].as_str(), again["manager"].as_bool()), (Some("s-boss"), Some("i1"), Some("ws1"), Some(true)), "{again}");
+    assert_eq!(again, json!({ "actor": "s-boss" }));
     let worker = at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((worker["actor"].as_str(), worker["intent"].as_str(), worker["workspace"].is_null()), (Some("s-rev"), None, true), "{worker}");
+    assert_eq!(worker["actor"], "s-rev");
 
     d.append("s-boss", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "Mentions", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "agent": "rev" })).unwrap();
@@ -122,8 +122,9 @@ fn projects_workspaces_and_batches() {
     for (agent, intent) in [("s-b1", "i1"), ("s-b1", "i2"), ("s-b2", "i3")] {
         d.append(agent, "intent.state_changed", json!({ "intent": intent, "state": "active" })).unwrap();
     }
-    let here = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!(here["intent"], "i2", "the last one started is the workspace's current intent");
+    let page = d.get("/api/workspace").unwrap();
+    let workspace = page["workspaces"].as_array().unwrap().iter().find(|w| w["id"] == "ws1").unwrap();
+    assert_eq!(workspace["current"], "i2", "the last one started is the workspace's current intent");
     let e = d.append("s-b2", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": "ws2" })).unwrap_err().to_string();
     assert!(e.contains("cannot become active"), "{e}");
 

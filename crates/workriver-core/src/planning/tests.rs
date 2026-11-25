@@ -36,7 +36,7 @@ fn unit_branches_take_a_prefix_but_old_ones_replay() {
 }
 
 /// Intents move planned → active → done (or dropped); a workspace's manager starts them,
-/// and the workspace's current intent is where its new work goes.
+/// and the workspace records which intent started last.
 #[test]
 fn intent_states_and_workspaces() {
     let mut s = Records::default();
@@ -321,13 +321,14 @@ fn units_are_where_the_work_is() {
     assert!(s.append(&Principal::Agent { session: "worker".into(), machine: Some("third".into()) }, body(there.clone())).is_err());
     add(&mut s, "boss", there).unwrap();
 
-    // Chores: an intent's, a project's, nobody's.
+    // Chores belong to an intent or a project.
     add(&mut s, "boss", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "chore.created", "body": {"project": "/p", "title": "Renew the certificate"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "chore.created", "body": {"title": "Pay the invoice"}})).unwrap();
+    let e = add(&mut s, "boss", json!({"kind": "chore.created", "body": {"title": "Pay the invoice"}})).unwrap_err();
+    assert!(e.contains("a chore needs an intent or a project"), "{e}");
     assert!(add(&mut s, "boss", json!({"kind": "chore.created", "body": {"project": "/p", "unit": "u1", "title": "x"}})).is_err(), "a unit's chore is its intent's");
     let c = &replayed(&s).chores;
-    assert_eq!(c.iter().map(|c| (c.intent.as_str(), c.project.as_str())).collect::<Vec<_>>(), [("i1", ""), ("", "/p"), ("", "")]);
+    assert_eq!(c.iter().map(|c| (c.intent.as_str(), c.project.as_str())).collect::<Vec<_>>(), [("i1", ""), ("", "/p")]);
 }
 
 #[test]

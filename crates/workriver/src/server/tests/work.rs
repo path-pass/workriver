@@ -243,6 +243,9 @@ fn a_store_that_cannot_be_read_is_the_services_error() {
     assert_eq!(ask("POST", "/api/attachments/inbox", Some(r#"{"unit":"u1","task":1}"#)), (500, "the disk is gone".into()));
     assert_eq!(ask("POST", "/api/attachments/inbox", Some(r#"{"unit":"u1","task":9}"#)), (500, "the disk is gone".into()), "not: no such task");
     assert_eq!(ask("POST", "/api/append", Some(r#"{"kind":"unit.merged","body":{"unit":"u1"}}"#)), (500, "the disk is gone".into()));
+    let chore = json!({ "kind": "chore.created", "body": { "project": "p1", "title": "Rotate the key" } });
+    assert_eq!(as_user(&user, "POST", "/api/append", Some(&chore)), (500, "the disk is gone".into()));
+    assert!(bodies(&db, "chore.created").is_empty());
     // A record still commits (writing works); what follows it and the poll skip their reads.
     let mark = stored(&db).len();
     user.append("user", "intent.created", json!({ "title": "Later", "state": "planned" })).unwrap();

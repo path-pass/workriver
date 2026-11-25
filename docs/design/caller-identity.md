@@ -152,13 +152,10 @@ it); else none.
 
 `App::user`'s "a caller whose place holds an agent is not the user" uses `place(P)` too.
 
-**`/api/here`** ("who and where am I") answers about `place(P)`: the agent there (rule 5
-applied); its workspace, which the records give and nothing of the place does (the workspace
-whose seat its session holds, else the one workspace of the intents of the tasks it has
-running, else none: `State::workspace_of_agent`), with whether it holds the seat and that
-workspace's current intent. A caller that names another place gets rule 1's refusal; a
-caller in no place gets `actor`, `name`, `workspace` and `intent` as null.
-It is answerable without the token, but not without a proof.
+**`/api/here`** returns `actor` with the session of the agent at `place(P)` (rule 5
+applied), or null when there is no agent there or no place. `workriver open` checks it
+before opening a user session. A caller that names another place gets rule 1's refusal.
+A process proof is required. A user token is optional.
 
 **The cases** (held by the tests in `server/tests/access.rs`):
 
