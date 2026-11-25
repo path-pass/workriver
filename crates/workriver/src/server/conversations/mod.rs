@@ -8,7 +8,6 @@ use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 use serde::Deserialize;
-use workriver_core::ports::{Revision, WorkStore};
 use workriver_core::runtime::{AgentState, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
 use workriver_scan as scan;
@@ -101,39 +100,13 @@ pub(super) async fn message_rate(State(app): State<Shared>, Extension(caller): E
     let who = app.user(&caller)?;
     blocking(move || {
         let state = app.store.lock().unwrap().recorded()?;
-        let (session, since) = state.message(&r.message)?.rating_author(r.reply)?;
+        let (session, at) = state.message(&r.message)?.rating_target(r.reply)?;
         let agent = state.agents.iter().find(|a| a.session == session);
-        let mut usage = app.sessions.usage(agent);
-        if usage.model.is_none() {
-            usage.model = state.units.iter().flat_map(|u| &u.tasks)
-                .filter(|t| t.agent.as_deref() == Some(session) && t.model.is_some())
-                .max_by_key(|t| t.started.as_deref()).and_then(|t| t.model.clone());
-            if usage.model.is_none() {
-                usage.model = launch_model(app.store.lock().unwrap().as_ref(), since, session)?;
-            }
-        }
+        let usage = app.sessions.usage(agent, at);
         let body = Body::MessageRated { message: r.message, reply: r.reply, vote: r.vote, note: r.note, session: session.to_string(), usage };
         app.record(&who, body).map(Json)
     })
     .await
-}
-
-/// A manager started from the page has its requested model in the start that seated it.
-fn launch_model(store: &dyn WorkStore, since: u64, session: &str) -> Result<Option<String>, ApiError> {
-    let Some(after) = since.checked_sub(1) else { return Ok(None) };
-    let seat = store.history(Revision(after), 1)?;
-    if let Some(e) = seat.events.first().filter(|e| e.seq as u64 == since)
-        && let Body::ManagerStartSeated { start, session: seated, .. } = &e.body
-        && seated == session
-    {
-        let started = store.history(Revision(start - 1), 1)?;
-        if let Some(e) = started.events.into_iter().next().filter(|e| e.seq as u64 == *start)
-            && let Body::WorkspaceManagerStarted { model, .. } = e.body
-        {
-            return Ok(Some(model).filter(|m| !m.is_empty()));
-        }
-    }
-    Ok(None)
 }
 
 /// One message whole, with its replies (`workriver message show`): what a cut quote in a

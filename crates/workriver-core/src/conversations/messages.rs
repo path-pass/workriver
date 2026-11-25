@@ -85,15 +85,14 @@ pub enum Notice {
 }
 
 impl Message {
-    /// The manager who wrote the addressed reply, and the appointment it was written under.
+    /// The manager who wrote the addressed reply and when it was recorded.
     /// Reply zero addresses a message the manager started.
-    pub fn rating_author(&self, reply: u32) -> Result<(&str, u64), Rejected> {
+    pub fn rating_target(&self, reply: u32) -> Result<(&str, &str), Rejected> {
         if reply == 0 {
-            return if self.by_manager { Ok((&self.manager, self.since)) } else { no("only a manager's words can be rated") };
+            return if self.by_manager { Ok((&self.manager, &self.at)) } else { no("only a manager's words can be rated") };
         }
         let Some(r) = self.replies.get(reply as usize - 1) else { return no(format!("{} has no reply {reply}", self.id)) };
-        let since = self.to.iter().find(|copy| copy.manager == r.by).map_or(self.since, |copy| copy.since);
-        Ok((&r.by, since))
+        Ok((&r.by, &r.at))
     }
 
     /// A line of workriver's own in workspace `workspace`'s conversation, about `session`.
@@ -136,12 +135,14 @@ pub enum Vote {
     Down,
 }
 
-/// Session metadata available at the time of the rating. Context use is the last input's
+/// Session metadata as of the addressed message or reply. Context use is the last input's
 /// tokens, including cached input. The window is kept when the log reports it.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 pub struct SessionUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -440,7 +441,7 @@ impl State {
                 MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.id.clone(), text, choice }
             }
             MessageRated { message, reply, vote, note, usage, .. } => {
-                let (session, _) = self.message(&message)?.rating_author(reply)?;
+                let (session, _) = self.message(&message)?.rating_target(reply)?;
                 let note = note.map(|s| s.trim().to_string()).filter(|s| !shows_nothing(s));
                 if let Some(s) = &note
                     && (vote != Some(Vote::Down) || s.contains(['\n', '\r', '\u{2028}', '\u{2029}']))

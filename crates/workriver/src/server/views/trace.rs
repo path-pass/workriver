@@ -5,10 +5,9 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use workriver_core as core;
 
@@ -48,19 +47,18 @@ impl Sessions {
         Sessions { home, looked: Mutex::default(), recheck: Duration::from_secs(SESSION_RECHECK_SECS) }
     }
 
-    pub(in crate::server) fn usage(&self, agent: Option<&core::Agent>) -> core::SessionUsage {
+    pub(in crate::server) fn usage(&self, agent: Option<&core::Agent>, at: &str) -> core::SessionUsage {
         let Some(a) = agent else { return core::SessionUsage::default() };
         let mut usage = core::SessionUsage { harness: Some(a.harness.clone()).filter(|h| !h.is_empty()), ..Default::default() };
+        let Ok(until) = humantime::parse_rfc3339(at) else { return usage };
         let Ok((path, true)) = self.file(usage.harness.as_deref(), &a.session, &a.cwd, a.machine.is_some()) else { return usage };
         let path = Path::new(&path);
         // The trace also locates archived, compressed logs. Usage can only be read from JSONL.
         if path.extension().is_none_or(|ext| ext != "jsonl") {
             return usage;
         }
-        let Ok(file) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path) else { return usage };
-        if file.metadata().is_ok_and(|m| m.is_file()) {
-            read_usage(BufReader::new(file), &a.harness, &mut usage);
-        }
+        let Ok(file) = std::fs::File::open(path) else { return usage };
+        read_usage(BufReader::new(file), &a.harness, until, &mut usage);
         usage
     }
 
@@ -129,12 +127,26 @@ impl Sessions {
     }
 }
 
-fn read_usage(log: impl BufRead, harness: &str, usage: &mut core::SessionUsage) {
+fn read_usage(log: impl BufRead, harness: &str, until: SystemTime, usage: &mut core::SessionUsage) {
     let mut count = None;
     for line in log.split(b'\n') {
         let Ok(line) = line else { return };
         let Ok(entry) = serde_json::from_slice::<serde_json::Value>(&line) else { continue };
-        let Some(kind) = entry["type"].as_str() else { continue };
+        if let Some(at) = entry["timestamp"].as_str()
+            && humantime::parse_rfc3339(at).is_ok_and(|at| at > until)
+        {
+            break;
+        }
+        let kind = entry["type"].as_str();
+        let version = match (harness, kind) {
+            ("claude", _) => entry["version"].as_str(),
+            ("codex", Some("session_meta")) => entry["payload"]["cli_version"].as_str(),
+            _ => None,
+        };
+        if let Some(version) = version.filter(|v| !v.is_empty()) {
+            usage.harness_version = Some(version.to_string());
+        }
+        let Some(kind) = kind else { continue };
         let seen = count.get_or_insert(0);
         let mut model = None;
         match (harness, kind) {
@@ -230,12 +242,13 @@ mod tests {
         let logs = home.path().join(".codex/sessions/2026/11/25");
         std::fs::create_dir_all(&logs).unwrap();
         std::fs::write(logs.join("rollout-2026-11-25T10-00-00-codex-session.jsonl"), include_str!("__fixtures__/codex-usage.jsonl")).unwrap();
-        let usage = here.usage(a);
+        let at = "2026-11-25T10:00:00Z";
+        let usage = here.usage(a, at);
         assert_eq!(serde_json::to_value(usage).unwrap(), json!({
-            "harness": "codex", "model": "gpt-6.2-sol", "compactions": 1, "context_tokens": 32000, "context_window": 230000
+            "harness": "codex", "harness_version": "0.150.0", "model": "gpt-6.2-sol", "compactions": 1, "context_tokens": 32000, "context_window": 230000
         }));
         let remote = core::Agent { machine: Some("box".into()), ..a.unwrap().clone() };
-        assert_eq!(serde_json::to_value(here.usage(Some(&remote))).unwrap(), json!({"harness":"codex"}));
+        assert_eq!(serde_json::to_value(here.usage(Some(&remote), at)).unwrap(), json!({"harness":"codex"}));
     }
 
     fn state(agents: serde_json::Value) -> core::State {

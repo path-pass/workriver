@@ -1936,7 +1936,8 @@ fn only_the_user_rates_manager_replies_and_the_ratings_round_trip() {
     let home = tmp.path().join("home");
     let project = home.join(".claude/projects/test");
     std::fs::create_dir_all(&project).unwrap();
-    std::fs::write(project.join("s-boss.jsonl"), include_str!("__fixtures__/manager-claude.jsonl")).unwrap();
+    let log = project.join("s-boss.jsonl");
+    std::fs::write(&log, "").unwrap();
     let db = tmp.path().join("w.db");
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
@@ -1949,13 +1950,28 @@ fn only_the_user_rates_manager_replies_and_the_ratings_round_trip() {
     let store = opened(&db);
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, fake, options)));
     wait_until("the service", || user.get("/api/status").is_ok());
-    let workspace = seat_at(&user, &boss);
-    user.call("/api/message", Some(json!({ "workspace": workspace, "text": "Hello" }))).unwrap();
+    manage_here(&user, &boss);
+    boss.append("", "unit.created", json!({ "template": "bare-research", "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Survey", "agent": "s-boss" })).unwrap();
+    boss.append("", "task.started", json!({ "unit": "u1", "task": 1, "model": "reported-model" })).unwrap();
+    let sent = user.call("/api/message", Some(json!({ "workspace": "ws1", "text": "Hello" }))).unwrap();
+    wait_until("a later second for the reply", || sent["at"] != workriver_core::now());
     boss.append("", "message.replied", json!({ "message": "m1", "text": "First reply" })).unwrap();
-    boss.append("", "message.replied", json!({ "message": "m1", "text": "Second reply" })).unwrap();
-    boss.append("", "message.said", json!({ "text": "One more thing" })).unwrap();
+    let replied = boss.append("", "message.replied", json!({ "message": "m1", "text": "Second reply" })).unwrap();
 
     let rate = |message, reply, vote, note| json!({ "message": message, "reply": reply, "vote": vote, "note": note });
+    let e = user.call("/api/messages/rate", Some(rate("m1", 2, Some("up"), None))).unwrap();
+    assert_eq!(e["body"]["usage"], json!({"harness":"claude"}));
+
+    wait_until("a later second for the manager's message", || replied["at"] != workriver_core::now());
+    let said = boss.append("", "message.said", json!({ "text": "One more thing" })).unwrap();
+    let said_at = said["at"].as_str().unwrap();
+    let transcript = include_str!("__fixtures__/manager-claude.jsonl")
+        .replace("REPLY_AT", replied["at"].as_str().unwrap())
+        .replace("SAY_AT", said_at)
+        .replace("SAY_SECOND", said_at.trim_end_matches('Z'));
+    std::fs::write(&log, transcript).unwrap();
+
     let down = rate("m1", 2, Some("down"), Some("off track"));
     assert_eq!(from_place(&user, "p1", "POST", "/api/messages/rate", Some(&down)).0, 403);
     assert!(boss.append("", "message.rated", down.clone()).unwrap_err().to_string().contains("only the user does this (message.rated)"));
@@ -1969,7 +1985,7 @@ fn only_the_user_rates_manager_replies_and_the_ratings_round_trip() {
     assert_eq!(e["kind"], "message.rated");
     assert_eq!(e["actor"], "user");
     assert_eq!(e["body"]["session"], "s-boss");
-    assert_eq!(e["body"]["usage"], json!({"harness":"claude", "model":"claude-opus-5-5", "compactions":1, "context_tokens":700}));
+    assert_eq!(e["body"]["usage"], json!({"harness":"claude", "harness_version":"2.1.2", "model":"claude-opus-5-5", "compactions":1, "context_tokens":700}));
     assert!(!e.to_string().contains("PRIVATE_TRANSCRIPT_WORDS"));
     let shown = user.get("/api/message/m1").unwrap();
     assert!(shown["replies"][0].get("rating").is_none());
@@ -1982,10 +1998,11 @@ fn only_the_user_rates_manager_replies_and_the_ratings_round_trip() {
     assert_eq!(user.get("/api/message/m1").unwrap()["replies"][1]["rating"]["vote"], "up");
     user.call("/api/messages/rate", Some(rate("m1", 2, None, None))).unwrap();
     assert!(user.get("/api/message/m1").unwrap()["replies"][1].get("rating").is_none());
-    user.call("/api/messages/rate", Some(rate("m2", 0, Some("down"), None))).unwrap();
+    let e = user.call("/api/messages/rate", Some(rate("m2", 0, Some("down"), None))).unwrap();
+    assert_eq!(e["body"]["usage"], json!({"harness":"claude", "harness_version":"2.1.3", "model":"claude-later", "compactions":1, "context_tokens":1000}));
     let replay = workriver_data::Store::open(&db).unwrap();
     let m = serde_json::to_value(&replay.state().messages).unwrap();
     assert!(m[0]["replies"][1].get("rating").is_none());
     assert_eq!(m[1]["rating"]["vote"], "down");
-    assert_eq!(stored(&db).iter().filter(|e| serde_json::to_value(e).unwrap()["kind"] == "message.rated").count(), 4);
+    assert_eq!(stored(&db).iter().filter(|e| serde_json::to_value(e).unwrap()["kind"] == "message.rated").count(), 5);
 }

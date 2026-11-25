@@ -145,10 +145,11 @@ fn a_message_prints_whole_and_quoted() {
     );
     m.replies[0].rating = Some(serde_json::from_value(json!({
         "vote": "down", "note": "off track", "at": "2026-11-22T10:02:00Z",
-        "session": "s-boss", "usage": { "harness": "claude", "compactions": 1 }
+        "session": "s-boss", "usage": { "harness": "claude", "harness_version": "2.1.2", "compactions": 1 }
     })).unwrap());
     let rated = super::conversations::message_text(&m);
     assert!(rated.contains(r#"    Rating: {"at":"#) && rated.contains(r#""note":"off track""#), "{rated}");
+    assert!(rated.contains(r#""harness_version":"2.1.2""#), "{rated}");
 }
 
 /// `workriver status`'s jobs: one line each, knowing no job; nothing when there are none.

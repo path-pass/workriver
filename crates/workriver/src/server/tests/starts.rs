@@ -62,7 +62,7 @@ fn a_start_opens_a_place_in_the_projects_folder_and_seats_what_it_brings_up() {
     assert!(line(&d, &ws).get("start").is_none(), "the seating ended the start");
     let said = at_place(&d, "opened-1").append("", "message.said", json!({ "text": "Ready" })).unwrap();
     let rated = d.call("/api/messages/rate", Some(json!({ "message": said["body"]["id"], "vote": "up" }))).unwrap();
-    assert_eq!(rated["body"]["usage"], json!({ "harness": "claude", "model": "opus" }));
+    assert_eq!(rated["body"]["usage"], json!({ "harness": "claude" }));
     std::thread::sleep(std::time::Duration::from_millis(1500));
     assert_eq!(told(&fake, &session, "The user made you the manager"), 1, "told once");
     assert!(fake.closed_places.lock().unwrap().is_empty());
