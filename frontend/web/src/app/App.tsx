@@ -43,13 +43,15 @@ import { alsoChanged, blame, shownDelta } from '@/code/files'
 import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
-import { linkTo, pathOf, placeOf, resolve } from './link'
+import { linkTo, pathOf, placeOf, replyPlaceOf, resolve } from './link'
 import { answerManager, choreDone, discuss, notify, decideFinding, detach, MANAGER, notifyWanted, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Intent } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
+import { Dashboard } from '@/dashboard/Dashboard'
+import { ReplyPage } from '@/conversations/ReplyPage'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -76,6 +78,8 @@ const recall = (key: string) => { try { return localStorage.getItem(key) } catch
 export default function App() {
   const { t, lang } = useT()
   const [data, setData] = useState<Workspace | null>(null)
+  const [dashboard, setDashboard] = useState(false)
+  const [replyPage, setReplyPage] = useState(() => replyPlaceOf(location.pathname))
   // The service cannot be reached right now; what was shown stays.
   const [down, setDown] = useState(false)
   const [unitId, setUnitId] = useState<string | null>(null)
@@ -247,6 +251,9 @@ export default function App() {
   // The address names what is open (`/u1/3`): it is followed on load and on back/forward,
   // and set when something else is opened or picked. The root opens the first unit.
   const follow = useCallback((w: Workspace) => {
+    const reply = replyPlaceOf(location.pathname)
+    setReplyPage(reply)
+    if (reply) return true
     const p = placeOf(location.pathname, location.search)
     // The root opens the first unit of the project remembered (or of all).
     const kept = recall(PROJECT)
@@ -264,6 +271,7 @@ export default function App() {
   }, [])
   // A Markdown link leaves the destination visible, even when it names the current page.
   const navigate = useCallback((path: string) => {
+    setDashboard(false)
     setSheet(null)
     setRunning(null)
     for (const close of activeViewers.current) close()
@@ -272,7 +280,10 @@ export default function App() {
     if (latest.current) followed.current = follow(latest.current)
   }, [follow])
   useEffect(() => {
-    const back = () => { if (latest.current) followed.current = follow(latest.current) }
+    const back = () => {
+      setDashboard(false)
+      if (latest.current) followed.current = follow(latest.current)
+    }
     window.addEventListener('popstate', back)
     return () => window.removeEventListener('popstate', back)
   }, [follow])
@@ -330,6 +341,10 @@ export default function App() {
   // the cursor to the Manager box; Cmd/Ctrl+B folds the rail.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (dashboard || replyPage) {
+        if (dashboard && e.key === 'Escape' && !e.defaultPrevented) setDashboard(false)
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b' && !isField(e.target)) {
         e.preventDefault()
         toggleRail()
@@ -508,7 +523,11 @@ export default function App() {
     retry,
   }
 
+  if (replyPage) return <ReplyPage messages={data?.messages ?? (data ? [] : null)} place={replyPage} down={down} />
+
   return (
+    <>
+    {dashboard && <Dashboard onClose={() => setDashboard(false)} />}
     <ActContext.Provider value={act}>
     <RunContext.Provider value={run}>
     <ViewerContext.Provider value={viewer}>
@@ -516,8 +535,8 @@ export default function App() {
     <Topics.Provider value={topics}>
     <Spaces.Provider value={ws?.workspaces ?? NO_SPACES}>
     <AgentContext.Provider value={agentActions}>
-    <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
-      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} onIntent={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
+    <div className={`${dashboard ? 'hidden' : 'grid'} min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]`}>
+      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} onIntent={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} onDashboard={() => setDashboard(true)} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
         {missing && <p role="status" className="text-sm text-ink-2">{t('link.notFound', { ref: missing })}</p>}
@@ -601,6 +620,7 @@ export default function App() {
     </ViewerContext.Provider>
     </RunContext.Provider>
     </ActContext.Provider>
+    </>
   )
 }
 

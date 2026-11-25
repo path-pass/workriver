@@ -1,11 +1,20 @@
-// Each unit, intent and task has its own address: `/u1`, `/u1/3` (task 3 picked, its detail
-// open), `/i3` (the intent), and optionally `?finding=P2-1`. The fragment is not used: it carries the sign-in code (`#k=`).
+// Units, intents, tasks, and manager replies have their own addresses. The fragment is not
+// used: it carries the sign-in code (`#k=`).
 import { noCode, unitsOf } from '@/planning/select'
 import type { Pick } from '@/work/types'
 import type { Workspace } from '@/workspace/types'
 
 /** What an address names; null: the page's root. */
 export interface Place { id: string; task?: string; finding?: string }
+
+export interface ReplyPlace { message: string; reply: number }
+
+export function replyPlaceOf(path: string): ReplyPlace | null {
+  const m = /^\/(m\d+)\/(\d+)\/?$/.exec(path)
+  return m ? { message: m[1], reply: Number(m[2]) } : null
+}
+
+export const replyPath = ({ message, reply }: ReplyPlace) => `/${encodeURIComponent(message)}/${reply}`
 
 export function placeOf(path: string, search: string): Place | null {
   if (path === '/' || path === '') return null

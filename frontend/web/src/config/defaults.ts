@@ -24,3 +24,7 @@ export const FLOW_HEIGHT = { min: 160 }
 /** A hidden tab reads the workspace at most this often, in ms, when the service says it
  *  changed, and only while the sound or notifications is on (workspace/source.ts). */
 export const HIDDEN_READ = 5000
+
+/** The whole streak on the product mark must fit within this window. */
+export const DASHBOARD_CLICKS = { count: 10, within: 4000 }
+export const CONTEXT_TOKEN_BANDS = [32_000, 64_000, 128_000] as const
