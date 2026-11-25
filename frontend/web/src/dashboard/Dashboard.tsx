@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { pathOf, replyPath } from '@/app/link'
 import { read } from '@/api/http'
+import { Prose } from '@/content/Prose'
 import { contentLang, useT } from '@/i18n'
 import { Button } from '@/ui/primitives/button'
 import { MOCK } from '@/workspace/source'
@@ -59,11 +59,10 @@ function Ratings({ messages }: { messages: Records['messages'] }) {
       )}
       <h3 className="mt-1 text-sm font-semibold">{t('dashboard.downs')}</h3>
       <Table label={t('dashboard.downs')} columns={[t('dashboard.reply'), t('dashboard.ratedAt'), t('dashboard.ratingGroups.model'), t('dashboard.ratingGroups.version'), t('dashboard.note')]} rows={downs.map(r => {
-        const ref = r.reply ? `${r.message}/${r.reply}` : r.message
         const at = when(Date.parse(r.at))
         return [
-          ref,
-          <a href={replyPath(r)} target="_blank" rel="noreferrer" className="font-mono underline underline-offset-2">{ref}</a>,
+          `${r.message}/${r.reply}`,
+          <div className="min-w-[16ch] max-w-[60ch]"><Prose text={r.replyText} /></div>,
           at ? <time dateTime={r.at} className="whitespace-nowrap">{at}</time> : unknown,
           r.usage?.model?.trim() || unknown, harnessVersion(r.usage) || unknown,
           r.note ? <span lang={contentLang(r.note)} className="whitespace-pre-wrap wrap-anywhere">{r.note}</span> : '—',
@@ -96,7 +95,7 @@ function Intents({ records }: { records: Records }) {
         <span><span className="mr-2 font-mono text-ink-2">{row.intent}</span><span lang={contentLang(row.title)}>{row.title || t('dashboard.unknown')}</span></span>,
         num(row.units), num(row.tasks), list.format(Object.entries(row.tasks_by_kind).map(([k, n]) => `${taskKind(k)} ${num(n)}`)) || '—',
         list.format(Object.entries(row.review_rounds).map(([u, n]) => t('dashboard.unitRounds', { unit: u, rounds: num(n) }))) || '—',
-        num(row.dropped_tasks), decimal.format(row.active_days),
+        num(row.droppedSteps), decimal.format(row.active_days),
       ])} />
     </section>
   )
@@ -104,7 +103,7 @@ function Intents({ records }: { records: Records }) {
 
 function Reviews({ units }: { units: Records['units'] }) {
   const { t, num } = useT()
-  const { severity, decision, reviewer, beforeGo } = reviewStats(units)
+  const { severity, decision, reviewer } = reviewStats(units)
   const unknown = t('dashboard.unknown')
   const decisionLabel = (key: string) => {
     switch (key) {
@@ -119,7 +118,6 @@ function Reviews({ units }: { units: Records['units'] }) {
   const table = (label: string, rows: [string, number][], name = (key: string) => key || unknown) => (
     <Table label={label} columns={[label, t('dashboard.count')]} rows={rows.map(([key, count]) => [key, name(key), num(count)])} />
   )
-  const rounds = t('dashboard.beforeGo')
   return (
     <section aria-labelledby="dashboard-reviews" className="flex flex-col gap-3">
       <h2 id="dashboard-reviews" className="text-base font-semibold">{t('dashboard.reviews')}</h2>
@@ -128,13 +126,6 @@ function Reviews({ units }: { units: Records['units'] }) {
         {table(t('dashboard.decision'), decision, decisionLabel)}
         {table(t('dashboard.reviewerModel'), reviewer)}
       </div>
-      <h3 className="mt-1 text-sm font-semibold">{rounds}</h3>
-      <Table label={rounds} columns={[t('dashboard.unit'), t('dashboard.goGate'), t('dashboard.rounds')]} rows={beforeGo.map(({ unit, gate, rounds }) => [
-        unit,
-        <span className="font-mono">{unit}</span>,
-        gate === undefined ? t('dashboard.goPending') : <a className="font-mono underline underline-offset-2" href={pathOf(unit, { kind: 'task', id: String(gate) })} target="_blank" rel="noreferrer">#{gate}</a>,
-        rounds === undefined ? unknown : num(rounds),
-      ])} />
     </section>
   )
 }
@@ -158,12 +149,10 @@ function Gates({ units }: { units: Records['units'] }) {
           ['answered', t('dashboard.answered'), num(g.answered)],
           ['dropped', t('dashboard.dropped'), num(g.dropped)],
           ['again', t('dashboard.askedAgain'), num(g.askedAgain)],
-          ['again-unknown', t('dashboard.reaskUnknown'), num(g.reaskUnknown)],
         ]} />
         <Table label={t('dashboard.answerTime')} columns={[t('dashboard.answerTime'), t('dashboard.value')]} rows={[
           ['median', t('dashboard.median'), duration(g.median)],
           ['longest', t('dashboard.longest'), duration(g.longest)],
-          ['unknown', t('dashboard.answerUnknown'), num(g.answerUnknown)],
         ]} />
       </div>
     </section>

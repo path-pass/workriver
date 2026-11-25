@@ -89,8 +89,9 @@ const mainButton = (name: string) => button(host.querySelector('main')!, name)
 it('opens statistics on the tenth consecutive mark click within four seconds', async () => {
   const read = vi.fn(async () => Response.json({
     intents: [], intent_took: [], units: [],
-    messages: [{ id: 'm1', replies: [
-      { rating: { vote: 'up', at } }, { rating: { vote: 'down', at, note: 'Missed the question' } },
+    messages: [{ id: 'm1', text: 'The user question', replies: [
+      { text: 'An earlier answer', rating: { vote: 'up', at } },
+      { text: 'The rated answer', rating: { vote: 'down', at, note: 'Missed the question' } },
     ] }],
   }))
   vi.stubGlobal('fetch', read)
@@ -113,34 +114,16 @@ it('opens statistics on the tenth consecutive mark click within four seconds', a
   expect(read).not.toHaveBeenCalled()
   now += 3999
   await act(async () => click(1))
+  await act(async () => { await vi.dynamicImportSettled() })
   expect(heading()).toBe('Statistics')
   expect(read).toHaveBeenCalledExactlyOnceWith('/api/state?took=true')
   expect(host.querySelector('main')?.textContent).toContain('50%')
   expect(host.querySelector('main')?.textContent).toContain('Missed the question')
-  expect(host.querySelector('main a[href="/m1/2"]')?.textContent).toBe('m1/2')
+  expect(host.querySelector('main')?.textContent).toContain('The rated answer')
+  expect(host.querySelector('main')?.textContent).not.toContain('An earlier answer')
   expect(location.pathname).toBe('/i1')
   act(() => mainButton('Back to workriver').click())
   expect(heading()).toContain('First intent')
-})
-
-it('opens the exact recorded broadcast reply at its own address', () => {
-  history.replaceState(null, '', '/m2/2')
-  const snapshot: Workspace = {
-    ...ws,
-    messages: [{
-      id: 'm2', workspace: '', manager: '', text: 'Question for everyone', at, step: 'delivered', replies: [],
-      to: [
-        { workspace: 'ws1', manager: 'First', step: 'delivered', replies: [{ reply: 1, by: 'First', text: 'First answer', at }] },
-        { workspace: 'ws2', manager: 'Second', step: 'delivered', replies: [{ reply: 2, by: 'Second', text: 'Second answer', at }] },
-      ],
-    }],
-  }
-  vi.mocked(watchWorkspace).mockImplementation(onData => { onData(snapshot); return () => {} })
-  render()
-  expect(heading()).toBe('Manager reply')
-  expect(host.querySelector('main')?.textContent).toContain('Second answer')
-  expect(host.querySelector('main')?.textContent).not.toContain('First answer')
-  expect(location.pathname).toBe('/m2/2')
 })
 
 async function dialogLink(path: string) {

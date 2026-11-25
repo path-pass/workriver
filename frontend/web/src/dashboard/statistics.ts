@@ -20,8 +20,9 @@ interface Rating {
 
 interface RatedMessage {
   id: string
+  text: string
   rating?: Rating
-  replies: { rating?: Rating }[]
+  replies: { text: string; rating?: Rating }[]
 }
 
 interface IntentTook {
@@ -32,7 +33,6 @@ interface IntentTook {
   tasks: number
   tasks_by_kind: Record<string, number>
   review_rounds: Record<string, number>
-  dropped_tasks: number
 }
 
 interface RecordedFinding {
@@ -45,19 +45,16 @@ export interface RecordedTask {
   n: number
   kind: string
   state: string
-  inputs: { from: string }[]
   model?: string
   done?: string | null
   findings?: RecordedFinding[]
-  gate?: string | null
-  choice?: unknown
   result?: string | null
   waiting_since?: string
   dropped?: { reason: string }
   placed?: { id: string; filled?: boolean }
 }
 
-interface RecordedUnit { id: string; tasks: RecordedTask[] }
+interface RecordedUnit { id: string; intent: string; tasks: RecordedTask[] }
 
 export interface Records {
   intents: { id: string; title: string }[]
@@ -92,8 +89,8 @@ function contextBand(tokens?: number) {
 }
 
 export function ratingStats(messages: RatedMessage[]) {
-  const entries = messages.flatMap(m => [m.rating, ...m.replies.map(r => r.rating)]
-    .flatMap((rating, reply) => rating ? [{ ...rating, message: m.id, reply }] : []))
+  const entries = messages.flatMap(m => [m, ...m.replies]
+    .flatMap(({ rating, text: replyText }, reply) => rating ? [{ ...rating, message: m.id, reply, replyText }] : []))
   const total = { up: 0, down: 0 }
   const groups = {
     model: new Map<string, Votes>(), version: new Map<string, Votes>(), session: new Map<string, Votes>(),
@@ -133,42 +130,18 @@ export function ratingStats(messages: RatedMessage[]) {
 
 export function intentStats(records: Records) {
   const titles = new Map(records.intents.map(i => [i.id, i.title]))
-  return records.intent_took.map(row => ({ ...row, title: titles.get(row.intent) }))
+  const droppedSteps = new Map<string, number>()
+  for (const unit of records.units) {
+    const count = unit.tasks.filter(task => task.placed && task.state === 'dropped').length
+    droppedSteps.set(unit.intent, (droppedSteps.get(unit.intent) ?? 0) + count)
+  }
+  return records.intent_took.map(row => ({
+    ...row, title: titles.get(row.intent), droppedSteps: droppedSteps.get(row.intent) ?? 0,
+  }))
     .sort((a, b) => newest(b.created) - newest(a.created) || b.intent.localeCompare(a.intent, undefined, { numeric: true }))
 }
 
 const filled = (task: RecordedTask) => !task.placed || task.placed.filled === true
-
-function beforeGo({ id, tasks }: RecordedUnit): { unit: string; gate?: number; rounds?: number }[] {
-  const possible = tasks.filter(t => t.kind === 'gate' && t.gate === 'decide' && !t.choice && t.state !== 'dropped')
-  // The development template's go precedes push, PR and merge approvals.
-  const placedGo = possible.find(t => t.placed?.id === 'go')
-  const candidates = placedGo ? [placedGo] : possible.filter(filled)
-  if (!candidates.length) return []
-  const gate = candidates.filter(t => filled(t) && Number.isFinite(time(t.waiting_since)))
-    .sort((a, b) => time(b.waiting_since) - time(a.waiting_since) || b.n - a.n)[0]
-  if (!gate) return [{ unit: id, gate: undefined, rounds: undefined }]
-
-  const byNumber = new Map(tasks.map(t => [String(t.n), t]))
-  const visited = new Set<string>()
-  const reviewed = new Set<number>()
-  const pending = gate.inputs.map(i => i.from)
-  const openedAt = time(gate.waiting_since)
-  while (pending.length) {
-    const from = pending.pop()!
-    if (visited.has(from)) continue
-    visited.add(from)
-    const task = byNumber.get(from)
-    if (!task) continue
-    pending.push(...task.inputs.map(i => i.from))
-    if (task.kind !== 'review' || task.state !== 'done' || !filled(task) || !(time(task.done) <= openedAt)) continue
-    for (const i of task.inputs) {
-      const work = byNumber.get(i.from)
-      if (work && filled(work) && work.state !== 'dropped' && (work.kind === 'implement' || work.kind === 'design')) reviewed.add(work.n)
-    }
-  }
-  return [{ unit: id, gate: gate.n, rounds: reviewed.size }]
-}
 
 const DECISIONS = ['accepted', 'revised', 'rejected', 'deferred', 'open']
 const SEVERITIES = ['P1', 'P2', 'P3']
@@ -191,7 +164,6 @@ export function reviewStats(units: RecordedUnit[]) {
     severity: [...severity],
     decision: [...decision],
     reviewer: ordered(reviewer),
-    beforeGo: units.flatMap(beforeGo),
   }
 }
 
@@ -205,7 +177,7 @@ function askedAgain(unit: RecordedUnit, gate: RecordedTask) {
 }
 
 export function gateStats(units: RecordedUnit[]) {
-  let opened = 0, answered = 0, dropped = 0, reasked = 0, reaskUnknown = 0
+  let opened = 0, answered = 0, dropped = 0, reasked = 0
   const waits: number[] = []
   for (const unit of units) {
     for (const gate of unit.tasks.filter(t => t.kind === 'gate' && filled(t))) {
@@ -214,7 +186,6 @@ export function gateStats(units: RecordedUnit[]) {
       if (gate.state === 'dropped') {
         dropped++
         if (askedAgain(unit, gate)) reasked++
-        else reaskUnknown++
       }
       if (!gate.result) continue
       answered++
@@ -225,5 +196,5 @@ export function gateStats(units: RecordedUnit[]) {
   waits.sort((a, b) => a - b)
   const middle = Math.floor(waits.length / 2)
   const median = waits.length % 2 ? waits[middle] : waits.length ? (waits[middle - 1] + waits[middle]) / 2 : undefined
-  return { opened, answered, dropped, askedAgain: reasked, reaskUnknown, median, longest: waits.at(-1), answerUnknown: answered - waits.length }
+  return { opened, answered, dropped, askedAgain: reasked, median, longest: waits.at(-1) }
 }

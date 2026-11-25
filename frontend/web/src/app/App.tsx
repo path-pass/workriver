@@ -43,7 +43,7 @@ import { alsoChanged, blame, shownDelta } from '@/code/files'
 import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
-import { linkTo, pathOf, placeOf, replyPlaceOf, resolve } from './link'
+import { linkTo, pathOf, placeOf, resolve } from './link'
 import { answerManager, choreDone, discuss, notify, decideFinding, detach, MANAGER, notifyWanted, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Intent } from '@/planning/types'
@@ -51,7 +51,6 @@ import type { MachineAlert } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
 import { Dashboard } from '@/dashboard/Dashboard'
-import { ReplyPage } from '@/conversations/ReplyPage'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -79,7 +78,6 @@ export default function App() {
   const { t, lang } = useT()
   const [data, setData] = useState<Workspace | null>(null)
   const [dashboard, setDashboard] = useState(false)
-  const [replyPage, setReplyPage] = useState(() => replyPlaceOf(location.pathname))
   // The service cannot be reached right now; what was shown stays.
   const [down, setDown] = useState(false)
   const [unitId, setUnitId] = useState<string | null>(null)
@@ -251,9 +249,6 @@ export default function App() {
   // The address names what is open (`/u1/3`): it is followed on load and on back/forward,
   // and set when something else is opened or picked. The root opens the first unit.
   const follow = useCallback((w: Workspace) => {
-    const reply = replyPlaceOf(location.pathname)
-    setReplyPage(reply)
-    if (reply) return true
     const p = placeOf(location.pathname, location.search)
     // The root opens the first unit of the project remembered (or of all).
     const kept = recall(PROJECT)
@@ -341,8 +336,8 @@ export default function App() {
   // the cursor to the Manager box; Cmd/Ctrl+B folds the rail.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (dashboard || replyPage) {
-        if (dashboard && e.key === 'Escape' && !e.defaultPrevented) setDashboard(false)
+      if (dashboard) {
+        if (e.key === 'Escape' && !e.defaultPrevented) setDashboard(false)
         return
       }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b' && !isField(e.target)) {
@@ -522,8 +517,6 @@ export default function App() {
     message,
     retry,
   }
-
-  if (replyPage) return <ReplyPage messages={data?.messages ?? (data ? [] : null)} place={replyPage} down={down} />
 
   return (
     <>
