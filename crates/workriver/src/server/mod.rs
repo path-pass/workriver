@@ -172,6 +172,14 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         wake: Arc::default(),
         schedule: schedule::Schedule::of(jobs),
     });
+    // Keep this independent of the runtime's reads, which can be slow while the service runs.
+    let mut stopping = app.stopping.subscribe();
+    tokio::spawn(async move {
+        let mut last = std::time::SystemTime::now();
+        while tokio::time::timeout(POLL, stopping.wait_for(|s| *s)).await.is_err() {
+            crate::common::diagnostics::log_pause(&mut last, std::time::SystemTime::now());
+        }
+    });
     let poller = app.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(poller.waits.tick);

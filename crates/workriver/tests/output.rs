@@ -146,10 +146,13 @@ fn the_cli_over_there_never_hangs() {
         let out = c.args(["board"]).output().unwrap();
         (started.elapsed(), String::from_utf8_lossy(&out.stderr).into_owned(), out.status.success())
     };
-    for (port, limit) in [(refused, Duration::from_secs(4)), (dead_port, Duration::from_secs(4))] {
+    for (port, cause) in [(refused, "io: Connection refused"), (dead_port, "timeout:")] {
         let (took, err, ok) = run(port);
-        assert!(!ok && took < limit, "{took:?}: {err}");
-        assert!(err.contains(&format!("cannot reach workriver on the-mac through the ssh tunnel (port {port}, from ~/.config/workriver/port; it may be reconnecting); try again shortly")), "{err}");
+        assert!(!ok && took < Duration::from_secs(4), "{took:?}: {err}");
+        assert!(err.contains(&format!("cannot reach workriver through the SSH tunnel (port {port}, {cause}")), "{err}");
+        assert!(err.contains("The service runs on the-mac and starts the tunnel there."), "{err}");
+        assert!(err.contains("When the-mac returns, including after sleep, the tunnel reconnects automatically and the new port is written to ~/.config/workriver/port."), "{err}");
+        assert!(err.contains("Nothing to start or fix here. Retry the same command every minute or so until it answers. This can take as long as the-mac is away."), "{err}");
     }
     drop(dead);
 }

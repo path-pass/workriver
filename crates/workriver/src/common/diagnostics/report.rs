@@ -85,6 +85,14 @@ pub fn summary(home: &Path, since: Option<std::time::Duration>, top: usize) -> S
             let _ = writeln!(out, "  {m:<20} {n:>6} {failed:>6} {max:>6}");
         }
     }
+    let mut pauses = of("service_pause").peekable();
+    if pauses.peek().is_some() {
+        let _ = writeln!(out, "\nService pauses (gaps between checks):");
+        for v in pauses {
+            let (from, to) = (v["from"].as_str().unwrap_or("?"), v["to"].as_str().unwrap_or("?"));
+            let _ = writeln!(out, "  {from} to {to}  {:.1} s", ms(v) as f64 / 1000.0);
+        }
+    }
     let mut down: BTreeMap<String, (usize, u64)> = BTreeMap::new();
     for v in of("tunnel").filter(|v| v["event"] == "down") {
         let e = down.entry(v["machine"].as_str().unwrap_or("?").to_string()).or_default();

@@ -344,9 +344,11 @@ files are older than another's last build would run that other worktree's code.
   elsewhere ([runtimes/herdr.md](runtimes/herdr.md#troubleshooting)).
 - **Something is slow**: the service keeps a timing log in `~/workriver-data/logs/`
   (`perf.jsonl`, five files of 5 MB at most). `workriver perf [--since 1h]` sums it up:
-  the slowest requests, how long snapshots and each unit took, how long other machines
-  were disconnected. For each git and ssh call too, start the service with `workriver
-  serve --perf-detail` (or `WORKRIVER_PERF=detail`). `workriver perf --bundle` writes the
+  the slowest requests, how long snapshots and each unit took, when the service paused
+  (for example, when its computer slept or hung), and how long other machines were
+  disconnected. The "Service pauses" section shows gaps of more than 10 seconds between
+  checks. To log each git and ssh call too, start the service with `workriver serve
+  --perf-detail` (or `WORKRIVER_PERF=detail`). `workriver perf --bundle` writes the
   summary and the newest lines into one file and prints its path: that is the file to
   send. It holds times, counts, route templates (`/api/task`, never the query), unit ids
   and machine names; never commit messages, file texts, task texts, findings, notes,
@@ -360,9 +362,12 @@ files are older than another's last build would run that other worktree's code.
   14:02", and `workriver machine list` gives the last error and the next attempt. Each
   connection gets a new port over there, so the sessions of dead connections that the
   machine's sshd still keeps (it does not check that its clients are alive, and may keep
-  them for half an hour) are in nobody's way. The `workriver` command over there gives up
-  after a few seconds with "cannot reach workriver … through the ssh tunnel (it may be
-  reconnecting); try again shortly", rather than hanging.
+  them for half an hour) are in nobody's way. After a few seconds, the `workriver`
+  command over there says "cannot reach workriver through the SSH tunnel (port N, …).
+  The service runs on HOST and starts the tunnel there." When HOST returns, the tunnel
+  reconnects automatically and the new port is written to `~/.config/workriver/port`.
+  Nothing needs fixing on the followed machine. Retry the same command every minute or
+  so until it answers. This can take as long as HOST is away.
   If you run that machine's sshd, it can drop such sessions sooner: in
   `/etc/ssh/sshd_config`, `ClientAliveInterval 15` and `ClientAliveCountMax 3`. Not
   needed. To see them anyway, there: `ss -tnp | grep sshd` (a session per connection,
