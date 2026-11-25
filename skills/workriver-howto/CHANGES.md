@@ -4,6 +4,9 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-26
 
+- **Name the intent** in `workriver unit add i3` and `workriver chore add i3`.
+  For a chore that belongs directly to a project, use `workriver chore add --project p1`.
+  (`units`, `gates-chores`)
 - **A finding decision needs a reason** (agents): give a non-blank `--note` when you
   accept, revise, reject or defer a finding. For `revise`, say how to fix it. (`deciding-findings`)
 
@@ -119,7 +122,7 @@ Newest first. A manager that was already running reads this once after an update
     runs in a workspace of its project, which the user starts or moves (`workriver intent
     move i3 ws2`, the user's).
   - **Links are gone** (`workriver workspace link` / `unlink`): a workspace has no machine.
-    As the intent's manager you put a unit on any followed machine (`unit add --machine
+    As the intent's manager you put a unit on any followed machine (`unit add i3 --machine
     box …`), and workers there are in your workspace through their tasks. Two workspaces
     of one name are two workspaces; nothing is refused or merged by a name.
   - **A project is registered or it is none**: `workriver backlog add --project <folder>`
@@ -136,9 +139,7 @@ Newest first. A manager that was already running reads this once after an update
     your own copy and replies. Intents, units, tasks, findings and questions of every
     workspace stay readable.
   - `workriver workspace list` prints each workspace's id, name, project, manager and
-    current intent. A command that leaves the intent out takes your workspace's current
-    one: the workspace you manage, or for a worker the one workspace of its running tasks
-    (tasks in two workspaces: name the intent).
+    current intent.
   (`seat`, `start-intent`, `units-other-machine`, `machines`, `not-delivered`)
 
 - **A message waits while a dialog is on your screen** (workers, managers): before workriver
@@ -424,7 +425,7 @@ Newest first. A manager that was already running reads this once after an update
   script is opened and explained, but the user reads the commands themselves more easily.
   (`gates-chores`)
 - **Spike units** (managers): an experiment whose code is kept but never merged: `workriver
-  unit add --kind spike --branch spike/<topic> …`, its own worktree like a code unit, any
+  unit add i3 --kind spike --branch spike/<topic> …`, its own worktree like a code unit, any
   kind of task (implement for the code, research for the write-up with the numbers in
   `--note`). Never "ready to merge" and never reminded of a merge; `unit merged` is refused.
   Close it with `workriver unit done <u> --reason "<what was learned>"`. A code unit's branch
@@ -450,7 +451,7 @@ Newest first. A manager that was already running reads this once after an update
 ## 2026-11-17
 
 - **Research and design for a whole intent go in a research unit** (managers): `workriver
-  unit add [i3] --kind research --title "…" [--purpose "…"]` makes a unit with no repository,
+  unit add i3 --kind research --title "…" [--purpose "…"]` makes a unit with no repository,
   branch or base (none of them is taken). It takes research, design, review and gate tasks
   (`u5#1`…); implement and tests go in a code unit. It is never merged: once its work is
   delivered and decided it is ready to close, `workriver unit done u5 --reason "…"`; `unit
@@ -523,7 +524,7 @@ Newest first. A manager that was already running reads this once after an update
   past a threshold (10 minutes by default; the user sets it in Settings) is reminded once in
   its terminal: deliver if finished; if something stopped it (a command refused, e.g. a hook
   forbids push), deliver with what it did and the refusal in `--note`, or raise it with
-  `workriver chore add` / `workriver ask`; never just wait. Still idle half the threshold
+  `workriver chore add <intent> --title "…"` / `workriver ask`; never just wait. Still idle half the threshold
   later, or its agent gone, the manager is told once (look at its terminal, get it going,
   hand the task on, or `workriver task drop`) and the user sees it in Needs you; the board and
   `task show` say `stalled since …`. Waiting on a gate open to the user or a question it
@@ -620,7 +621,7 @@ Newest first. A manager that was already running reads this once after an update
   never decide. (`workriver guide how deciding-findings`)
 - **Adding to findings after delivery**: `workriver finding note <task> <id> --text "..."`,
   `workriver task deliver <task> --amend --add-findings FILE`. (`finding-additions`)
-- **Units are where the work is**: `workriver unit add --machine <m> --repo <path there>
+- **Units are where the work is**: `workriver unit add i3 --machine <m> --repo <path there>
   --branch <name there>`; correct one with `workriver unit move`. A rebase onto a new branch
   is `workriver unit move <unit> --branch <new>`, never a second unit.
   (`units-other-machine`, `branch-moved`)

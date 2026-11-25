@@ -181,7 +181,7 @@ The manager, from its terminal:
 ```sh
 workriver backlog list                 # the roadmap: i1 "Mentions" (active, started by you) ...
 workriver template list --unit code    # the templates a code unit can be made with
-workriver unit add --title "Mentions" --branch feat/mention --template development   # its own branch: feat/, fix/ or chore/
+workriver unit add i1 --title "Mentions" --branch feat/mention --template development   # its own branch: feat/, fix/ or chore/
 workriver task fill u1#4 --title "Notify the people mentioned, with unit tests" --agent finder
 ```
 
@@ -280,7 +280,7 @@ other.
 
 A unit is recorded where its work happens: an agent over there
 records it there as usual; a manager on this machine names the machine, with the path and
-branch as they are there (`workriver unit add --template development --machine box --repo /home/me/app --branch
+branch as they are there (`workriver unit add i1 --template development --machine box --repo /home/me/app --branch
 feat/queue`), and a unit recorded in the wrong place is moved with `workriver unit move u1
 --machine box --repo … --branch …`. The same command follows a branch that was renamed, or
 rebased onto a new branch (`workriver unit move u1 --branch feat/queue-2 [--base main-2]`): the

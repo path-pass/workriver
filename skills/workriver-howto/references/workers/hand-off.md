@@ -84,7 +84,7 @@ session is resumed:
 
 Check it before handing out work: in the new worker, `workriver task show <task>` answers
 instead of being refused. If the harness has no such option, its workers cannot record
-from that harness: tell the user (`workriver chore add`). Nothing in the user's own
+from that harness: tell the user (`workriver chore add <intent> --title "…"`). Nothing in the user's own
 configuration has to change, and the background service may keep running for their other
 sessions.
 

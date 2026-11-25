@@ -34,7 +34,7 @@ finds its branch in whichever worktree has it, uncommitted work included. A proj
 holding several repositories: one worktree folder next to each (`proj/front.worktrees/u3`),
 never a worktree directly in the project folder (it would read as another repository).
 
-    workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch feat/mention --template development [--base main] [--repo PATH]
+    workriver unit add i3 --title "Mentions" --purpose "Let people @ each other" --branch feat/mention --template development [--base main] [--repo PATH]
     workriver task fill u1#1 --title "Shape the notifications" --agent finder [--plan src/notify] [--text "…"]
 
 Every unit names a **template** (`--template`), chosen by its description from `workriver
@@ -59,7 +59,7 @@ Work of the intent, not of one code unit (comparing approaches, a design across
 repositories) is a **research unit**: no repository, branch or base, never merged. It takes
 research, design, review and gate tasks; implementing goes in a code unit.
 
-    workriver unit add --kind research --title "Sync engine" --purpose "Pick one for offline chat" --template research
+    workriver unit add i3 --kind research --title "Sync engine" --purpose "Pick one for offline chat" --template research
     workriver task fill u2#1 --title "Compare sync engines" --agent scout
 
 When its work is delivered and decided it is "ready to close": `workriver unit done u2
@@ -81,8 +81,8 @@ or `--cause` naming findings of a task in the same unit.
 
 **You will see:** the unit id (`u1`), task refs (`u1#1`).
 
-**Refusals:** "no intent given, and workspace ws1 has no current intent; its manager starts
-one" - `start-intent`. "a unit names its template …" / "template … is for a … unit" - name
+**Refusals:** Missing `<INTENT>` - give the intent's id (`workriver backlog list`).
+"a unit names its template …" / "template … is for a … unit" - name
 one made for the unit's kind, from the list it prints (`templates`). "… is not a git repository" / "base … is not a commit or branch" - fix
 `--repo` or `--base`. "i3 is an intent: tasks go into a unit … workriver unit add i3 --kind research … --template research …" - add a research
 unit and fill its step (or add the task there). "u2 is a research unit: it takes research, design, review and gate tasks" -

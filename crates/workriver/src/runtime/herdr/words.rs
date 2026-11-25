@@ -130,8 +130,7 @@ the user's (the CLI sends the user token, `<WORKRIVER_HOME>/user-token`). Anythi
 refused: a command that names a pane it does not run in, one with no terminal in no pane,
 a request that is not this CLI's. Nobody is anyone by saying so. Decisions as the user, gates, chores done, projects, machines, workspaces and their
 managers' seats are the user's alone. A workspace is workriver's own (ws1…), not Herdr's:
-an agent's is the one it manages, else the one its tasks are in, and commands that take an
-intent may then leave it out (that workspace's current one).";
+an agent's is the one it manages, else the one its tasks are in.";
 
 pub const HELP_AS: &str = "For tests and development: record as this agent instead of the one in this Herdr pane. Refused unless the service was started with WORKRIVER_ALLOW_AS=1; never the user";
 pub const HELP_SERVE: &str = "Run the daemon: records events, reads git, follows the agents in Herdr, serves the web UI. Data lives in $WORKRIVER_HOME (default ~/workriver-data)";
@@ -140,8 +139,6 @@ pub const HELP_MACHINE: &str = "Other machines whose agents (in their own Herdr)
 pub const HELP_WORKSPACE: &str = "Workspaces: workriver's own (ws1…), each in a project, with one manager the user seats; not Herdr's workspaces, which decide nothing";
 pub const HELP_MANAGER: &str = "The manager: the one agent per workspace, seated by the user, that splits work and hands it out";
 pub const HELP_TASK_SHOW: &str = "Everything about one task that you may see, in full: what it asks, where the work is, the findings it must answer with all that was added to them and every decision, steps, its output, commits and questions. Read it before you start a task. Without a task, in an agent's pane: the task that agent is on";
-pub const HELP_CHORE_INTENT: &str = "The intent it belongs to (i1…); default: the current intent of your workspace";
-pub const HELP_UNIT_INTENT: &str = "The intent it serves (i1…); default: the current intent of your workspace";
 
 /// `workriver machine add`'s option for where the runtime's socket is over there: its id,
 /// its flag and its help.

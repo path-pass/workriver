@@ -9,7 +9,7 @@ unit (commits, uncommitted work, the code view), but **never merged**. Give it i
 worktree like any code unit; the unit still names the repository:
 
     git -C <repo> fetch && git -C <repo> worktree add <repo>.worktrees/<unit> -b spike/<topic> origin/main
-    workriver unit add --kind spike --title "CRDT sync" --purpose "Is it fast enough offline?" --branch spike/crdt --template spike [--base main] [--repo <repo>]
+    workriver unit add i3 --kind spike --title "CRDT sync" --purpose "Is it fast enough offline?" --branch spike/crdt --template spike [--base main] [--repo <repo>]
 
 The `spike` template places two steps (`templates`): `experiment`, an implement task for the
 code (commits carry `Task: u4#1`), and `learned`, a research task for the write-up, which

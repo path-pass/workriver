@@ -1,6 +1,22 @@
 // The CLI's own tests: its parsers, its embedded guides and its links; no service runs.
 use serde_json::json;
 
+#[test]
+fn adding_units_and_chores_requires_an_explicit_destination() {
+    use clap::{Parser, error::ErrorKind};
+
+    for command in ["unit", "chore"] {
+        let error = super::Cli::try_parse_from(["workriver", command, "add", "--title", "Index"])
+            .err().expect("an explicit intent or project is required");
+        assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument, "{error}");
+        let message = error.to_string();
+        assert!(message.contains("<INTENT>") && message.contains("Usage:"), "{message}");
+    }
+    let error = super::Cli::try_parse_from(["workriver", "chore", "add", "i1", "--project", "p1", "--title", "Index"])
+        .err().expect("a chore has one destination");
+    assert_eq!(error.kind(), ErrorKind::ArgumentConflict, "{error}");
+}
+
 /// The cause forms the CLI takes, and the external id.
 #[test]
 fn cli_causes_and_external_ids() {

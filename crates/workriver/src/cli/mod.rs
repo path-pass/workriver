@@ -32,13 +32,12 @@ pub(crate) use parse::*;
 pub(crate) use planning::*;
 pub(crate) use work::*;
 
-/// What every command has to hand: the client, who records (`--as`, else whoever the service
-/// finds this to be), and where this process runs (asked of the service when it matters).
+/// What every command has to hand: the client and who records (`--as`, else whoever the service
+/// finds this to be).
 #[derive(Clone, Copy)]
 pub(super) struct Cx<'a> {
     pub(super) d: &'a Daemon,
     pub(super) actor: &'a str,
-    pub(super) here_intent: &'a dyn Fn(Option<String>) -> anyhow::Result<String>,
 }
 
 const ABOUT: &str = "Keep track of many coding agents working in parallel.
@@ -302,24 +301,9 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     if cli.actor.as_deref() == Some("user") {
         bail!(runtime::words::AS_USER_GONE);
     }
-    // Who records, and in which intent, the service finds from the place this process runs in.
-    // Which intent matters to these when none is given: the current one of the caller's workspace.
-    let needs_place = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. }));
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Message(MessageCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Template(TemplateCmd::List { .. } | TemplateCmd::Show { .. }) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
-    // Who records is the daemon's to find, from this place; the CLI only asks who it is and
-    // which workspace is its own (by the records: its seat, else its tasks') for the commands
-    // that need that workspace's current intent.
-    let here = if records && needs_place { Some(d.call("/api/here", Some(json!({})))?) } else { None };
     // `--as`, where the service allows it; else empty: whoever the service finds this to be.
-    let actor = cli.actor.clone().unwrap_or_default();
-    let actor = actor.as_str();
-    let here_intent = |given: Option<String>| {
-        given.or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string))).ok_or_else(|| match here.as_ref().and_then(|h| h["workspace"]["id"].as_str()) {
-            Some(w) => anyhow!("no intent given, and workspace {w} has no current intent; its manager starts one: `workriver backlog list`, then `workriver intent start <intent>`"),
-            None => anyhow!("no intent given, and yours cannot be told: you hold no workspace's seat, and the tasks you have are in no one workspace; name the intent (see `workriver backlog list`)"),
-        })
-    };
-    let cx = Cx { d: &d, actor, here_intent: &here_intent };
+    let actor = cli.actor.as_deref().unwrap_or_default();
+    let cx = Cx { d: &d, actor };
     let out = match cli.cmd {
         Cmd::Serve { .. } | Cmd::Guide { .. } | Cmd::Perf { .. } => unreachable!(),
         Cmd::Status => {

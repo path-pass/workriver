@@ -186,7 +186,7 @@ fn export(d: &Daemon, project: &str) -> anyhow::Result<()> {
 /// The commands of intents, units, projects, workspaces and the backlog: what each records (printed by `run` as before), or None when it
 /// printed what it had to say itself.
 pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
-    let Cx { d, actor, here_intent } = *cx;
+    let Cx { d, actor } = *cx;
     Ok(Some(match cmd {
         // Gone: nobody becomes a manager by saying so.
         Cmd::Manager(ManagerCmd::Here { .. }) => bail!("`workriver manager here` is gone: an agent does not make itself a manager. {}. Tell the user which workspace you are meant for; once seated you are told in this terminal", workriver_core::SEATING),
@@ -295,12 +295,10 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             if repo.is_some() || branch.is_some() || base.is_some() || machine.is_some() {
                 bail!("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
             }
-            let intent = here_intent(intent)?;
             d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "kind": "research", "template": template.unwrap_or_default() }))?
         }
         Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine, template }) => {
             let (repo, branch, base) = (repo.unwrap_or_else(|| ".".into()), branch.unwrap_or_default(), base.unwrap_or_else(|| "main".into()));
-            let intent = here_intent(intent)?;
             // On another machine the path is that machine's: taken as written, checked there.
             let repo = match &machine {
                 Some(m) if !Path::new(&repo).is_absolute() => bail!("--repo is a path on {m}: give it in full (it cannot be told from here)"),
@@ -631,8 +629,8 @@ pub(crate) enum UnitCmd {
     /// a branch of its own, spike/<name>, and shown like a code unit's, but never merged; it
     /// takes every task kind and is closed with `workriver unit done --reason "<what was learned>"`.
     Add {
-        #[arg(help = runtime::words::HELP_UNIT_INTENT)]
-        intent: Option<String>,
+        /// The intent it serves (i1…).
+        intent: String,
         /// code: work on a branch of its own; research: research and design, no branch;
         /// spike: an experiment on a spike/ branch, never merged.
         #[arg(long, value_parser = ["code", "research", "spike"], default_value = "code")]

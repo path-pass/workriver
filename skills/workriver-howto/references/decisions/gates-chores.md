@@ -14,10 +14,10 @@ A gate with options: "The user answered gate …: option `ID`": add what that op
 **A chore** is something the user should do that blocks nobody (stuck on the user yourself: a
 blocker, `blocked`):
 
-    workriver chore add --title "Rotate the staging key" [--unit u1] --step "Open the console => open https://example.com"
-    workriver chore add --project <path or name> --title "Renew the certificate"    # no intent
+    workriver chore add i3 --title "Rotate the staging key" [--unit u1] --step "Open the console => open https://example.com"
+    workriver chore add --project p1 --title "Renew the certificate"
 
-It prints the chore's id (`c1`).
+Give either the intent's id or `--project`. It prints the chore's id (`c1`).
 
 **Commands in steps** (`TEXT => COMMAND`): the user's page has "Run" next to each, which runs
 it as the user, in the user's own shell, in the unit's work tree (a chore with no unit: its

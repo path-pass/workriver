@@ -5,7 +5,7 @@ use super::*;
 /// The commands of tasks, findings, commits, gates, chores, attachments and a command's review: what each records (printed by `run` as before), or None when it
 /// printed what it had to say itself.
 pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
-    let Cx { d, actor, here_intent, .. } = *cx;
+    let Cx { d, actor } = *cx;
     Ok(Some(match cmd {
         Cmd::Task(TaskCmd::Show { task, json }) => {
             let shown = task_show(d, task.as_deref())?;
@@ -184,13 +184,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             d.append(actor, "gate.submitted", json!({ "unit": unit, "task": n, "result": result, "note": note, "findings": findings, "selected": select.into_iter().collect::<Vec<_>>() }))?
         }
         Cmd::Chore(ChoreCmd::Add { intent, project, title, unit, step }) => {
-            // An intent given or this workspace's; else the project given, or where this runs.
-            let intent = if project.is_some() { None } else { here_intent(intent).ok() };
-            let project = match (&intent, project) {
-                (Some(_), _) => String::new(),
-                (None, Some(p)) => project_arg(&p)?,
-                (None, None) => cwd_folder().unwrap_or_default(),
-            };
+            let project = project.as_deref().map(project_arg).transpose()?.unwrap_or_default();
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
             d.append(actor, "chore.created", json!({ "intent": intent.unwrap_or_default(), "project": project, "title": title, "unit": unit, "steps": steps }))?
         }
@@ -238,7 +232,7 @@ pub(crate) enum TaskCmd {
         json: bool,
     },
     /// Record a task in a unit; prints its ref (u1#3). Research and design for the intent as a
-    /// whole go into a research unit (`workriver unit add --kind research`), not the intent.
+    /// whole go into a research unit (`workriver unit add <intent> --kind research`), not the intent.
     ///
     /// The first task of a unit starts from the unit itself. A later one says what it
     /// follows: --after N, or --after start to run beside the first; with --cause and no
@@ -518,10 +512,10 @@ pub(crate) enum GateCmd {
 pub(crate) enum ChoreCmd {
     /// Ask the user for something that blocks nobody; prints its id (c1…).
     ///
-    /// It belongs to an intent; or, with --project (or outside any workspace with a current
-    /// intent), to a project; or, where no project can be told, to nothing.
+    /// Give either the intent's id or --project.
     Add {
-        #[arg(help = runtime::words::HELP_CHORE_INTENT)]
+        /// The intent it belongs to (i1…). Required unless --project is given.
+        #[arg(required_unless_present = "project")]
         intent: Option<String>,
         /// A chore of no intent: the project it belongs to (p1, or a folder).
         #[arg(long, conflicts_with = "intent")]
