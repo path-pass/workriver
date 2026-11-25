@@ -50,6 +50,7 @@ import type { Intent } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
+import { Dashboard } from '@/dashboard/Dashboard'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -76,6 +77,7 @@ const recall = (key: string) => { try { return localStorage.getItem(key) } catch
 export default function App() {
   const { t, lang } = useT()
   const [data, setData] = useState<Workspace | null>(null)
+  const [dashboard, setDashboard] = useState(false)
   // The service cannot be reached right now; what was shown stays.
   const [down, setDown] = useState(false)
   const [unitId, setUnitId] = useState<string | null>(null)
@@ -264,6 +266,7 @@ export default function App() {
   }, [])
   // A Markdown link leaves the destination visible, even when it names the current page.
   const navigate = useCallback((path: string) => {
+    setDashboard(false)
     setSheet(null)
     setRunning(null)
     for (const close of activeViewers.current) close()
@@ -272,7 +275,10 @@ export default function App() {
     if (latest.current) followed.current = follow(latest.current)
   }, [follow])
   useEffect(() => {
-    const back = () => { if (latest.current) followed.current = follow(latest.current) }
+    const back = () => {
+      setDashboard(false)
+      if (latest.current) followed.current = follow(latest.current)
+    }
     window.addEventListener('popstate', back)
     return () => window.removeEventListener('popstate', back)
   }, [follow])
@@ -330,6 +336,10 @@ export default function App() {
   // the cursor to the Manager box; Cmd/Ctrl+B folds the rail.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (dashboard) {
+        if (e.key === 'Escape' && !e.defaultPrevented) setDashboard(false)
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b' && !isField(e.target)) {
         e.preventDefault()
         toggleRail()
@@ -509,6 +519,8 @@ export default function App() {
   }
 
   return (
+    <>
+    {dashboard && <Dashboard onClose={() => setDashboard(false)} />}
     <ActContext.Provider value={act}>
     <RunContext.Provider value={run}>
     <ViewerContext.Provider value={viewer}>
@@ -516,8 +528,8 @@ export default function App() {
     <Topics.Provider value={topics}>
     <Spaces.Provider value={ws?.workspaces ?? NO_SPACES}>
     <AgentContext.Provider value={agentActions}>
-    <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
-      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} onIntent={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
+    <div className={`${dashboard ? 'hidden' : 'grid'} min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]`}>
+      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} onIntent={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} onDashboard={() => setDashboard(true)} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
         {missing && <p role="status" className="text-sm text-ink-2">{t('link.notFound', { ref: missing })}</p>}
@@ -601,6 +613,7 @@ export default function App() {
     </ViewerContext.Provider>
     </RunContext.Provider>
     </ActContext.Provider>
+    </>
   )
 }
 

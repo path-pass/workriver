@@ -493,6 +493,13 @@ only way in. A session that ended shows the same screen at the user's next actio
 A unit's or task's own link opened signed out lands there after `workriver open` (the
 page keeps the path for ten minutes; the tab with the link follows once it is in front).
 
+## Statistics
+
+Ten consecutive clicks on the top-left workriver mark within four seconds open the
+read-only statistics page. Nothing links to it. It reads the user's view of
+`/api/state?took=true` for manager reply ratings, intent totals, review findings and gate
+statistics. The thumbs-down table shows the rated words, folded when long.
+
 ## Addresses
 
 Each unit, intent and task has its own path, never the fragment (it carries the sign-in

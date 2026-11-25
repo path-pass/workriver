@@ -64,9 +64,11 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   localStorage.removeItem('workriver.side')
+  localStorage.removeItem('workriver.rail')
   localStorage.removeItem('workriver.notify')
   history.replaceState(null, '', before)
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   globalThis.IS_REACT_ACT_ENVIRONMENT = actEnvironment ?? false
 })
 
@@ -83,6 +85,46 @@ function type(field: HTMLInputElement | HTMLTextAreaElement, value: string) {
 
 const button = (where: ParentNode, name: string) => [...where.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent) === name)!
 const mainButton = (name: string) => button(host.querySelector('main')!, name)
+
+it('opens statistics on the tenth consecutive mark click within four seconds', async () => {
+  const read = vi.fn(async () => Response.json({
+    intents: [], intent_took: [], units: [],
+    messages: [{ id: 'm1', text: 'The user question', replies: [
+      { text: 'An earlier answer', rating: { vote: 'up', at } },
+      { text: 'The rated answer', rating: { vote: 'down', at, note: 'Missed the question' } },
+    ] }],
+  }))
+  vi.stubGlobal('fetch', read)
+  let now = 10_000
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
+  render()
+  expect(host.querySelector('a[href*="dashboard"]')).toBeNull()
+  const click = (count: number) => {
+    const mark = button(host, 'workriver')
+    for (let n = 0; n < count; n++) mark.click()
+  }
+  act(() => click(9))
+  expect(heading()).toContain('First intent')
+  expect(read).not.toHaveBeenCalled()
+  now += 4001
+  act(() => click(1))
+  expect(heading()).toContain('First intent')
+  act(() => host.querySelector('main')!.click())
+  act(() => click(9))
+  expect(read).not.toHaveBeenCalled()
+  now += 3999
+  await act(async () => click(1))
+  await act(async () => { await vi.dynamicImportSettled() })
+  expect(heading()).toBe('Statistics')
+  expect(read).toHaveBeenCalledExactlyOnceWith('/api/state?took=true')
+  expect(host.querySelector('main')?.textContent).toContain('50%')
+  expect(host.querySelector('main')?.textContent).toContain('Missed the question')
+  expect(host.querySelector('main')?.textContent).toContain('The rated answer')
+  expect(host.querySelector('main')?.textContent).not.toContain('An earlier answer')
+  expect(location.pathname).toBe('/i1')
+  act(() => mainButton('Back to workriver').click())
+  expect(heading()).toContain('First intent')
+})
 
 async function dialogLink(path: string) {
   await act(async () => { await vi.dynamicImportSettled() })

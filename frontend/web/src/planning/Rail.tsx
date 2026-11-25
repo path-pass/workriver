@@ -4,7 +4,7 @@
 // planned intents (ordered by dragging, added to inline), its done ones folded; "Add project"; settings. What asks something of the
 // user and where the agents are live in the side panel on the right.
 import { Waves } from 'lucide-react'
-import { useEffect, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/ui/primitives/dialog'
@@ -17,7 +17,7 @@ import { repoOf } from '@/code/select'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
 import { useResize } from '@/lib/useResize'
-import { RAIL_WIDTH } from '@/config/defaults'
+import { DASHBOARD_CLICKS, RAIL_WIDTH } from '@/config/defaults'
 import { record, setSpace } from '@/api/actions'
 import type { Intent, Unit } from './types'
 import type { Space } from '@/agents/types'
@@ -134,6 +134,7 @@ interface Props {
   onIntent: (id: string) => void
   /** The rail's width settled anew (a drag ended): what fits itself to the room refits. */
   onWidth?: (w: number) => void
+  onDashboard: () => void
 }
 
 /** How the intent's manager is: working, idle and so on, not running, or none registered (amber: its findings reach no one). */
@@ -497,8 +498,28 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
   )
 }
 
-export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, project, onProject, onStart, onIntent, onWidth }: Props) {
+export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, project, onProject, onStart, onIntent, onWidth, onDashboard }: Props) {
   const { t } = useT()
+  const mark = useRef<HTMLButtonElement>(null)
+  const streak = useRef({ first: 0, count: 0 })
+  useEffect(() => {
+    const reset = (e: MouseEvent) => {
+      if (mark.current && !e.composedPath().includes(mark.current)) streak.current.count = 0
+    }
+    document.addEventListener('click', reset, true)
+    return () => document.removeEventListener('click', reset, true)
+  }, [])
+  const clickMark = () => {
+    const now = Date.now()
+    const s = streak.current
+    if (!s.count || now - s.first > DASHBOARD_CLICKS.within) {
+      streak.current = { first: now, count: 1 }
+    } else if (++s.count === DASHBOARD_CLICKS.count) {
+      s.count = 0
+      onDashboard()
+    }
+  }
+  const brand = <button ref={mark} type="button" aria-label={t('session.title')} onClick={clickMark} className="flex flex-none rounded-sm focus-visible:ring-2 focus-visible:ring-ring"><Waves aria-hidden size={20} strokeWidth={1.6} /></button>
   // The right edge drags the width, between narrow and roomy; double-click: the default.
   const size = useResize({ key: 'workriver.rail.width', variable: '--rail-w', ...RAIL_WIDTH, edge: 'right' })
   useEffect(() => onWidth?.(size.size), [onWidth, size.size])
@@ -552,7 +573,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   if (!railOpen)
     return (
       <aside className="rail sticky top-0 flex h-screen w-11 flex-col items-center gap-2 bg-rail pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto max-[860px]:flex-row max-[860px]:px-3 max-[860px]:py-2">
-        <Waves aria-hidden size={20} strokeWidth={1.6} className="flex-none" />
+        {brand}
         <span className="text-lg font-[650] tracking-[-0.01em] min-[861px]:hidden">workriver</span>
         <Fold open={false} onToggle={onToggle} />
         <Blocked ws={ws} />
@@ -614,7 +635,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       {/* Not on a narrow screen, where the rail is a row of its own. */}
       <div {...size.handle} aria-label={t('rail.resize')} className="edge max-[860px]:hidden" data-edge="right" />
       <div className="flex items-center gap-2 pl-1 text-lg font-[650] tracking-[-0.01em]">
-        <Waves aria-hidden size={20} strokeWidth={1.6} className="flex-none" />
+        {brand}
         workriver
         <span className="min-w-0 flex-1 truncate font-normal text-rail-ink-2">{repo}</span>
         <RailFilter filter={filter} onChange={filterBy} tags={tagsOf(listed)} />
