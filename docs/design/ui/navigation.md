@@ -440,7 +440,9 @@ its sections went.
 - **Agents** are not in a unit, because a session crosses units. They are a tree, as a list
   (indentation and thin guide lines, no cards; it reads at 340 px and up to 720 px), by the
   workspace the records put each in: the one whose seat it holds, else the one workspace of
-  the tasks it has; never by where the runtime shows its terminal. A group's heading is the
+  the tasks it has; never by where the runtime shows its terminal. A live worker with no
+  recorded workspace and no running task goes under the workspace of the task it holds,
+  or of its last delivery if it holds none. A group's heading is the
   workspace's name and its id in mono (its project in its tooltip) and, quietly, the title of
   its current intent (or "no manager"); groups with someone working come first,
   then by name. Agents with tasks that are in no one workspace come last, under "In no
