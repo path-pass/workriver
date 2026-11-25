@@ -257,6 +257,39 @@ fn what_came_of_a_press() {
     assert_eq!(pressed(&t).len(), 3);
 }
 
+#[test]
+fn a_checklist_moves_and_toggles_before_its_submit_row_answers() {
+    let t = service(Duration::from_millis(200), Duration::from_secs(5));
+    let initial = include_str!("../../../../workriver-core/src/screens/__fixtures__/claude-mcp-initial.txt");
+    let down = include_str!("../../../../workriver-core/src/screens/__fixtures__/claude-mcp-down.txt");
+    let toggled = include_str!("../../../../workriver-core/src/screens/__fixtures__/claude-mcp-toggled.txt");
+    let submit = include_str!("../../../../workriver-core/src/screens/__fixtures__/claude-mcp-submit.txt");
+    t.fake.shown.lock().unwrap().insert("p2".into(), initial.into());
+    t.fake.agents.lock().unwrap()[1].1.state = Idle;
+    wait_until("the idle agent waits on the checklist", || waits_on(&t, "s-a").is_some_and(|(_, screen)| screen));
+    then(&t, "p2", &[(down.into(), None), (toggled.into(), None), (submit.into(), None), (String::new(), Some(Idle))]);
+    let (_, initial) = screen(&t, "s-a");
+    assert_eq!(initial["waiting"], "screen");
+
+    let (code, down) = press(&t, "s-a", &initial["digest"], json!({ "key": "down" }));
+    assert_eq!((code, down["outcome"].as_str()), (200, Some("open")), "{down}");
+    let (code, stale) = press(&t, "s-a", &initial["digest"], json!({ "key": "space" }));
+    assert_eq!((code, stale["code"].as_str()), (409, Some("changed")), "{stale}");
+    let (code, toggled) = press(&t, "s-a", &down["screen"]["digest"], json!({ "key": "space" }));
+    assert_eq!((code, toggled["outcome"].as_str()), (200, Some("open")), "{toggled}");
+    assert!(toggled["screen"]["text"].as_str().unwrap().contains("❯ [ ] beta"));
+    let (code, submit) = press(&t, "s-a", &toggled["screen"]["digest"], json!({ "key": "down" }));
+    assert_eq!((code, submit["outcome"].as_str()), (200, Some("open")), "{submit}");
+    let reads = || t.fake.reads.lock().unwrap().iter().filter(|p| p.as_str() == "p2").count();
+    let at_submit = reads();
+    wait_until("two polls read the submit row", || reads() >= at_submit + 2);
+    assert_eq!(screen(&t, "s-a").1["waiting"], "screen");
+    let (code, answered) = press(&t, "s-a", &submit["screen"]["digest"], json!({ "key": "enter" }));
+    assert_eq!((code, answered["outcome"].as_str()), (200, Some("answered")), "{answered}");
+    wait_until("the checklist no longer holds the agent", || waits_on(&t, "s-a").is_none());
+    assert_eq!(bodies(&t.db, "agent.keys").iter().map(|b| b["keys"].clone()).collect::<Vec<_>>(), [json!(["down"]), json!(["space"]), json!(["down"]), json!(["enter"])]);
+}
+
 /// Tests 5 and 6. Only to an agent that waits; one writer at a time; keys of the set only.
 #[test]
 fn one_writer_and_only_keys() {

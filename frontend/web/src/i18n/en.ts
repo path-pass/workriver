@@ -469,8 +469,8 @@ export const en = {
     other: 'Other keys',
     press: 'Press {{key}}',
     openView: 'Open terminal view',
-    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab' },
-    keyName: { up: 'Up', down: 'Down', enter: 'Enter', escape: 'Escape', tab: 'Tab' },
+    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab', space: 'Space' },
+    keyName: { up: 'Up', down: 'Down', enter: 'Enter', escape: 'Escape', tab: 'Tab', space: 'Space' },
     outcome: {
       answered: 'Answered.',
       open: 'Sent; the question is still open. An answer that takes text is given in its terminal.',

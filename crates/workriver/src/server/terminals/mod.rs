@@ -252,7 +252,7 @@ pub(in crate::server) async fn agent_keys(State(app): State<Shared>, Extension(c
     let p = &v["press"];
     let press = match (p.get("option"), p.get("key")) {
         (Some(o), None) => Press::Option(o.as_u64().filter(|n| (1..=9).contains(n)).ok_or_else(|| invalid("an option is its number, 1 to 9"))? as usize),
-        (None, Some(k)) => Press::Key(k.as_str().and_then(Key::named).ok_or_else(|| invalid("a key is one of up, down, enter, escape, tab, 1-9; never text"))?),
+        (None, Some(k)) => Press::Key(k.as_str().and_then(Key::named).ok_or_else(|| invalid("a key is one of up, down, enter, escape, tab, space, 1-9; never text"))?),
         _ => return Err(invalid("press one option or one key")),
     };
     let done = tokio::task::spawn_blocking(move || app.answer(&agent, machine.as_deref(), &shown, press)).await.map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "failed", e.to_string()))??;
