@@ -14,7 +14,7 @@ its sections went.
   project's first unit, or its empty state – the start guide naming the project – when it has
   none, and sets the address; the unit on screen stays when it belongs to the project picked;
   the Manager section follows to the project's manager, `conversations.md`),
-  search (unit ids, titles and purposes, and intent ids: an intent's id shows it with all its
+  search (unit ids, titles and purposes, and intent ids: an intent's id matches all its
   units), then four levels: **project → workspace → intent → unit**. Each project is a
   section under a quiet heading (its title with "All projects"; "Workspaces" with one project
   picked), with a quiet "+" that adds a workspace to it (a small popover: its name, which is
@@ -208,10 +208,22 @@ its sections went.
   project (`workriver.filter.<folder>`, `*` for all), like the project switch. The roadmap is
   never re-sorted by it: its order is the user's priority; drag and Alt+↑/↓ move a row
   relative to the rows shown, recorded before or after that row as without a filter. Search
-  matches a tag too: an intent whose tag holds the text shows with all its units, a planned
+  matches a tag too: an intent whose tag holds the text matches all its units, a planned
   one with its row. The inline "+" has a kind select under the goal (optional, "Kind" as
   placeholder); size and tags are set on the page. Sorting or grouping by kind is not the
   rail's (a board view of intents would do it, from the same fields).
+- **Unit state in the rail.** The same filter popover has checkboxes for Working, Waiting,
+  Ready to merge / Ready to close, Merged and Done. With none checked, all unit states
+  show. With one or more checked, a unit shows if its state matches any of them as well
+  as the search and intent filters. The currently open unit stays in the rail if it meets
+  those other filters, regardless of its state. While a unit state is checked, active and
+  done intent groups with no visible units and workspaces with no matching intents are
+  hidden. The rail temporarily opens the intents, workspaces and Done sections that
+  contain visible units, keeping their manual fold choices. The roadmap keeps its own
+  filters and order. The browser remembers the unit-state choice across project switches
+  and reloads. The filter button counts checked states and intent filters together. The
+  notice under the top row lists the checked unit states using the popover's labels, with
+  the intent count also shown when intent filters are active. "Clear" clears both.
 
 ## An intent's page
 

@@ -40,12 +40,13 @@ export interface BacklogFinding {
  */
 export type IntentState = 'planned' | 'active' | 'done' | 'dropped';
 
+export const UNIT_PROGRESS = ['working', 'waiting', 'ready', 'merged', 'done'] as const
+export type UnitProgress = (typeof UNIT_PROGRESS)[number]
+
 /**
  * A goal in a project and the units that serve it. It runs in a workspace of its project
  * once it is started; a workspace may run several.
  */
-export type UnitProgress = 'working' | 'waiting' | 'ready' | 'merged' | 'done'
-
 export interface Intent {
   id: string;
   /** Still active, with every unit merged or done: its manager can close it. */
