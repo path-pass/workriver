@@ -66,7 +66,10 @@ impl Daemon {
     pub(crate) fn unreachable(&self, e: impl std::fmt::Display) -> anyhow::Error {
         match THROUGH.get() {
             Some(host) => anyhow!(
-                "cannot reach workriver on {host} through the ssh tunnel (port {}, from ~/{}; it may be reconnecting); try again shortly ({e})",
+                "cannot reach workriver through the SSH tunnel (port {}, {e}). \
+                 The service runs on {host} and starts the tunnel there. \
+                 When {host} returns, including after sleep, the tunnel reconnects automatically and the new port is written to ~/{}. \
+                 Nothing to start or fix here. Retry the same command shortly.",
                 self.port,
                 crate::common::home::PORT_FILE
             ),

@@ -7,6 +7,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 
 mod report;
 
@@ -112,5 +113,47 @@ pub fn kind_of(error: &str) -> &'static str {
         _ if e.contains("forwarding") || e.contains("address already in use") => "forward",
         _ if e.contains("slept") => "sleep",
         _ => "other",
+    }
+}
+
+/// Records the wall-clock gap between service checks, allowing for ordinary scheduling delays.
+pub fn log_pause(last: &mut SystemTime, now: SystemTime) {
+    let from = std::mem::replace(last, now);
+    if let Ok(gap) = now.duration_since(from)
+        && gap > Duration::from_secs(10)
+    {
+        tracing::info!(target: "perf", kind = "service_pause", from = %humantime::format_rfc3339(from), to = %humantime::format_rfc3339(now), ms = gap.as_millis() as u64);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_service_pause_is_logged_and_reported_once() {
+        let home = tempfile::tempdir().unwrap();
+        let subscriber = tracing_subscriber::fmt().json().flatten_event(true).with_writer(Log::new(home.path())).finish();
+        let start = humantime::parse_rfc3339("2026-01-01T01:00:00Z").unwrap();
+        let mut last = start;
+        tracing::subscriber::with_default(subscriber, || {
+            for seconds in [2, 4, 964, 966, 954, 956] {
+                log_pause(&mut last, start + Duration::from_secs(seconds));
+            }
+        });
+        assert_eq!(last, start + Duration::from_secs(956));
+        let paths = files(home.path());
+        assert_eq!(paths.len(), 1, "one timing log with the recorded pause");
+        let log = std::fs::read_to_string(&paths[0]).unwrap();
+        assert_eq!(log.lines().count(), 1, "{log}");
+        let pause: serde_json::Value = serde_json::from_str(log.trim_end()).unwrap();
+        assert_eq!(pause["kind"], "service_pause");
+        assert_eq!(pause["from"], "2026-01-01T01:00:04Z");
+        assert_eq!(pause["to"], "2026-01-01T01:16:04Z");
+        assert_eq!(pause["ms"], 960_000);
+        let report = summary(home.path(), None, 10);
+        assert!(report.contains("Service pauses"), "{report}");
+        assert!(report.contains("2026-01-01T01:00:04Z to 2026-01-01T01:16:04Z"), "{report}");
+        assert!(report.contains("960.0 s"), "{report}");
     }
 }

@@ -344,8 +344,9 @@ files are older than another's last build would run that other worktree's code.
   elsewhere ([runtimes/herdr.md](runtimes/herdr.md#troubleshooting)).
 - **Something is slow**: the service keeps a timing log in `~/workriver-data/logs/`
   (`perf.jsonl`, five files of 5 MB at most). `workriver perf [--since 1h]` sums it up:
-  the slowest requests, how long snapshots and each unit took, how long other machines
-  were disconnected. For each git and ssh call too, start the service with `workriver
+  the slowest requests, how long snapshots and each unit took, gaps between service
+  checks longer than 10 seconds, and how long other machines were disconnected. For each
+  git and ssh call too, start the service with `workriver
   serve --perf-detail` (or `WORKRIVER_PERF=detail`). `workriver perf --bundle` writes the
   summary and the newest lines into one file and prints its path: that is the file to
   send. It holds times, counts, route templates (`/api/task`, never the query), unit ids

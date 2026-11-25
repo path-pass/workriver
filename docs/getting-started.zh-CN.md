@@ -282,7 +282,8 @@ Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` �
   answer*：运行时在那边没有运行，或者它在别处（[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#排错)）。
 - **有东西很慢**：服务在 `~/workriver-data/logs/` 里记一份计时日志（`perf.jsonl`，最多 5 个文件、
   每个 5 MB）。`workriver perf [--since 1h]` 给出汇总：最慢的请求、每次快照和每个单元花了多久、
-  其他机器断开了多久。要连每一次 git 和 ssh 调用也记下来，用 `workriver serve --perf-detail`
+  服务两次检查之间超过 10 秒的空档，以及其他机器断开了多久。要连每一次 git 和 ssh 调用也记下来，
+  用 `workriver serve --perf-detail`
   （或者 `WORKRIVER_PERF=detail`）启动服务。`workriver perf --bundle` 把汇总和最新的几行写进一个
   文件并打印路径：要发的就是这个文件。里面只有时间、次数、路由模板（`/api/task`，从不含查询参数）、
   单元 id 和机器名；从不包含提交说明、文件内容、任务文本、发现、补充说明、提示词、令牌、cookie 或
