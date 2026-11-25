@@ -100,16 +100,16 @@ its sections went.
 A review's output is a list of findings, and they live in the review, not on the graph.
 A decision is not a node. Each finding gets one of four outcomes: accepted (work was
 handed out for it: one finding may lead to several nodes, several findings to one node),
-revised (the same, but fixed the user's way: a note is required and travels to the manager;
-shown like accepted with a small pencil), rejected (struck through), or deferred (quiet,
+revised (like accepted, with the fix specified in the required note and a small pencil),
+rejected (struck through), or deferred (quiet,
 with a clock; it waits in the project's backlog, becomes scheduled with a clock when picked
 to be done together, done when the work it caused is delivered, or dropped with a reason,
 all quiet); until then it is open. The buttons read Accept, Revise, Reject, Defer;
-Revise waits for the note. Every decision goes to the manager of the workspace the intent
-runs in.
-An agent may decide on its own: such a finding carries a small neutral robot mark, a
-decision by the user none. An open finding may carry the agent's suggestion, and its
-reason once the row is opened.
+Revise waits for the note. The user's decisions go to the manager of the workspace the
+intent runs in.
+An agent must give a non-blank reason when it decides. Such a finding carries a small
+neutral robot mark. The decision's note appears in the expanded row. An open finding may
+carry the agent's suggestion and show its reason once the row is opened.
 A review node's name gives way before what it found: with counts under it the name stays on
 one line and is cut with an ellipsis when too long (アーキテクチャレ…), and the counts keep
 their line; without findings the name is cut the same way, and the punctuation after it and
@@ -231,17 +231,19 @@ records it and delivers it to the agents through Herdr.
   delivery line are as for any gate. Submitted, the output shows "Chose: <the option's
   words>" ("Chose: Other"), then the note and pictures.
 
-- **An open finding** takes one of four decisions, Accept, Revise, Reject or Defer, with an
-  optional one-line note; the agent's suggestion, if any, is the filled button. The row
-  takes its new state at once and every count drops (the task's badge, Needs you, the rail).
-- **Delivery.** A gate's result and a decision then show where their message is: not
+- **An open finding** takes one of four decisions, Accept, Revise, Reject or Defer. The
+  user's one-line note is required for Revise and optional for the other decisions.
+  The agent's suggestion, if any, is the filled button. The row takes its new state at
+  once and every count drops (the task's badge, Needs you, the rail).
+- **Delivery.** A gate's result and a user's decision then show where their message is: not
   delivered yet (and "Undo" until it goes out), delivered to the agent, picked up by it (it
   started working after the message arrived), or not delivered with the reason in the
   user's language (no manager, manager not running, Herdr not reachable, Herdr refused;
   the service's own words in a tooltip), or held while its receiver is on a blind task in
   progress ("Waiting: … is on a blind task", why in a tooltip): it goes once that task is
   delivered, and a restart in between marks it not delivered (the service restarted), so it
-  can be sent again. Starting an intent says the same in its dialog. Every decision goes to the intent's manager agent
+  can be sent again. Starting an intent says the same in its dialog. The user's finding
+  decisions go to the intent's manager agent
   ("sent to the manager bot"), which turns accepted findings into tasks and tells the
   workers what they need; a gate's result goes to the agent waiting behind it, else the
   manager. The service writes and sends the message; the line shows its record, and the

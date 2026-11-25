@@ -50,7 +50,7 @@ export type Severity = 'P1' | 'P2' | 'P3';
 
 /**
  * open: waiting for the user's decision. accepted: work was handed out for it. revised: to
- * be fixed the user's way (their note says how), work handed out like accepted.
+ * be fixed as the decision's note says, with work handed out like accepted.
  * rejected: decided against. deferred: put off, waiting in the project's backlog.
  * scheduled: picked with others to be done together. done: the work it caused was
  * delivered. dropped: taken out of the backlog; it will not be done.
@@ -79,7 +79,7 @@ export interface Finding {
   decided?: string;
   /** While open: what the agent suggests, with one sentence of why. */
   recommendation?: { decision: 'accept' | 'reject' | 'defer'; reason: string };
-  /** The user's one line with a decision. */
+  /** The note recorded with the decision. */
   note?: string;
   /** Pictures that show it (screenshots from a manual test). */
   attachments?: Attachment[];

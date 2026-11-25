@@ -146,7 +146,7 @@ fn whose(state: &State, unit: &str, n: u32, list: &[&Finding]) -> String {
     let policy = state.intent_of(unit).and_then(|i| state.intents.iter().find(|x| x.id == i)).map(|i| i.findings).unwrap_or_default();
     if policy.managers() {
         format!(
-            "{}. They are yours to decide: `workriver finding decide {unit}#{n} <id> accept|revise|reject|defer [--note \"...\"]` (`workriver board {unit}` lists them); then hand out work for what you accept. The user may decide any of them instead, or change what you decided.",
+            "{}. They are yours to decide: `workriver finding decide {unit}#{n} <id> accept|revise|reject|defer --note \"...\"` (`workriver board {unit}` lists them); then hand out work for what you accept. The user may decide any of them instead, or change what you decided.",
             per.join(", ")
         )
     } else {

@@ -40,6 +40,22 @@ const show = (u: Unit) => act(() => root.render(
 const files = () => [...host.querySelectorAll('.ctx')].map(e => e.textContent)
 const pictures = () => [...host.querySelectorAll('.thumb img')].map(e => e.getAttribute('src'))
 
+describe('a finding decided by the manager', () => {
+  it('shows the reason in its details without a delivery record', () => {
+    const review: Task = {
+      id: '2', kind: 'review', state: 'done', taskId: '2', title: 'Review tokens', agent: null, writing: false,
+      inputs: [{ from: '1', primary: true }], input: { text: '', causes: [] }, plans: [],
+      output: { findings: [{
+        id: 'P2-1', severity: 'P2', problem: 'Expired tokens still work', impact: '', evidence: [],
+        state: 'accepted', decidedBy: 'agent', note: 'Expired tokens can be reused', leadsTo: [],
+      }] },
+    }
+    show(unit(review))
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Details of P2-1"]')!.click())
+    expect(host.textContent).toContain('Expired tokens can be reused')
+  })
+})
+
 describe('a gate’s attachments', () => {
   it('show while it waits, next to the form', () => {
     show(unit(gate))

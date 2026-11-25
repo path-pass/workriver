@@ -1,5 +1,5 @@
-// A review's findings: each with its decision (the user's, or the one taken in this sitting
-// on its way), and the line that follows a decision or a gate's result to the agents.
+// A review's findings and their decisions, with the line that follows a user's decision
+// or a gate's result to the agents.
 import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Input } from '@/ui/primitives/input'
@@ -113,7 +113,7 @@ export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }
   )
 }
 
-/** The decision taken in this sitting, on its way, with its note. */
+/** The decision's note and its delivery, when present. */
 export function Decided({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
   const { t } = useT()
   return (
@@ -149,7 +149,6 @@ export function FindingNotes({ f, id = false }: { f: Finding; id?: boolean }) {
 /** One finding of the picked review: a line to scan, its details behind the chevron. */
 function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: Task; f: Finding; picked: boolean; onSelect: () => void; onPick: (id: string) => void }) {
   const { t } = useT()
-  const act = useAct()
   const row = useRef<HTMLDivElement>(null)
   // Arriving from the work a finding caused, the finding may sit below the fold of the list.
   useEffect(() => { if (picked) row.current?.scrollIntoView({ block: 'nearest' }) }, [picked])
@@ -172,7 +171,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         {f.decidedBy === 'agent' && (
           <span className="flex h-7 items-center text-ink-2"><Mark name="agent" label={t('finding.byAgent')} /></span>
         )}
-        {/* Revised: like accepted, the user's way; a pencil says so. */}
+        {/* Revised: the note specifies the fix, and the pencil marks the decision. */}
         {f.state === 'revised' && <span className="flex h-7 items-center text-ink-2"><Mark name="pen" label={t('finding.revised')} /></span>}
         {(f.state === 'accepted' || f.state === 'revised') && !f.leadsTo.length ? (
           // Decided here and not turned into tasks yet: the manager bot has it.
@@ -207,7 +206,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         {f.evidence.length > 0 && <div><span className="text-ink-2">{t('io.field', { name: t('io.evidence') })}</span><span className="font-mono">{f.evidence.join(t('list.sep'))}</span></div>}
         <Thumbs list={f.attachments ?? []} />
         <FindingNotes f={f} />
-        {f.state === 'open' ? <Decide unit={unit} task={n} f={f} /> : act.delivery[findingKey(unit, n, f)] || f.delivery ? <Decided unit={unit} task={n} f={f} /> : null}
+        {f.state === 'open' ? <Decide unit={unit} task={n} f={f} /> : <Decided unit={unit} task={n} f={f} />}
         {/* The manager's decision stands until the user makes another: theirs overrides it. */}
         {f.decidedBy === 'agent' && ['accepted', 'revised', 'rejected', 'deferred'].includes(f.state) && (
           <div className="mt-2">

@@ -2,6 +2,11 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-26
+
+- **A finding decision needs a reason** (agents): give a non-blank `--note` when you
+  accept, revise, reject or defer a finding. For `revise`, say how to fix it. (`deciding-findings`)
+
 ## 2026-11-23
 
 - **Attachments may be gone** (managers and workers): the user can set a rule that deletes

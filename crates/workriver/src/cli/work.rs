@@ -447,6 +447,7 @@ pub(crate) enum FindingCmd {
         /// `revise`: it must be fixed, but the way the note says (a note is required).
         #[arg(value_parser = ["accept", "revise", "reject", "defer"])]
         decision: String,
+        /// Reason for the decision, required for agents and for any revision.
         #[arg(long, default_value = "")]
         note: String,
     },

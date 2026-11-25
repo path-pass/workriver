@@ -305,7 +305,7 @@ impl State {
                     _ if user => return no(format!("finding {finding} of {unit}#{task} is {}; that is no longer changed here", name(&f.state))),
                     _ => return no(format!("finding {finding} of {unit}#{task} is already {}; only the user changes a decision", name(&f.state))),
                 };
-                if decision == Decision::Revise && blank(&note) {
+                if user && decision == Decision::Revise && blank(&note) {
                     return no("revise needs a note saying how it is to be fixed: --note \"...\"");
                 }
                 // An agent decides only what is the intent's manager's to decide, and only as
@@ -321,6 +321,9 @@ impl State {
                     }
                     if self.manager_of(intent) != Some(actor) {
                         return no(format!("finding {finding} of {unit}#{task} is for the manager of intent {intent} to decide (or the user), not for other agents"));
+                    }
+                    if blank(&note) {
+                        return no("an agent's finding decision needs a reason (--note \"...\")");
                     }
                 }
                 FindingDecided { unit, task, finding, decision, note, by: if user { Who::User } else { Who::Agent }, was }

@@ -484,7 +484,7 @@ fn findings_after_the_fact() {
     assert_eq!((finding(0)["decider"].as_str(), finding(0)["noManager"].as_bool()), (Some("manager"), None), "the manager's to decide while one runs");
 
     // Decided by the manager; work handed out for it.
-    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "decision": "accept" })).unwrap();
+    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "decision": "accept", "note": "Tokens need an expiry" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Expire tokens", "causes": [{ "task": 2, "findings": ["P1-1"] }], "agent": "s-fix" })).unwrap();
 
     // The reviewer adds a requirement to the decided finding, with a file.
