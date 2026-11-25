@@ -369,9 +369,8 @@ when you ask. Typing into an agent's terminal is acting as you, so:
   comes from the page itself (`Sec-Fetch-Site: same-origin`; a missing header is refused
   too). The CLI's token is not a page's to add. No CORS headers: no other origin reads the
   answers. Every answer is `Cache-Control: no-store`.
-- **Only keys, only these.** What may be sent is Up, Down, Enter, Escape, Tab, a digit 1–9,
-  or Space when the parsed dialog has a checkbox selected:
-  the page names an option by its number or one key by its name, never text, a sequence, a
+- **Only keys, only these.** What may be sent is Up, Down, Enter, Escape, Tab, Space or a digit 1–9.
+  The page names an option by its number or one key by its name, never text, a sequence, a
   size or a paste. A screen can say anything; the page has no other way to type.
 - **Only to the screen you saw, at one place, once.** The service, never the page, reads the
   screen, parses it and sends the keys. The page sends what you pressed with the digest the

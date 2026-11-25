@@ -260,11 +260,6 @@ fn what_came_of_a_press() {
 #[test]
 fn a_checklist_moves_and_toggles_before_its_submit_row_answers() {
     let t = service(Duration::from_millis(200), Duration::from_secs(5));
-    let (_, ordinary) = screen(&t, "s-a");
-    let (code, _) = press(&t, "s-a", &ordinary["digest"], json!({ "key": "space" }));
-    assert!(code >= 400);
-    assert!(pressed(&t).is_empty());
-
     let initial = include_str!("../../../../workriver-core/src/screens/__fixtures__/claude-mcp-initial.txt");
     let down = include_str!("../../../../workriver-core/src/screens/__fixtures__/claude-mcp-down.txt");
     let toggled = include_str!("../../../../workriver-core/src/screens/__fixtures__/claude-mcp-toggled.txt");
@@ -275,9 +270,6 @@ fn a_checklist_moves_and_toggles_before_its_submit_row_answers() {
     then(&t, "p2", &[(down.into(), None), (toggled.into(), None), (submit.into(), None), (String::new(), Some(Idle))]);
     let (_, initial) = screen(&t, "s-a");
     assert_eq!(initial["waiting"], "screen");
-    let (code, _) = press(&t, "s-a", &initial["digest"], json!({ "option": 1 }));
-    assert!(code >= 400);
-    assert!(pressed(&t).is_empty());
 
     let (code, down) = press(&t, "s-a", &initial["digest"], json!({ "key": "down" }));
     assert_eq!((code, down["outcome"].as_str()), (200, Some("open")), "{down}");
@@ -292,8 +284,6 @@ fn a_checklist_moves_and_toggles_before_its_submit_row_answers() {
     let at_submit = reads();
     wait_until("two polls read the submit row", || reads() >= at_submit + 2);
     assert_eq!(screen(&t, "s-a").1["waiting"], "screen");
-    let (code, _) = press(&t, "s-a", &submit["screen"]["digest"], json!({ "key": "space" }));
-    assert!(code >= 400);
     let (code, answered) = press(&t, "s-a", &submit["screen"]["digest"], json!({ "key": "enter" }));
     assert_eq!((code, answered["outcome"].as_str()), (200, Some("answered")), "{answered}");
     wait_until("the checklist no longer holds the agent", || waits_on(&t, "s-a").is_none());

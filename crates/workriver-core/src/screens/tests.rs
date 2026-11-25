@@ -113,22 +113,6 @@ fn a_checklist_keeps_its_rows_while_the_marker_and_check_state_change() {
 }
 
 #[test]
-fn a_checklist_can_have_one_checkbox_and_a_submit_row() {
-    let text = fixture("claude-mcp-initial.txt").replace("2 new MCP servers", "1 new MCP server").replace("    [✔] beta\n", "");
-    let d = parse(&text).unwrap();
-    assert_eq!(words(&d), ["alpha", "Enable selected"]);
-    assert_eq!(d.selected(), Some(0));
-}
-
-#[test]
-fn numbered_options_with_checkbox_text_are_not_a_checklist() {
-    let text = fixture("claude-mcp-initial.txt").replace("[✔] alpha", "1. [✔] alpha").replace("[✔] beta", "2. [✔] beta");
-    let d = parse(&text).unwrap();
-    assert!(d.numbered && !d.checklist);
-    assert_eq!(keys(&d), [Key::Escape]);
-}
-
-#[test]
 fn codex_dialogs() {
     for (name, first, question) in [
         ("codex-command.txt", "Yes, proceed (y)", None),

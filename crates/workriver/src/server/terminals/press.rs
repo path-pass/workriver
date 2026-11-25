@@ -26,7 +26,7 @@ pub(in crate::server) struct Answered {
 
 /// The options' words and the line above them: what tells one dialog from another.
 fn same(a: &screens::Dialog, b: &screens::Dialog) -> bool {
-    a.checklist == b.checklist && a.above == b.above && a.options.len() == b.options.len() && a.options.iter().zip(&b.options).all(|(x, y)| x.words == y.words && x.number == y.number)
+    a.above == b.above && a.options.len() == b.options.len() && a.options.iter().zip(&b.options).all(|(x, y)| x.words == y.words && x.number == y.number)
 }
 
 impl App {
@@ -57,15 +57,9 @@ impl App {
         let mut keys = vec![];
         let mut kept = None;
         let sent = match press {
-            Press::Key(Key::Space) if !dialog.as_ref().is_some_and(|d| d.hints.iter().any(|h| h.key == Key::Space)) => {
-                return Err(Refusal::new(StatusCode::CONFLICT, "invalid", "Space requires a selected checkbox"));
-            }
             Press::Key(k) => self.send_keys(session, machine, &place, &[k], &mut keys),
             Press::Option(n) => {
                 let d = dialog.as_ref().ok_or_else(|| Refusal::new(StatusCode::CONFLICT, "no-dialog", "No options on its screen; use the keys"))?;
-                if d.checklist {
-                    return Err(Refusal::new(StatusCode::CONFLICT, "invalid", "Use the keys to answer a checklist"));
-                }
                 let o = d.options.get(n - 1).ok_or_else(|| Refusal::new(StatusCode::BAD_REQUEST, "invalid", format!("the dialog has {} options", d.options.len())))?;
                 kept = Some(KeptOption { number: o.number, words: screens::kept(&o.words, KEPT_WORDS) });
                 match o.number {

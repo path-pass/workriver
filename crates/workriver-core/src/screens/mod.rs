@@ -314,7 +314,7 @@ fn checklist_above(lines: &[&str], footer: usize) -> Option<(Vec<Item>, Vec<Hint
     let space = lines[footer].split(['·', '|']).map(str::trim).find(|w| w.eq_ignore_ascii_case("Space to select"))?;
     let row = footer.checked_sub(1)?;
     let submit = read_line(lines[row]);
-    if submit.number.is_some() || submit.words.is_empty() || checkbox_label(submit.words).is_some() {
+    if submit.words.is_empty() || checkbox_label(submit.words).is_some() {
         return None;
     }
     // The submit label is indented three columns past the start of a checkbox.
@@ -322,7 +322,7 @@ fn checklist_above(lines: &[&str], footer: usize) -> Option<(Vec<Item>, Vec<Hint
     let mut options = vec![Item { number: None, words: submit.words.to_string(), more: vec![], marked: submit.marked, row }];
     for row in (0..row).rev() {
         let r = read_line(lines[row]);
-        let Some(label) = checkbox_label(r.words).filter(|w| r.number.is_none() && r.at == col && !w.is_empty()) else { break };
+        let Some(label) = checkbox_label(r.words).filter(|w| r.at == col && !w.is_empty()) else { break };
         options.push(Item { number: None, words: label.to_string(), more: vec![], marked: r.marked, row });
     }
     if options.len() < 2 || options.iter().filter(|o| o.marked).count() != 1 {
