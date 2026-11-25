@@ -11,7 +11,7 @@ import { Tip } from '@/ui/Tip'
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { filtersOn, KINDS, MAX_TAGS, SIZES, withTyped, type Filter, type Kind, type Size } from './classify'
-import type { Intent } from './types'
+import { UNIT_PROGRESS, type Intent, type UnitProgress } from './types'
 
 /** Radix takes no empty value: "not set" is a word of its own. */
 const NONE = 'none'
@@ -42,12 +42,15 @@ function Check({ label, on, onChange, lang }: { label: string; on: boolean; onCh
 }
 
 /**
- * The rail's filter: a quiet button (the number of filters on) that opens kinds, sizes and the
- * tags of the intents shown, each a checkbox. It narrows; it never re-sorts.
+ * The rail's filter: a quiet button (the number of filters on) that opens unit states and
+ * the intents' kinds, sizes and tags, each a checkbox. It narrows; it never re-sorts.
  */
-export function RailFilter({ filter, onChange, tags }: { filter: Filter; onChange: (f: Filter) => void; tags: string[] }) {
+export function RailFilter({ filter, onChange, tags, unitStates, onUnitStates }: {
+  filter: Filter; onChange: (f: Filter) => void; tags: string[];
+  unitStates: UnitProgress[]; onUnitStates: (states: UnitProgress[]) => void
+}) {
   const { t, num } = useT()
-  const n = filtersOn(filter)
+  const n = filtersOn(filter) + unitStates.length
   const label = n ? t('rail.filterCount', { count: n }) : t('rail.filter')
   const toggle = <K extends keyof Filter>(k: K, v: Filter[K][number], on: boolean) =>
     onChange({ ...filter, [k]: on ? [...filter[k], v] : (filter[k] as string[]).filter(x => x !== v) })
@@ -67,7 +70,14 @@ export function RailFilter({ filter, onChange, tags }: { filter: Filter; onChang
           </Button>
         </PopoverTrigger>
       </Tip>
-      <PopoverContent align="end" className="w-64 gap-3 border border-line bg-surface text-ink ring-0">
+      <PopoverContent align="end" className="max-h-(--radix-popover-content-available-height) w-64 gap-3 overflow-y-auto border border-line bg-surface text-ink ring-0">
+        {group(t('rail.filterUnitState'), UNIT_PROGRESS.map(p => (
+          <Check key={p}
+            label={p === 'ready' ? `${t('unit.progress.ready')} / ${t('unit.progress.readyClose')}` : t(`unit.progress.${p}`)}
+            on={unitStates.includes(p)}
+            onChange={on => onUnitStates(on ? [...unitStates, p] : unitStates.filter(x => x !== p))}
+          />
+        )))}
         {group(t('rail.filterKind'), KINDS.map(k => <Check key={k} label={t(`intent.kind.${k}`)} on={filter.kinds.includes(k)} onChange={on => toggle('kinds', k, on)} />))}
         {group(t('rail.filterSize'), SIZES.map(z => <Check key={z} label={t(`intent.sizeHint.${z}`)} on={filter.sizes.includes(z)} onChange={on => toggle('sizes', z, on)} />))}
         {group(t('rail.filterTags'), tags.length

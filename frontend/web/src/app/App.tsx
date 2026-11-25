@@ -51,6 +51,7 @@ import type { MachineAlert } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
 import { Dashboard } from '@/dashboard/Dashboard'
+import { recall, remember } from '@/lib/storage'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -70,9 +71,7 @@ function useSame<T>(value: T): T {
   return useMemo(() => value, [json])
 }
 
-const remember = (key: string, value: string) => { try { localStorage.setItem(key, value) } catch { /* not remembered, still shown */ } }
 const NO_SPACES: Space[] = []
-const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
 export default function App() {
   const { t, lang } = useT()

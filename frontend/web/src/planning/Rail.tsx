@@ -1,4 +1,4 @@
-// The rail picks a project and its units: product name, the filter by kind, size and tag, the
+// The rail picks a project and its units: product name, filters for intents and units, the
 // project switch, search; then project → workspace → intent → unit: each project's open
 // workspaces (name, id, its manager's state, a manager's start) with their active intents and units, its roadmap of
 // planned intents (ordered by dragging, added to inline), its done ones folded; "Add project"; settings. What asks something of the
@@ -16,10 +16,11 @@ import { intentQuietSince, noCode, quietSince, unitsOf } from './select'
 import { repoOf } from '@/code/select'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
+import { recall, remember } from '@/lib/storage'
 import { useResize } from '@/lib/useResize'
 import { DASHBOARD_CLICKS, RAIL_WIDTH } from '@/config/defaults'
 import { record, setSpace } from '@/api/actions'
-import type { Intent, Unit } from './types'
+import { UNIT_PROGRESS, type Intent, type Unit, type UnitProgress } from './types'
 import type { Space } from '@/agents/types'
 import { activeIn, railOf, runs, type RailProject } from './spaces'
 import { openSeat } from './Seat'
@@ -38,6 +39,7 @@ import { filtersOn, keeps, loadFilter, NO_FILTER, saveFilter, tagsOf, type Filte
 
 /** All projects, in the project switch (Radix takes no empty value). */
 const ALL = '*'
+const UNIT_STATES = 'workriver.rail.unitStates'
 import { Settings } from '@/machines/Settings'
 import { TemplatesButton } from './Templates'
 
@@ -530,28 +532,38 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const [filter, setFilter] = useState<Filter>(() => loadFilter(project))
   useEffect(() => setFilter(loadFilter(project)), [project])
   const filterBy = (f: Filter) => { setFilter(f); saveFilter(project, f) }
+  const [unitStates, setUnitStates] = useState(() => {
+    const saved = recall(UNIT_STATES)?.split(',')
+    return UNIT_PROGRESS.filter(p => saved?.includes(p))
+  })
+  const filterUnits = (states: UnitProgress[]) => { setUnitStates(states); remember(UNIT_STATES, states.join(',')) }
+  const intentFiltersOn = filtersOn(filter) > 0
+  const unitFilterOn = unitStates.length > 0
   const listed = inProject.filter(i => stateOf(i) !== 'dropped')
   const intents = inProject.filter(i => keeps(filter, i))
   const needle = q.trim().toLowerCase()
-  // A search for a tag shows its intents with all their units.
+  // A search for a tag matches all the units of its intents.
   const tagged = (i: Intent) => !!needle && (i.tags ?? []).some(x => x.includes(needle))
   const match = (u: Unit) => !needle || (u.id + ' ' + u.title + ' ' + u.purpose).toLowerCase().includes(needle)
-  // A search for an intent's id shows it with all its units; an intent with no units yet
-  // still shows, but not in a search.
-  const groupsOf = (list: Intent[]) => list
+  // An intent id or tag matches every unit's text. The unit-state filter still applies,
+  // keeping the open unit so it remains reachable.
+  const groups = intents
+    .filter(i => stateOf(i) === 'active' || stateOf(i) === 'done')
     .map(intent => {
-      const units = intent.units
       const named = !!needle && (intent.id.toLowerCase() === needle || tagged(intent))
-      return { intent, units: named ? units : units.filter(match), named }
+      const units = intent.units.filter(u => (named || match(u))
+        && (!unitFilterOn || u.id === unitId || unitStates.includes(unitProgress(u) ?? 'working')))
+      return { intent, units, named }
     })
-    .filter(g => g.units.length || g.named || (!needle && !g.intent.units.length))
+    .filter(g => g.units.length || (!unitFilterOn && (g.named || (!needle && !g.intent.units.length))))
   const planned = intents
     .filter(i => stateOf(i) === 'planned' && (!needle || [i.id, i.title, i.goal, i.note, ...(i.tags ?? [])].join(' ').toLowerCase().includes(needle)))
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   // Project → workspace → intent → unit; "No project" last, when it holds something.
   const spaces = ws?.workspaces ?? []
-  const sections = railOf(projects, spaces, groupsOf(intents.filter(i => stateOf(i) === 'active' || stateOf(i) === 'done')), planned, project, !!needle || filtersOn(filter) > 0)
+  const sections = railOf(projects, spaces, groups, planned, project, !!needle || intentFiltersOn || unitFilterOn)
   const nothing = sections.every(s => !s.spaces.some(x => x.intents.length) && !s.loose.length && !s.planned.length && !s.done.length)
+  const noUnitMatch = unitFilterOn && groups.length === 0
   const [error, setError] = useState('')
   // The intent of the open unit is open; the others are folded unless the user opened them.
   const home = intents.find(i => i.id === unitId || i.units.some(u => u.id === unitId))?.id
@@ -605,7 +617,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
           <span className="min-w-0 flex-1 truncate" lang={p && !project ? contentLang(p.title) : undefined}>{title}</span>
           {p && <AddSpace project={p.id} onError={setError} />}
         </h2>
-        {p && !sec.spaces.length && !needle && <p className="px-2.5 text-xs text-rail-ink-2 italic">{t('rail.noSpaces')}</p>}
+        {p && !needle && !spaces.some(w => !w.closed && w.project === p.id) && <p className="px-2.5 text-xs text-rail-ink-2 italic">{t('rail.noSpaces')}</p>}
         {sec.spaces.map(({ space, intents: list }) => (
           <SpaceGroup
             key={space.id} ws={ws} space={space} busy={activeIn(ws?.intents ?? [], space.id).length > 0}
@@ -638,13 +650,18 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         {brand}
         workriver
         <span className="min-w-0 flex-1 truncate font-normal text-rail-ink-2">{repo}</span>
-        <RailFilter filter={filter} onChange={filterBy} tags={tagsOf(listed)} />
+        <RailFilter filter={filter} onChange={filterBy} tags={tagsOf(listed)} unitStates={unitStates} onUnitStates={filterUnits} />
         <Fold open onToggle={onToggle} />
       </div>
-      {filtersOn(filter) > 0 && (
+      {(intentFiltersOn || unitFilterOn) && (
         <p className="-mt-2 flex items-center gap-2 pl-1 text-xs text-rail-ink-2">
-          <span className="flex-1">{t('rail.filtered', { shown: listed.filter(i => keeps(filter, i)).length, all: listed.length })}</span>
-          <button type="button" className="rounded-sm px-1 font-semibold hover:bg-rail-2 hover:text-rail-ink" onClick={() => filterBy(NO_FILTER)}>{t('rail.filterClear')}</button>
+          <span className="flex-1">{intentFiltersOn
+            ? t('rail.filtered', { shown: listed.filter(i => keeps(filter, i)).length, all: listed.length })
+            : t('rail.filterUnitState')}</span>
+          <button type="button" className="rounded-sm px-1 font-semibold hover:bg-rail-2 hover:text-rail-ink" onClick={() => {
+            if (unitFilterOn) filterUnits([])
+            if (intentFiltersOn) filterBy(NO_FILTER)
+          }}>{t('rail.filterClear')}</button>
         </p>
       )}
 
@@ -674,10 +691,10 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         {sections.map(section)}
         {ws && !needle && <AddProjectButton tone="rail" className="mt-1 self-start" />}
         {error && <p role="alert" className="px-2.5 text-xs text-rail-you">{error}</p>}
-        {ws && nothing && (needle || !spaces.some(w => !w.closed)) && (
+        {ws && (noUnitMatch || (nothing && (needle || !spaces.some(w => !w.closed)))) && (
           <div className="flex flex-col items-start gap-2 px-2.5 py-2 text-sm text-rail-ink-2">
-            {needle && unitsOf(ws).length ? <span><Slot text={t('rail.noMatch', { q: SLOT })}><Content text={q.trim()} /></Slot></span> : t('rail.none')}
-            {needle && unitsOf(ws).length > 0 && <Button variant="outline" size="sm" className="rounded-sm bg-transparent text-rail-ink" onClick={() => onQ('')}>{t('rail.clearSearch')}</Button>}
+            {noUnitMatch ? t('rail.filterNoUnits') : needle && unitsOf(ws).length ? <span><Slot text={t('rail.noMatch', { q: SLOT })}><Content text={q.trim()} /></Slot></span> : t('rail.none')}
+            {nothing && needle && unitsOf(ws).length > 0 && <Button variant="outline" size="sm" className="rounded-sm bg-transparent text-rail-ink" onClick={() => onQ('')}>{t('rail.clearSearch')}</Button>}
           </div>
         )}
       </div>
@@ -692,13 +709,15 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   )
 }
 
+const unitProgress = (unit: Unit) => unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
+
 /**
  * Where a unit stands, as a small dot and a word: working, waiting, ready to merge (in the
  * done tone, so what can be merged stands out), merged, or done (with why, on hover).
  */
 export function Progress({ unit }: { unit: Unit }) {
   const { t } = useT()
-  const p = unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
+  const p = unitProgress(unit)
   if (!p) return null
   // Research and spikes are never merged: ready, they are closed.
   const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>

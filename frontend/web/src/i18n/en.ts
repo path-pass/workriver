@@ -105,8 +105,10 @@ export const en = {
     /** A title quoted inside a sentence. */
     quoted: '“{{title}}”',
     merge: 'Merge',
-    filter: 'Filter by kind, size or tag',
-    filterCount: 'Filter by kind, size or tag ({{count}} on)',
+    filter: 'Filter the rail',
+    filterCount: 'Filter the rail ({{count}} on)',
+    filterUnitState: 'Unit state',
+    filterNoUnits: 'No units match the current filters.',
     filterKind: 'Kind',
     filterSize: 'Size',
     filterTags: 'Tags',
