@@ -19,7 +19,8 @@ export const intentOf = (ws: Workspace, unitId: string) => ws.intents.find(i => 
 /** The data's times (`YYYY-MM-DD HH:mm` or ISO) as milliseconds. */
 export const ms = (s: string | undefined) => (s ? new Date(s.replace(' ', 'T')).getTime() : NaN)
 
-const finished = (u: Unit) => u.progress === 'merged' || u.progress === 'done' || u.status === 'merged'
+/** A unit closed by hand or merged. */
+export const unitFinished = (u: Unit) => u.progress === 'merged' || u.progress === 'done' || u.status === 'merged'
 /** Work running with its agent at it. */
 const busy = (u: Unit) => u.tasks.some(n => n.state === 'running' && !n.stalled)
 
@@ -40,7 +41,7 @@ const quiet = (last: number, now: number) => (Number.isFinite(last) && now - las
  * done, work running with an agent at it, never moved, or moved within `QUIET`.
  */
 export function quietSince(u: Unit, now = Date.now()): number | null {
-  return finished(u) || busy(u) ? null : quiet(lastMove(u), now)
+  return unitFinished(u) || busy(u) ? null : quiet(lastMove(u), now)
 }
 
 /**

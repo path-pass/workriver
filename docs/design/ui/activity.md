@@ -9,9 +9,14 @@ its sections went.
 
 ## The main area
 
-- The main area shows the picked unit: its name and one-line purpose, nothing else (the
-  graph already shows what waits: violet gates, violet counts on reviews), then two
-  layers stacked top to bottom, each one block:
+- The main area shows the picked unit's name, one-line purpose and status above two layers
+  stacked top to bottom, each one block. An open unit has "Close unit" in its header.
+  The confirmation asks for a required single-line reason. Closing a code unit marks it
+  done without merging its branch. The service records `unit.done` as the user, as for
+  `workriver unit done`. A refusal leaves the dialog open with the service's words and
+  the reason the user entered. If the close succeeds with a warning about unfinished
+  template steps, the dialog shows the warning and a button to dismiss it. The closed
+  unit's header shows its recorded reason, and the rail shows it on hover.
   1. **Activity** – the flow of work: how the nodes changed. Its key (what the colours,
      marks and lines mean) is a row under the graph's canvas, wrapping as it needs, never
      over it: no node can hide behind it. Only React Flow's credit stays inside the canvas,

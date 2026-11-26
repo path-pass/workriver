@@ -67,7 +67,7 @@ export interface Intent {
   workspace?: string;
   /** Planned: its place in its project's roadmap, from 0. */
   order?: number;
-  /** Dropped: why. */
+  /** Closed or dropped: why, when a reason was recorded. */
   reason?: string;
   /** What kind of work it is, how big it is expected to be, free tags; absent when not set. */
   kind?: Kind;

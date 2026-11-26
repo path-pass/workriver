@@ -2,7 +2,7 @@
 // and who manages it, and its units with where each stands.
 import { useContext, useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
-import { lastMove, noCode, quietSince } from './select'
+import { lastMove, noCode, quietSince, unitFinished } from './select'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
 import { record, setSpace } from '@/api/actions'
@@ -21,6 +21,7 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { Choice } from '@/ui/Choice'
 import { EditIntentDialog } from './EditIntent'
+import { CloseDialog, ClosedReason } from './Close'
 import { HistoryDialog, HistoryLine } from './IntentHistory'
 import { draftOf, type Draft } from './edit'
 import { SortChip, TagChips } from './Sort'
@@ -95,8 +96,8 @@ export function IntentPage({ ws, intent, onUnit, onStart, onTalk, aside }: {
   })
   return (
     <>
-      <header className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
+      <header className="flex flex-wrap items-start gap-3 sm:flex-nowrap">
+        <div className="min-w-0 flex-1 max-sm:basis-full">
           <h1 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
             <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{intent.id}</span><span lang={contentLang(intent.title)}>{intent.title}</span></span>
             <CopyButton text={linkTo(pathOf(intent.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
@@ -112,13 +113,15 @@ export function IntentPage({ ws, intent, onUnit, onStart, onTalk, aside }: {
           {intent.goal && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(intent.goal)}>{intent.goal}</p>}
           <HistoryLine intent={intent} onOpen={() => setHistory(true)} />
           {state === 'dropped' && intent.reason && <p className="mt-0.5 text-sm text-ink-2"><Slot text={t('intent.dropped', { reason: SLOT })}><Content text={intent.reason} /></Slot></p>}
+          {state === 'done' && <ClosedReason reason={intent.reason} />}
         </div>
         {state === 'planned' && (
           <Tip text={<span><Slot text={t('plan.title', { title: SLOT })}><Content text={intent.title} /></Slot></span>}>
             <Button size="sm" className="flex-none gap-1.5" onClick={() => onStart(intent)}><Icon name="play" className="size-3.5" />{t('rail.start')}</Button>
           </Tip>
         )}
-        {aside && <div className="flex flex-none gap-1 min-[861px]:hidden">{aside}</div>}
+        <CloseDialog kind="intent" id={intent.id} available={state === 'active'} advice={units.some(u => !unitFinished(u)) ? t('closeWork.openUnits') : undefined} />
+        {aside && <div className="ml-auto flex flex-none gap-1 min-[861px]:hidden">{aside}</div>}
       </header>
 
       <section className="block-box flex flex-col gap-4">

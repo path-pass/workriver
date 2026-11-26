@@ -428,6 +428,15 @@ export const zhCN: OneForm<typeof en> = {
     whole: '请给出文件夹的完整路径，从 / 或 ~/ 开始。',
     failed: '没有添加：{{error}}'
   },
+  closeWork: {
+    action: { unit: '关闭单元', intent: '关闭意图' },
+    title: { unit: '关闭单元 {{id}}', intent: '关闭意图 {{id}}' },
+    hint: '请输入一行关闭原因。',
+    withoutMerge: '关闭会将单元标记为完成，分支不会因此合并。',
+    openUnits: '该意图下尚未关闭的单元会保持开放。',
+    reason: '原因',
+    closed: '已关闭 {{id}}',
+  },
   launch: {
     section: '启动一个新的',
     lead: '在项目的文件夹里开一个新终端启动这个 harness，等它有了会话就安排为管理者。',

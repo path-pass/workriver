@@ -32,6 +32,7 @@ import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
 import { NavigateContext } from '@/content/navigation'
 import { IntentPage } from '@/planning/IntentPage'
+import { CloseDialog, ClosedReason } from '@/planning/Close'
 import { openTemplates, TemplatesDialog } from '@/planning/Templates'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { inbox, type WaitingAgentRow } from '@/attention/select'
@@ -39,7 +40,7 @@ import { waitingAgentNews } from '@/attention/notice'
 import { NeedsBar } from '@/attention/NeedsBar'
 import { soundWanted, useRowSound } from '@/attention/sound'
 import { selectionOf, waitsOn } from '@/work/select'
-import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
+import { firstUnit, intentOf, noCode, unitFinished, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
 import { alsoChanged, blame, shownDelta } from '@/code/files'
 import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
@@ -567,8 +568,8 @@ export default function App() {
         )}
         {ws && !page && unit && sel && talk && (
           <>
-            <header className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
+            <header className="flex flex-wrap items-start gap-3 sm:flex-nowrap">
+              <div className="min-w-0 flex-1 max-sm:basis-full">
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
                   <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span><span lang={contentLang(unit.title)}>{unit.title}</span></span>
                   <CopyButton text={linkTo(pathOf(unit.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
@@ -585,10 +586,12 @@ export default function App() {
                   )}
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(unit.purpose)}>{unit.purpose}</p>}
+                {unit.progress === 'done' && <ClosedReason reason={unit.doneReason} />}
                 {/* Rebased onto a new branch, or renamed: the same unit, said quietly. */}
                 {(unit.previously?.length ?? 0) > 0 && <p className="mt-0.5 font-mono text-xs text-ink-2">{t('unit.previously', { branches: unit.previously!.join(t('list.sep')) })}</p>}
               </div>
-              <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
+              <CloseDialog key={unit.id} kind="unit" id={unit.id} available={!unitFinished(unit)} advice={!unit.kind ? t('closeWork.withoutMerge') : undefined} />
+              <div className="ml-auto flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
             <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} workspace={intentOf(ws, unit.id)?.workspace} gitPending={ws.gitPending && !noCode(unit)} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
             {tree && coded && codeSel && <CodeLayer

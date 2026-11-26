@@ -12,7 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/ui/primitives/popover
 import { Input } from '@/ui/primitives/input'
 import { ScrollArea } from '@/ui/primitives/scroll-area'
 import { attention, blockedAgents } from '@/attention/select'
-import { intentQuietSince, noCode, quietSince, unitsOf } from './select'
+import { intentQuietSince, noCode, quietSince, unitFinished, unitsOf } from './select'
 import { repoOf } from '@/code/select'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
@@ -100,10 +100,9 @@ function Signals({ unit, gitPending }: { unit: Unit; gitPending?: boolean }) {
   const since = gitPending ? null : quietSince(unit)
   const quiet = <Quiet since={since} />
   const last = unit.commits.at(-1)
-  const finished = unit.progress === 'merged' || unit.progress === 'done' || unit.status === 'merged'
   // Merged: when it was recorded so, else its last commit.
   const on = unit.merged ?? last?.date
-  if (finished) return <><Progress unit={unit} />{on && <span className="text-xs text-rail-ink-2">{date(on, false)}</span>}</>
+  if (unitFinished(unit)) return <><Progress unit={unit} />{on && <span className="text-xs text-rail-ink-2">{date(on, false)}</span>}</>
   if (!n.blocking && !n.waiting) {
     if (unit.progress && unit.progress !== 'working') return <><Progress unit={unit} />{quiet}</>
     if (gitPending || since !== null) return quiet

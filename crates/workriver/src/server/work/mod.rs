@@ -108,40 +108,73 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
         if who == Principal::User && matches!(body, Body::MessageRated { .. }) {
             return Err(bad("a rating is recorded by the rating action, which reads the replying session".into()));
         }
-        let e = app.record(&who, body)?;
-        let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        // A requirement added to a task: whether its agent was told, apart from the note.
-        if let Body::TaskNoted { .. } = &e.body {
-            out["told"] = json!(app.noted(&e));
-        }
-        // A gate added or filled, or a unit closed, while steps its template placed are not
-        // done: said, not refused. Recorded: a store that cannot be read now only leaves the
-        // warning out.
-        let ahead = match &e.body {
-            Body::TaskCreated(t) if t.kind == core::TaskKind::Gate && t.blocks.is_none() => Some((t.unit.clone(), Some(t.n))),
-            Body::TaskFilled { unit, task, .. } => Some((unit.clone(), Some(*task))),
-            Body::UnitDone { unit, .. } => Some((unit.clone(), None)),
-            _ => None,
-        };
-        if let Some((unit, n)) = ahead
-            && let Ok(Some(all)) = got(app.store.lock().unwrap().recorded())
-            && let Some(w) = delivery::steps_warning(&all, &unit, n)
-        {
-            out["warning"] = json!(w);
-        }
-        // A manager that closes its intent is told, in place of a message, to tell the user.
-        if let Body::IntentStateChanged { intent, state: core::IntentState::Done, .. } = &e.body {
-            // Recorded: a store that cannot be read now only leaves the reminder out.
-            let read = got(app.store.lock().unwrap().recorded());
-            if let Ok(Some(all)) = read
-                && all.manager_of(intent) == Some(e.actor.as_str())
-            {
-                out["next"] = json!(delivery::said_done());
-            }
-        }
-        Ok(Json(out))
+        append_event(&app, &who, body)
     })
     .await
+}
+
+fn append_event(app: &App, who: &Principal, body: Body) -> Result<Json<serde_json::Value>, ApiError> {
+    let e = app.record(who, body)?;
+    let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    // A requirement added to a task: whether its agent was told, apart from the note.
+    if let Body::TaskNoted { .. } = &e.body {
+        out["told"] = json!(app.noted(&e));
+    }
+    // A gate added or filled, or a unit closed, while steps its template placed are not
+    // done: said, not refused. Recorded: a store that cannot be read now only leaves the
+    // warning out.
+    let ahead = match &e.body {
+        Body::TaskCreated(t) if t.kind == core::TaskKind::Gate && t.blocks.is_none() => Some((&t.unit, Some(t.n))),
+        Body::TaskFilled { unit, task, .. } => Some((unit, Some(*task))),
+        Body::UnitDone { unit, .. } => Some((unit, None)),
+        _ => None,
+    };
+    if let Some((unit, n)) = ahead
+        && let Ok(Some(all)) = got(app.store.lock().unwrap().recorded())
+        && let Some(w) = delivery::steps_warning(&all, unit, n)
+    {
+        out["warning"] = json!(w);
+    }
+    // A manager that closes its intent is told, in place of a message, to tell the user.
+    if let Body::IntentStateChanged { intent, state: core::IntentState::Done, .. } = &e.body {
+        // Recorded: a store that cannot be read now only leaves the reminder out.
+        let read = got(app.store.lock().unwrap().recorded());
+        if let Ok(Some(all)) = read
+            && all.manager_of(intent) == Some(e.actor.as_str())
+        {
+            out["next"] = json!(delivery::said_done());
+        }
+    }
+    Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+pub(super) struct CloseWork {
+    kind: CloseKind,
+    id: String,
+    reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CloseKind {
+    Unit,
+    Intent,
+}
+
+/// The user's close action on the page, going through the CLI's event rules and warning.
+pub(super) async fn close_work(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<CloseWork>) -> Result<Json<serde_json::Value>, ApiError> {
+    let who = app.user(&caller)?;
+    let reason = c.reason.trim();
+    if reason.is_empty() || c.reason.contains(['\r', '\n', '\x0b', '\x0c', '\u{85}', '\u{2028}', '\u{2029}']) {
+        return Err(bad("closing needs a reason on one line".into()));
+    }
+    let reason = reason.to_string();
+    let body = match c.kind {
+        CloseKind::Unit => Body::UnitDone { unit: c.id, reason },
+        CloseKind::Intent => Body::IntentStateChanged { intent: c.id, state: core::IntentState::Done, reason: Some(reason), workspace: None },
+    };
+    blocking(move || append_event(&app, &who, body)).await
 }
 
 // ---- other machines ----

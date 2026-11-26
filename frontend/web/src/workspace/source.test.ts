@@ -56,6 +56,23 @@ describe('watching the workspace', () => {
     }
   })
 
+  it('picks up a closure made between a ready snapshot and the first subscription', async () => {
+    const closed = { ...snapshot, intents: [{ id: 'i1', title: 'Experiment', state: 'done', reason: 'Goal changed', units: [], chores: [] }] } satisfies Workspace
+    read.mockResolvedValueOnce(snapshot).mockResolvedValueOnce(closed)
+    const seen = vi.fn()
+    const stop = watchWorkspace(seen, () => {}, () => false)
+    try {
+      await settle()
+      expect(seen.mock.calls).toEqual([[snapshot]])
+      // The server's changed event happened before this tab subscribed.
+      stream.onopen?.()
+      await settle()
+      expect(seen.mock.calls).toEqual([[snapshot], [closed]])
+    } finally {
+      stop()
+    }
+  })
+
   it('reads nothing while neither the sound nor notifications is on, and once when shown', async () => {
     const stop = watchWorkspace(() => {}, () => {}, () => false)
     await settle()

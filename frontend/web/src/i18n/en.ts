@@ -438,6 +438,15 @@ export const en = {
     whole: 'Give the folder’s whole path, from / or ~/.',
     failed: 'Not added: {{error}}'
   },
+  closeWork: {
+    action: { unit: 'Close unit', intent: 'Close intent' },
+    title: { unit: 'Close unit {{id}}', intent: 'Close intent {{id}}' },
+    hint: 'Enter a one-line reason.',
+    withoutMerge: 'Closing marks the unit as done without merging its branch.',
+    openUnits: 'The intent’s open units will stay open.',
+    reason: 'Reason',
+    closed: 'Closed {{id}}',
+  },
   launch: {
     section: 'Start a new one',
     lead: 'Starts the harness in a new terminal in the project’s folder, and seats it once it has a session.',
