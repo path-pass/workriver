@@ -113,7 +113,7 @@ its sections went.
   while it is simply being worked on: waiting, ready to merge (in the done tone, so what
   can be merged stands out; it counts nowhere as attention), merged (with its date) or done
   (why, on hover). The unit header carries the same word. An active intent whose units are
-  all merged or done says "Ready to close" in its header, for its manager to close it. Who is working is not shown
+  all merged or done says "Ready to close" in its header. Who is working is not shown
   here, with one exception: each workspace's status line names its manager and its state
   quietly (a crown, the name, then working, idle, not running, or "no manager"; amber when
   work is active there and no manager runs), since a
@@ -240,8 +240,13 @@ its sections went.
   the user's), the manager (name, state, the terminal button, "Manager…" when none runs, and "Write to the manager",
   which opens the side panel's Manager section on that workspace's conversation),
   and who decides its findings (the select that was in the rail). A planned intent says it
-  is not started yet and has "Start" in its header (the same dialog). Then its units as a
-  list, each a row that opens it: id, title, where it stands, its violet marks, quiet, and
+  is not started yet and has "Start" in its header (the same dialog). An active intent has
+  "Close intent" in its header. The confirmation requires a single-line reason and says
+  when the intent has units that will stay open. The service records the transition to
+  done as the user through the same rules as `workriver intent done`. A refusal stays
+  in the dialog in the service's words. A done intent shows its reason in the header
+  when one was recorded. Then its units as a list, each a row that opens it: id, title,
+  where it stands, its violet marks, quiet, and
   when it last moved ("moved 2d ago", the date on hover).
 
 ## Editing an intent, and its history

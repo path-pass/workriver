@@ -5,6 +5,7 @@ import { MOCK, MOCK_CHANGED } from '@/workspace/source'
 import type { Decision, GateResult, Finding, Task } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
 import type { Intent, IntentText, IntentVersion, Template, Unit } from '@/planning/types'
+import { unitFinished } from '@/planning/select'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
 import type { Answer, AskContext, Sent, Vote } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
@@ -199,14 +200,35 @@ export function choreDone(id: string) {
 }
 
 /**
- * Records a change the user makes to the roadmap or backlog (adding or moving an intent,
- * batching or dropping findings); the service delivers what goes to an agent. Nothing is
- * recorded with the sample.
+ * Records a user event. The service delivers what goes to an agent and may return a
+ * warning. Nothing is recorded with the sample.
  */
-export async function record(kind: string, body: unknown) {
-  if (MOCK) return
+export async function record(kind: string, body: unknown, { includeStatus = true } = {}): Promise<{ warning?: string }> {
+  if (MOCK) return {}
   // Who records is the service's to find: this page's session is the user's.
-  await post('/api/append', { kind, body })
+  return call('/api/append', { kind, body }, { includeStatus })
+}
+
+/** Closes a unit or intent as the user. The service can return a warning along with success. */
+export async function closeWork(kind: 'unit' | 'intent', id: string, reason: string): Promise<{ warning?: string }> {
+  if (!MOCK) {
+    const options = { includeStatus: false }
+    return kind === 'unit'
+      ? record('unit.done', { unit: id, reason }, options)
+      : record('intent.state_changed', { intent: id, state: 'done', reason }, options)
+  }
+  window.dispatchEvent(new CustomEvent(MOCK_CHANGED, {
+    detail: (ws: Workspace) => ({
+      ...ws,
+      intents: ws.intents.map(intent => {
+        if (kind === 'intent') return intent.id === id ? { ...intent, state: 'done', reason, complete: false } : intent
+        if (!intent.units.some(unit => unit.id === id)) return intent
+        const units = intent.units.map(unit => unit.id === id ? { ...unit, progress: 'done' as const, doneReason: reason } : unit)
+        return { ...intent, units, complete: (intent.state ?? 'active') === 'active' && units.every(unitFinished) }
+      }),
+    }),
+  }))
+  return {}
 }
 
 /** Marks a task no longer needed: the user's alone from the page; its agent and the manager are told. */

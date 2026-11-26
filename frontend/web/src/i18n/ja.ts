@@ -428,6 +428,15 @@ export const ja: OneForm<typeof en> = {
     whole: 'フォルダーの完全なパスを / または ~/ から入力してください。',
     failed: '追加できませんでした：{{error}}'
   },
+  closeWork: {
+    action: { unit: 'ユニットを閉じる', intent: '意図を閉じる' },
+    title: { unit: 'ユニット {{id}} を閉じる', intent: '意図 {{id}} を閉じる' },
+    hint: '閉じる理由を一行で入力してください。',
+    withoutMerge: 'ユニットは完了になります。ブランチのマージは行われません。',
+    openUnits: 'この意図の未完了ユニットは開いたままになります。',
+    reason: '理由',
+    closed: '{{id}} を閉じました',
+  },
   launch: {
     section: '新しく起動',
     lead: 'プロジェクトのフォルダーで新しいターミナルを開いてハーネスを起動し、セッションができたら任命します。',

@@ -5,6 +5,62 @@ use serde_json::json;
 
 use super::support::*;
 
+/// A browser user closes through append with a reason and the usual rules and warning.
+#[test]
+fn the_user_closes_units_and_intents_from_the_page() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["switch", "-q", "-c", "feat/experiment"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "unmerged"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", workriver_core::runtime::AgentState::Idle))];
+    let user = daemon_with(fake, &tmp.path().join("w.db"), Default::default());
+    manage(&user, "p1", "s-boss");
+    let boss = at_place(&user, "p1");
+    boss.append("", "unit.created", json!({ "template": "development", "intent": "i1", "title": "Experiment", "repo": repo, "branch": "feat/experiment", "base": "main" })).unwrap();
+
+    let unit = json!({ "kind": "unit.done", "body": { "unit": "u1", "reason": "Experiment ended" } });
+    let intent = json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "done", "reason": "Goal changed" } });
+
+    let origin = format!("http://127.0.0.1:{}", user.port);
+    let link = user.call("/api/session/code", Some(json!({}))).unwrap();
+    let code = link["url"].as_str().unwrap().split_once("#k=").unwrap().1;
+    let (status, answer) = http(user.port, "POST", "/api/session", &[("Origin", &origin)], Some(&json!({ "code": code }).to_string()));
+    assert_eq!(status, 200, "{answer}");
+    let cookie = answer.lines().find(|l| l.to_lowercase().starts_with("set-cookie:")).unwrap()
+        .split_once(':').unwrap().1.split(';').next().unwrap().trim();
+    let close = |body: &serde_json::Value| {
+        let (status, answer) = http(user.port, "POST", "/api/append", &[("Origin", &origin), ("Cookie", cookie)], Some(&body.to_string()));
+        (status, answer.split_once("\r\n\r\n").unwrap().1.to_string())
+    };
+
+    // Closing the intent is allowed while its unit is still open.
+    let (status, answer) = close(&intent);
+    assert_eq!(status, 200, "{answer}");
+    let event: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!((event["actor"].as_str(), event["kind"].as_str()), (Some("user"), Some("intent.state_changed")));
+    assert_eq!(event["body"], json!({ "intent": "i1", "state": "done", "reason": "Goal changed" }));
+    let page = user.get("/api/workspace").unwrap();
+    let shown = &page["intents"][0];
+    assert_eq!((shown["state"].as_str(), shown["reason"].as_str()), (Some("done"), Some("Goal changed")));
+    assert_ne!(shown["units"][0]["progress"], "done");
+
+    let (status, answer) = close(&unit);
+    assert_eq!(status, 200, "{answer}");
+    let event: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!((event["actor"].as_str(), event["kind"].as_str()), (Some("user"), Some("unit.done")));
+    assert_eq!(event["body"], json!({ "unit": "u1", "reason": "Experiment ended" }));
+    assert!(event["warning"].as_str().unwrap().contains("Steps of template development not done"), "{event}");
+    let page = user.get("/api/workspace").unwrap();
+    let shown = &page["intents"][0]["units"][0];
+    assert_eq!((shown["progress"].as_str(), shown["doneReason"].as_str()), (Some("done"), Some("Experiment ended")));
+    assert_eq!(close(&unit), (422, "unit u1 is already done".into()));
+    assert_eq!(close(&intent), (422, "intent i1 is done; it cannot become done".into()));
+}
+
 /// Identity from the runtime place, a workspace that is the records' (whatever the runtime
 /// does to its groups), and a user's decision delivered to the manager, then picked up.
 #[test]
