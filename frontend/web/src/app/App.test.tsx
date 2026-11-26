@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
@@ -124,6 +124,98 @@ it('opens statistics on the tenth consecutive mark click within four seconds', a
   expect(location.pathname).toBe('/i1')
   act(() => mainButton('Back to workriver').click())
   expect(heading()).toContain('First intent')
+})
+
+it('reports the first board paint once, even when the workspace refreshes', async () => {
+  const { recordWorkspaceReady } = await import('@/workspace/first-load')
+  const pending = { ...ws, gitPending: true }
+  const refreshed = { ...ws }
+  let update: (snapshot: Workspace) => void = () => {}
+  vi.mocked(watchWorkspace).mockImplementation(onData => { update = onData; return () => {} })
+  const send = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 401 }))
+  vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+    if (url === '/api/perf/page-load') return send(url, init)
+    if (url === '/api/task?ref=still-pending') return new Promise<Response>(() => {})
+    return Promise.resolve(new Response())
+  })
+  const signedOut = vi.fn()
+  window.addEventListener('workriver:signed-out', signedOut, { once: true })
+  const frames = new Map<number, FrameRequestCallback>()
+  let next = 0
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frames.set(++next, cb); return next })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+  const frame = (at: number) => act(() => {
+    const scheduled = [...frames.values()]
+    frames.clear()
+    for (const cb of scheduled) cb(at)
+  })
+  const now = vi.spyOn(performance, 'now').mockReturnValue(10)
+  document.head.insertAdjacentHTML('beforeend', '<script type="module" src="/assets/index-build.js"></script>')
+  const entry = document.head.lastElementChild as HTMLScriptElement
+  const workspaceUrl = new URL('/api/workspace', location.href).href
+  const assetUrl = entry.src
+  vi.spyOn(performance, 'getEntriesByName').mockImplementation((name) => {
+    if (name === assetUrl) return [{ responseEnd: 33.2 } as PerformanceResourceTiming]
+    if (name === workspaceUrl) return [
+      { startTime: 20, requestStart: 21, responseEnd: 29, encodedBodySize: 123 } as PerformanceResourceTiming,
+      { startTime: 51, requestStart: 54.1, responseEnd: 75.8, encodedBodySize: 456 } as PerformanceResourceTiming,
+    ]
+    return []
+  })
+  const resource = (path: string, initiatorType: string, startTime: number, responseEnd: number) => ({
+    name: new URL(path, location.href).href, initiatorType, startTime, responseEnd,
+  }) as PerformanceResourceTiming
+  vi.spyOn(performance, 'getEntriesByType').mockImplementation(type => type === 'resource' ? [
+    resource('/api/task?ref=private', 'fetch', 10, 40),
+    resource('/api/task?ref=another', 'fetch', 45, 55),
+    resource('/api/unit/private-id/code?have=secret', 'fetch', 110, 125),
+    resource('/api/attachments/private-id', 'img', 101, 105),
+    resource('/api/task', 'fetch', 120, 125),
+    resource('https://other.example/api/task', 'fetch', 10, 40),
+    resource('/api/workspace', 'fetch', 51, 75.8),
+    resource('/api/events', 'eventsource', 60, 70),
+    resource('/api/agent/view?agent=private', 'eventsource', 60, 70),
+    resource('/api/task', 'xmlhttprequest', 10, 40),
+    resource('/api/unknown/private', 'fetch', 10, 40),
+  ] : [])
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    act(() => root.render(<StrictMode><TooltipProvider><App /></TooltipProvider></StrictMode>))
+    expect(send).not.toHaveBeenCalled()
+    void fetch('/api/task?ref=still-pending')
+    now.mockReturnValue(90)
+    recordWorkspaceReady(pending, 50)
+    now.mockReturnValue(100)
+    act(() => update(pending))
+    expect(heading()).toContain('First intent')
+    now.mockReturnValue(110)
+    frame(109)
+    expect(send).not.toHaveBeenCalled()
+    recordWorkspaceReady(refreshed, 100)
+    act(() => update(refreshed))
+    now.mockReturnValue(120)
+    act(() => vi.advanceTimersByTime(0))
+    frame(150)
+    await Promise.resolve()
+    expect(send).toHaveBeenCalledTimes(1)
+    const [url, init] = send.mock.calls[0]!
+    expect(url).toBe('/api/perf/page-load')
+    expect(JSON.parse(init.body as string)).toEqual({
+      ms: 120, js_ms: 33, request_ms: 54, response_ms: 76, bytes: 456,
+      ready_ms: 90, parse_ms: 14, app_ms: 10, render_ms: 20,
+      git_pending: 1,
+      api: [
+        { path: '/api/attachments/{id}', count: 1, ms: 4, max_ms: 4 },
+        { path: '/api/task', count: 2, ms: 40, max_ms: 30 },
+        { path: '/api/unit/{id}/code', count: 1, ms: 10, max_ms: 10 },
+      ],
+    })
+    expect(signedOut).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+    window.removeEventListener('workriver:signed-out', signedOut)
+    entry.remove()
+  }
 })
 
 async function dialogLink(path: string) {

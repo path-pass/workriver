@@ -11,6 +11,7 @@ import { selectionOf } from '@/work/select'
 import { changes, read } from '@/api/http'
 import { setRuntime } from '@/i18n'
 import { HIDDEN_READ } from '@/config/defaults'
+import { recordWorkspaceReady, WORKSPACE_PATH } from './first-load'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
@@ -39,7 +40,10 @@ function prepare(ws: Workspace): Workspace {
 
 async function loadWorkspace(): Promise<Workspace> {
   if (!MOCK) {
-    return prepare(await read<Workspace>('/api/workspace'))
+    const started = performance.now()
+    const ws = prepare(await read<Workspace>(WORKSPACE_PATH))
+    recordWorkspaceReady(ws, started)
+    return ws
   }
   const [{ default: demo }, { default: lockscreen }] = await Promise.all([import('@/mock/demo.json'), import('@/mock/lockscreen.svg')])
   const ws = demo as unknown as Workspace

@@ -25,6 +25,7 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/settings/attachments", &["GET", "POST"]),
     ("/api/settings/attachments/run", &["POST"]),
     ("/api/workspace", &["GET"]),
+    ("/api/perf/page-load", &["POST"]),
     ("/api/unit/{id}/code", &["GET"]),
     ("/api/intent/{id}/history", &["GET"]),
     ("/api/state", &["GET"]),
@@ -62,6 +63,21 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/attachments/inbox", &["POST"]),
     ("/api/attachments/{id}", &["GET"]),
 ];
+
+#[test]
+fn page_load_paths_cover_the_local_routes() {
+    let excluded = [
+        "/api/workspace",       // Reported in dedicated workspace fields.
+        "/api/perf/page-load",  // The report itself.
+        "/api/events",          // Workspace change stream.
+        "/api/agent/view",      // Terminal view stream.
+    ];
+    let expected: BTreeSet<_> = LOCAL.iter().map(|(path, _)| *path).filter(|p| !excluded.contains(p)).collect();
+    let list = include_str!("../../../../../frontend/web/src/api/page-load-paths.txt");
+    let actual: BTreeSet<_> = list.lines().collect();
+    assert_eq!(actual.len(), list.lines().count(), "each template appears once");
+    assert_eq!(actual, expected);
+}
 
 /// The allow-list of a followed machine's listener (`machine_router()`): only what an
 /// agent's CLI over there needs. Anything else there is refused by its fallback.
@@ -201,6 +217,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     // The guard's service runs no jobs: the user is answered that it does not run the rule.
     ("POST", "/api/settings/attachments/run", "{}"),
     ("GET", "/api/workspace", ""),
+    ("POST", "/api/perf/page-load", r#"{"ms":100,"ready_ms":80,"app_ms":12,"render_ms":8,"git_pending":1,"api":[]}"#),
     ("GET", "/api/unit/u1/code", ""),
     ("GET", "/api/intent/i1/history", ""),
     ("GET", "/api/state", ""),

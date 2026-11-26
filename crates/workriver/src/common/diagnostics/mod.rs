@@ -13,6 +13,16 @@ mod report;
 
 pub use report::{bundle, parse_since, summary};
 
+/// One route's requests seen before the first board paint, with cumulative and longest time.
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageApiTiming {
+    pub path: String,
+    pub count: u64,
+    pub ms: u64,
+    pub max_ms: u64,
+}
+
 /// One file grows to this, then the files move up one (`perf.1.jsonl`…) and the oldest goes.
 // ponytail: five files of 5 MB; a size or count of the user's choosing when anyone asks.
 const FILE_BYTES: u64 = 5 * 1024 * 1024;

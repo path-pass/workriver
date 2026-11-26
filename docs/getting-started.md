@@ -344,16 +344,18 @@ files are older than another's last build would run that other worktree's code.
   elsewhere ([runtimes/herdr.md](runtimes/herdr.md#troubleshooting)).
 - **Something is slow**: the service keeps a timing log in `~/workriver-data/logs/`
   (`perf.jsonl`, five files of 5 MB at most). `workriver perf [--since 1h]` sums it up:
-  the slowest requests, how long snapshots and each unit took, when the service paused
-  (for example, when its computer slept or hung), and how long other machines were
-  disconnected. The "Service pauses" section shows gaps of more than 10 seconds between
-  checks. To log each git and ssh call too, start the service with `workriver serve
+  how long the browser took to show the board, the stages of that first load, and other
+  completed API requests from that load. It skips pages hidden before the first board paint.
+  The summary also shows the slowest service requests, how long snapshots and each unit
+  took, when the service paused (for example, when its computer slept or hung), and how
+  long other machines were disconnected. The "Service pauses" section shows gaps of
+  more than 10 seconds between checks. To log each git and ssh call too, start the service with `workriver serve
   --perf-detail` (or `WORKRIVER_PERF=detail`). `workriver perf --bundle` writes the
   summary and the newest lines into one file and prints its path: that is the file to
-  send. It holds times, counts, route templates (`/api/task`, never the query), unit ids
-  and machine names; never commit messages, file texts, task texts, findings, notes,
-  prompts, tokens, cookies or paths (git calls show `…` where a path was). Look at it
-  before you send it.
+  send. It holds times, response sizes, counts, service builds, route templates
+  (`/api/task`, never the query), unit ids and machine names. It omits commit messages,
+  file texts, task texts, findings, notes, prompts, tokens, cookies and paths. Git calls
+  show `…` where a path was. Look at the bundle before you send it.
 - **A machine goes "disconnected" after this computer slept or changed networks**: that
   is expected and mends itself. ssh notices a dead line within about 30 seconds (and at
   once after a sleep), workriver connects again, first after 2 seconds and then waiting

@@ -21,6 +21,7 @@ mod assets;
 mod drain;
 mod error;
 mod guard;
+mod page_load;
 mod session;
 
 use assets::*;
@@ -91,6 +92,8 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
         .route_layer(middleware::from_fn(timing))
+        // The page timing is itself the log line for this report.
+        .route("/api/perf/page-load", post(page_load::record).layer(DefaultBodyLimit::max(8192)))
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .layer(Extension(via))

@@ -1,6 +1,6 @@
 // The shell and the state of what is on screen: which unit, what is picked inside it, what
 // the user has put in. Everything else is derived.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
 import { Activity } from '@/work/Activity'
 import { releaseGateFiles } from '@/work/GateForm'
@@ -35,6 +35,7 @@ import { IntentPage } from '@/planning/IntentPage'
 import { CloseDialog, ClosedReason } from '@/planning/Close'
 import { openTemplates, TemplatesDialog } from '@/planning/Templates'
 import { MOCK, watchWorkspace } from '@/workspace/source'
+import { reportFirstBoardPaint } from '@/workspace/first-load'
 import { inbox, type WaitingAgentRow } from '@/attention/select'
 import { waitingAgentNews } from '@/attention/notice'
 import { NeedsBar } from '@/attention/NeedsBar'
@@ -298,6 +299,9 @@ export default function App() {
     latest.current = w
     if (!followed.current) followed.current = follow(w)
   }, () => setDown(true), () => soundWanted() || notifyWanted()), [follow])
+  useLayoutEffect(() => {
+    if (data && !dashboard) return reportFirstBoardPaint(data)
+  }, [data, dashboard])
 
   // Picking the same thing again clears it.
   const onPick = useCallback((next: Pick) => {
