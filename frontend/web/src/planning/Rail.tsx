@@ -550,10 +550,11 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
     const saved = recall(UNIT_STATES)?.split(',')
     return UNIT_PROGRESS.filter(p => saved?.includes(p))
   })
+  const needle = q.trim().toLowerCase()
   // Groups start open on each state selection; their folds here leave the unfiltered ones intact.
   const [filteredFolds, setFilteredFolds] = useState<string[]>([])
   const filteredGroup = (id: string): GroupFold => ({
-    isOpen: !filteredFolds.includes(id),
+    isOpen: !!needle || !filteredFolds.includes(id),
     onOpen: open => setFilteredFolds(folds => open ? folds.filter(x => x !== id) : [...folds, id]),
   })
   const filterUnits = (states: UnitProgress[]) => {
@@ -568,7 +569,6 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   )
   const listed = inProject.filter(i => stateOf(i) !== 'dropped')
   const intents = inProject.filter(i => keeps(filter, i))
-  const needle = q.trim().toLowerCase()
   // A search for a tag matches all the units of its intents.
   const tagged = (i: Intent) => !!needle && (i.tags ?? []).some(x => x.includes(needle))
   const match = (u: Unit) => !needle || (u.id + ' ' + u.title + ' ' + u.purpose).toLowerCase().includes(needle)
@@ -593,7 +593,8 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const noUnitMatch = unitFilterOn && groups.length === 0
   const [error, setError] = useState('')
   // The intent of the open unit is open; the others are folded unless the user opened them.
-  const home = intents.find(i => i.id === unitId || i.units.some(u => u.id === unitId))?.id
+  const homeIntent = intents.find(i => i.id === unitId || i.units.some(u => u.id === unitId))
+  const home = homeIntent?.id
   // The repository of the open unit; units of one intent may work in several.
   const openUnit = unitsOf(ws).find(u => u.id === unitId)
   const repo = ws && openUnit && !noCode(openUnit) ? repoOf(ws, openUnit)?.name ?? '' : ''
@@ -601,8 +602,15 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   useEffect(() => { if (home) setOpen(o => (o.includes(home) ? o : [...o, home])) }, [home])
   // A workspace's group is open unless the user folded it; the open unit's opens again.
   const [folded, setFolded] = useState<string[]>([])
-  const homeSpace = intents.find(i => i.id === home)?.workspace
+  const homeSpace = homeIntent?.workspace
   useEffect(() => { if (homeSpace) setFolded(f => f.filter(x => x !== homeSpace)) }, [homeSpace, unitId])
+  const homeProject = projects.find(p => p.id === homeIntent?.project)?.id
+  const filteredParent = homeIntent && (stateOf(homeIntent) === 'done'
+    ? `done:${homeProject ?? ''}`
+    : spaces.find(s => s.id === homeSpace && s.project === homeProject && !s.closed)?.id)
+  useEffect(() => {
+    if (unitFilterOn && home) setFilteredFolds(folds => folds.filter(id => id !== home && id !== filteredParent))
+  }, [unitFilterOn, home, filteredParent, unitId])
   // Keep Done folds even if the filter hides an entire section. Outside the filter,
   // a section that leaves the rail loses its expansion as before.
   const [doneOpen, setDoneOpen] = useState<string[]>([])
