@@ -1,6 +1,6 @@
 // A gate's detail, mounted: the files attached to the gate show while it waits, before the
 // user answers it, the way a task's attachments show, and they stay once it is submitted.
-import { act } from 'react'
+import { act, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
@@ -14,6 +14,8 @@ import type { Workspace } from '@/workspace/types'
 import { Detail } from './TaskDetail'
 import { AgentContext } from '@/agents/context'
 import type { AgentRef, Session } from '@/agents/types'
+import { GateDraftsContext, type GateDrafts } from './GateForm'
+import { TaskDraftsContext, useTaskDrafts } from './drafts'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -34,11 +36,30 @@ let host: HTMLDivElement
 beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
+function FormProviders({ children }: { children: ReactNode }) {
+  const [gates] = useState<GateDrafts>(() => new Map())
+  const drafts = useTaskDrafts()
+  return (
+    <TooltipProvider>
+      <ActContext.Provider value={acts}>
+        <GateDraftsContext.Provider value={gates}>
+          <TaskDraftsContext.Provider value={drafts}>{children}</TaskDraftsContext.Provider>
+        </GateDraftsContext.Provider>
+      </ActContext.Provider>
+    </TooltipProvider>
+  )
+}
+
 const show = (u: Unit) => act(() => root.render(
-  <TooltipProvider><ActContext.Provider value={acts}><Detail unit={u} n={u.tasks[0]} onPick={() => {}} talk={talk} /></ActContext.Provider></TooltipProvider>,
+  <FormProviders><Detail unit={u} n={u.tasks[0]} onPick={() => {}} talk={talk} /></FormProviders>,
 ))
 const files = () => [...host.querySelectorAll('.ctx')].map(e => e.textContent)
 const pictures = () => [...host.querySelectorAll('.thumb img')].map(e => e.getAttribute('src'))
+const button = (name: string) => [...host.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent) === name)!
+const enter = (field: HTMLInputElement, text: string) => {
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  act(() => { set.call(field, text); field.dispatchEvent(new Event('input', { bubbles: true })) })
+}
 
 describe('a finding decided by the manager', () => {
   it('shows the reason in its details without a delivery record', () => {
@@ -54,6 +75,59 @@ describe('a finding decided by the manager', () => {
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Details of P2-1"]')!.click())
     expect(host.textContent).toContain('Expired tokens can be reused')
   })
+})
+
+it('keeps the decision note with its finding when its details close or another unit opens', () => {
+  const review: Task = {
+    ...gate, kind: 'review', state: 'done', title: 'Review the change',
+    output: { findings: [{
+      id: 'P2-1', severity: 'P2', problem: 'Expired tokens still work', impact: '', evidence: [],
+      state: 'open', leadsTo: [],
+    }] },
+  }
+  const first = unit(review)
+  const second = { ...first, id: 'u2' }
+  const open = () => act(() => button('Details of P2-1').click())
+  const note = () => host.querySelector<HTMLInputElement>('input[aria-label="Note for the agent (optional)"]')
+
+  show(first)
+  open()
+  enter(note()!, 'Check the token expiry too')
+  open()
+  expect(note()).toBeNull()
+  open()
+  expect(note()?.value).toBe('Check the token expiry too')
+
+  show(second)
+  expect(note()?.value).toBe('')
+  enter(note()!, 'Update the error message')
+  show(first)
+  expect(note()?.value).toBe('Check the token expiry too')
+  show(second)
+  expect(note()?.value).toBe('Update the error message')
+  act(() => button('Accept').click())
+  expect(note()?.value).toBe('')
+
+  const replacement = { ...review.output.findings![0], problem: 'Refresh fails after expiry' }
+  show(unit({ ...review, output: { findings: [replacement] } }))
+  expect(note()?.value).toBe('')
+})
+
+it('keeps the drop reason with its task and discards it on Cancel', () => {
+  const first = unit(gate)
+  const second = unit({ ...gate, id: '3', taskId: '3' })
+  const reason = () => host.querySelector<HTMLInputElement>('input[aria-label="Why it is no longer needed"]')
+
+  show(first)
+  act(() => button('No longer needed…').click())
+  enter(reason()!, 'Superseded by the new check')
+  show(second)
+  expect(reason()).toBeNull()
+  show(first)
+  expect(reason()?.value).toBe('Superseded by the new check')
+  act(() => button('Cancel').click())
+  act(() => button('No longer needed…').click())
+  expect(reason()?.value).toBe('')
 })
 
 describe('a gate’s attachments', () => {
@@ -128,11 +202,11 @@ describe('a task’s waiting line and terminal button', () => {
   const research = (g: Task): Unit => ({ ...unit(g), kind: 'research', repo: '', branch: null }) as Unit
   const asked: { answer: AgentRef[]; view: AgentRef[] } = { answer: [], view: [] }
   const showIn = (u: Unit, sessions: Session[], workspace?: string) => act(() => root.render(
-    <TooltipProvider><ActContext.Provider value={acts}>
+    <FormProviders>
       <AgentContext.Provider value={{ answer: a => asked.answer.push(a), view: a => asked.view.push(a) }}>
         <Detail unit={u} n={u.tasks[0]} onPick={() => {}} talk={{ ...talk, sessions } as Talk} workspace={workspace} />
       </AgentContext.Provider>
-    </ActContext.Provider></TooltipProvider>,
+    </FormProviders>,
   ))
   const answer = () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Answer')
   const terminal = () => host.querySelector<HTMLButtonElement>('[aria-label="Open the terminal view of impl"]')

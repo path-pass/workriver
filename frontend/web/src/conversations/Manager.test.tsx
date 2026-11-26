@@ -11,7 +11,7 @@ import type { Space } from '@/agents/types'
 import { Spaces } from '@/planning/spaces'
 import type { Unit } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'
-import { Manager } from './Manager'
+import { Manager, ManagerDraftProvider } from './Manager'
 import { EVERY, repliesOf } from './select'
 import type { ManagerMessage, Talk } from './types'
 
@@ -44,7 +44,7 @@ function show(to: string, messages: ManagerMessage[], live = sessions) {
     intents: [], messages, onTell: (...a) => { told.push(a) }, onDiscuss: async () => {}, onDiscussRead: () => {}, onAnswer: () => {},
   }
   const unit = { id: 'u1', title: 'Search' } as unknown as Unit
-  act(() => root.render(<TooltipProvider><Spaces.Provider value={live}><Manager unit={unit} n={null} talk={talk} /></Spaces.Provider></TooltipProvider>))
+  act(() => root.render(<TooltipProvider><Spaces.Provider value={live}><ManagerDraftProvider unit={unit} n={null} talk={talk}><Manager talk={talk} /></ManagerDraftProvider></Spaces.Provider></TooltipProvider>))
 }
 const texts = (sel: string) => [...host.querySelectorAll(sel)].map(e => e.textContent)
 
@@ -99,6 +99,25 @@ describe('the conversation with every manager', () => {
   it('keeps a workspace’s own conversation apart', () => {
     show('ws1', [own, broadcast])
     expect(texts('.msg[data-side="mine"] .bubble > p:first-child')).toEqual(['Only to chat.'])
+  })
+
+  it('keeps unsent text and files for the workspace where they were drafted', () => {
+    const box = () => host.querySelector('textarea')!
+    show('ws1', [])
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => { set.call(box(), 'Please check the draft.'); box().dispatchEvent(new Event('input', { bubbles: true })) })
+    const input = host.querySelector('input[type="file"]')!
+    Object.defineProperty(input, 'files', { value: [new File(['evidence'], 'private.txt')] })
+    act(() => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+
+    for (const other of ['ws2', EVERY]) {
+      show(other, [])
+      expect(box().value).toBe('')
+      expect(host.textContent).not.toContain('private.txt')
+    }
+    show('ws1', [])
+    expect(box().value).toBe('Please check the draft.')
+    expect(host.textContent).toContain('private.txt')
   })
 })
 

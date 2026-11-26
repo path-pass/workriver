@@ -4,7 +4,7 @@
 // amends its delivery if the result changed. Disabled, saying why, once its agent is gone or
 // the gate that asks about the result is submitted; the manager (the detail's own button) is
 // the way on from there.
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useContext, useState, type DragEvent } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { useT } from '@/i18n'
 import { attach, detach, MAX_ATTACHMENT } from '@/api/actions'
@@ -14,6 +14,7 @@ import type { Unit } from '@/planning/types'
 import type { Talk } from './types'
 import { Box } from './Manager'
 import { Chips } from './Turns'
+import { TaskDraftsContext, useTaskDraft } from '@/work/drafts'
 
 /** A drag that carries files (not text dragged into the box). */
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
@@ -23,24 +24,22 @@ export function Discussion({ unit, n, talk }: { unit: Unit; n: Task; talk: Talk 
   const agent = n.agent ?? ''
   const state = n.discuss ?? 'open'
   const gate = unit.tasks.find(x => x.id === n.output.gate)
-  // The user's files, held by the page until the question is sent (as in the Manager box).
-  const [files, setFiles] = useState<Attachment[]>([])
+  const { discussions } = useContext(TaskDraftsContext)!
+  const [draft, save] = useTaskDraft(discussions, `${unit.id}:${n.id}`)
+  const { text = '', files = [] } = draft ?? {}
   const [refused, setRefused] = useState<string[]>([])
   const [error, setError] = useState('')
-  const held = useRef(files)
-  held.current = files
-  useEffect(() => () => held.current.forEach(detach), [])
+  const update = (text: string, files: Attachment[]) => save(text || files.length ? { text, files } : undefined)
   const addFiles = (list: File[]) => {
     setRefused(list.filter(f => f.size > MAX_ATTACHMENT).map(f => f.name))
-    setFiles(fs => [...fs, ...list.filter(f => f.size <= MAX_ATTACHMENT).map(attach)])
+    update(text, [...files, ...list.filter(f => f.size <= MAX_ATTACHMENT).map(attach)])
   }
-  const remove = (a: Attachment) => { detach(a); setFiles(fs => fs.filter(x => x !== a)); setRefused([]) }
-  const send = (text: string, conclude = false) => {
+  const remove = (a: Attachment) => { detach(a); update(text, files.filter(x => x !== a)); setRefused([]) }
+  const send = (question: string, conclude = false) => {
     setError('')
-    const sent = files
-    setFiles([])
+    update(conclude ? text : '', [])
     setRefused([])
-    talk.onDiscuss(unit.id, n.id, agent, text, conclude, sent).catch((e: Error) => setError(e.message))
+    talk.onDiscuss(unit.id, n.id, agent, question, conclude, files).catch((e: Error) => setError(e.message))
   }
   const closed = state !== 'open'
   // A conclusion is of a discussion: offered once there is one (the service refuses it before).
@@ -54,6 +53,8 @@ export function Discussion({ unit, n, talk }: { unit: Unit; n: Task; talk: Talk 
       <Box
         label={t('discuss.label', { agent })}
         placeholder={t('discuss.placeholder', { agent })}
+        text={text}
+        setText={next => update(next, files)}
         focusAt={0}
         disabled={closed}
         closed={closed}

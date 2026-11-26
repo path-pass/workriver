@@ -206,11 +206,123 @@ const held: Workspace = { ...ws, intents: [
 ] }
 const stuck = { agent: 'ja-impl', session: 's1', machine: 'box', workspace: 'ws1', intent: 'i1', topic: 'Japanese copy', blockedSince: at, ended: false } as const
 
+it('keeps the Manager draft through navigation, section switches and the mobile sheet', async () => {
+  history.replaceState(null, '', '/u1/3')
+  const narrow = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+  const manager = { name: 'boss', session: 's1', folder: '/project', since: 1, state: 'idle' as const }
+  listen({
+    ...held,
+    messages: [],
+    intents: [{ ...held.intents[0], state: 'active' }, ...held.intents.slice(1)],
+    workspaces: [{ ...ws.workspaces![0], manager }],
+  })
+  const received: unknown[] = []
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    if (url.startsWith('blob:')) return new Response('evidence')
+    if (url === '/api/attachments?name=draft.txt') return Response.json({ id: 'draft-file' })
+    if (url !== '/api/message') throw new Error(`Unexpected fetch: ${url}`)
+    received.push(JSON.parse(String(init.body)))
+    return Response.json({})
+  })
+  const panel = () => host.querySelector('aside:has(button[aria-label="Manager"])')!
+  const box = (where: ParentNode) => where.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message to the manager"]')!
+
+  await act(async () => { render() })
+  act(() => mainButton('Ask the manager').click())
+  type(box(panel()), 'Can you check this?')
+  const input = panel().querySelector('input[type="file"]')!
+  Object.defineProperty(input, 'files', { value: [new File(['evidence'], 'draft.txt')] })
+  act(() => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+  act(() => button(panel(), 'Leave #3 out').click())
+  act(() => button(panel(), 'Agents').click())
+  expect(box(panel())).toBeNull()
+  act(() => button(panel(), 'Manager').click())
+  expect(box(panel()).value).toBe('Can you check this?')
+  expect(panel().textContent).toContain('draft.txt')
+  expect(panel().querySelector('[aria-label="Leave #3 out"]')).toBeNull()
+
+  await act(async () => {
+    history.pushState(null, '', '/u1/2')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  })
+  narrow.mockReturnValue({ matches: true } as MediaQueryList)
+  await act(async () => { mainButton('Ask the manager').click() })
+  expect(box(sheet()!).value).toBe('Can you check this?')
+  type(box(sheet()!), 'Can you rerun this check?')
+  await act(async () => { button(sheet()!, 'Fold the panel').click() })
+  expect(sheet()).toBeNull()
+  await act(async () => { mainButton('Ask the manager').click() })
+  expect(box(sheet()!).value).toBe('Can you rerun this check?')
+  expect(sheet()?.textContent).toContain('draft.txt')
+  await act(async () => { button(sheet()!, 'Send').click() })
+  expect(received).toEqual([{
+    workspace: 'ws1', intent: 'i1', unit: 'u1', task: 2, text: 'Can you rerun this check?',
+    context: [{ kind: 'attachment', id: 'draft-file', label: 'draft.txt' }],
+  }])
+  expect(box(sheet()!).value).toBe('')
+  await act(async () => { button(sheet()!, 'Fold the panel').click() })
+  expect(box(panel()).value).toBe('')
+  expect(panel().textContent).not.toContain('draft.txt')
+})
+
 function listen(initial: Workspace) {
   let emit: (data: Workspace) => void
   vi.mocked(watchWorkspace).mockImplementation(onData => { emit = onData; onData(initial); return () => {} })
   return (next: Workspace) => act(() => emit(next))
 }
+
+const visit = (path: string) => act(async () => {
+  history.pushState(null, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+})
+
+it('sends the restored gate note after visiting another unit', async () => {
+  const unit = held.intents[0].units[0]
+  const snapshot = { ...held, intents: [{ ...held.intents[0], units: [unit, { ...unit, id: 'u2', title: 'Another unit', tasks: [gate] }] }] }
+  listen(snapshot)
+  const received: unknown[] = []
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    if (url !== '/api/gate') throw new Error(`Unexpected fetch: ${url}`)
+    received.push(JSON.parse(String(init.body)))
+    return Response.json({})
+  })
+  history.replaceState(null, '', '/u1/2')
+  await act(async () => { render() })
+  const note = () => host.querySelector<HTMLTextAreaElement>('main form textarea')
+  type(note()!, 'Login works after refresh.')
+  await visit('/u2/2')
+  expect(note()?.value).toBe('')
+  await visit('/u1/2')
+  expect(note()?.value).toBe('Login works after refresh.')
+
+  vi.useFakeTimers()
+  try {
+    act(() => mainButton('Submit').click())
+    expect(note()).toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(received).toEqual([{ unit: 'u1', task: 2, result: 'done', note: 'Login works after refresh.', findings: [], attachments: [], selected: [] }])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('releases a gate draft picture if the gate closes while another page is open', async () => {
+  const push = listen(held)
+  history.replaceState(null, '', '/u1/2')
+  await act(async () => { render() })
+  const revoke = vi.spyOn(URL, 'revokeObjectURL')
+  const input = host.querySelector('main form input[type=file]')!
+  Object.defineProperty(input, 'files', { value: [new File(['evidence'], 'gate.png', { type: 'image/png' })] })
+  act(() => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+  const picture = host.querySelector<HTMLImageElement>('main form img')!.src
+
+  await visit('/i2')
+  expect(revoke).not.toHaveBeenCalledWith(picture)
+  const intent = held.intents[0]
+  const unit = { ...intent.units[0], tasks: [{ ...gate, state: 'dropped' as const }, stalled] }
+  push({ ...held, intents: [{ ...intent, units: [unit] }, held.intents[1]] })
+  expect(revoke).toHaveBeenCalledWith(picture)
+})
 
 it('shows the recorded board while keeping a commit link open for the Git update', async () => {
   const url = '/u1/commit%3Aabc'

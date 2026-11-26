@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
 import { Activity } from '@/work/Activity'
+import { forgetGateDraft, GateDraftsContext, type GateDrafts } from '@/work/GateForm'
+import { TaskDraftsContext, useTaskDrafts } from '@/work/drafts'
 import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from './Side'
 import type { Also, CommitFocus, Lines } from '@/code/types'
 import { Progress, Squashed, Rail } from '@/planning/Rail'
@@ -22,7 +24,7 @@ import type { Space } from '@/agents/types'
 import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
-import { Manager } from '@/conversations/Manager'
+import { Manager, ManagerDraftProvider } from '@/conversations/Manager'
 import { EVERY, followProject } from '@/conversations/select'
 import type { Talk, AskContext, Copy, ManagerMessage, Turn } from '@/conversations/types'
 import { isField } from '@/lib/isField'
@@ -457,7 +459,7 @@ export default function App() {
   // The Manager section's chips: the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
   const needs = <NeedsBar rows={waiting} />
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} needs={needs} /> }
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager talk={talk} needs={needs} /> }
 
   // A gate or chore of a research unit has no work tree: it runs in the intent's project folder.
   const run = useCallback((a: RunAsk) => {
@@ -472,6 +474,23 @@ export default function App() {
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
   const [message, setMessage] = useState<Record<string, string>>({})
   const [retry, setRetry] = useState<Record<string, GateResult>>({})
+  const [gateDrafts] = useState<GateDrafts>(() => new Map())
+  const taskDrafts = useTaskDrafts()
+  useEffect(() => () => {
+    for (const key of gateDrafts.keys()) forgetGateDraft(gateDrafts, key)
+  }, [gateDrafts])
+  useEffect(() => {
+    if (!data) return
+    const closed = new Set([...gateDrafts.keys(), ...Object.keys(retry)])
+    if (!closed.size) return
+    // The optimistic overlay marks an outgoing result done before the service takes it.
+    for (const unit of unitsOf(data)) for (const task of unit.tasks)
+      if (task.kind === 'gate' && task.state === 'waiting') closed.delete(gateKey(unit, task))
+    if (!closed.size) return
+    for (const key of closed) forgetGateDraft(gateDrafts, key, retry[key])
+    if ([...closed].some(key => retry[key]))
+      setRetry(all => Object.fromEntries(Object.entries(all).filter(([key]) => !closed.has(key))))
+  }, [data, gateDrafts, retry])
   const cancels = useRef<Record<string, () => void>>({})
   const track = (key: string) => (d: Delivery) => setDelivery(all => ({ ...all, [key]: d }))
   const sent = (key: string, out: { message: string; cancel: () => void }) => {
@@ -521,6 +540,8 @@ export default function App() {
     <>
     {dashboard && <Dashboard onClose={() => setDashboard(false)} />}
     <ActContext.Provider value={act}>
+    <GateDraftsContext.Provider value={gateDrafts}>
+    <TaskDraftsContext.Provider value={taskDrafts}>
     <RunContext.Provider value={run}>
     <ViewerContext.Provider value={viewer}>
     <NavigateContext.Provider value={navigate}>
@@ -592,10 +613,10 @@ export default function App() {
         {term && <TerminalDock s={liveOf(term) ?? term} gone={!liveOf(term)} onClose={() => setTerm(null)} />}
       </main>
       {ws && (
-        <>
+        <ManagerDraftProvider unit={unit} n={asking} finding={pick?.finding} talk={talk}>
           <SidePanel {...panel} section={side} onSection={s => showSide(side === s ? null : s)} onClose={() => showSide(null)} onWidth={setSideWidth} />
           <SideSheet {...panel} section={sheet} onSection={s => setSheet(now => (now === s ? null : s))} onClose={() => setSheet(null)} />
-        </>
+        </ManagerDraftProvider>
       )}
       <StartIntent ws={ws} intent={starting} onClose={() => setStarting(null)} onStarted={(i, w) => setEdits(e => ({ ...e, starts: { ...e.starts, [i]: w } }))} />
       <SeatDialog ws={ws} />
@@ -611,6 +632,8 @@ export default function App() {
     </NavigateContext.Provider>
     </ViewerContext.Provider>
     </RunContext.Provider>
+    </TaskDraftsContext.Provider>
+    </GateDraftsContext.Provider>
     </ActContext.Provider>
     </>
   )

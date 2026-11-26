@@ -11,6 +11,8 @@ import type { Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
 import type { ReactNode } from 'react'
+import { TaskDraftsContext, useTaskDrafts } from '@/work/drafts'
+import { detach } from '@/api/actions'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -21,7 +23,11 @@ const plain = (k: number): Thread => ({ id: `q${k + 2}`, ended: false, turns: [t
 
 let host: HTMLDivElement
 let root: Root
-const show = (node: ReactNode) => act(() => root.render(<TooltipProvider>{node}</TooltipProvider>))
+function Drafts({ children }: { children: ReactNode }) {
+  const drafts = useTaskDrafts()
+  return <TaskDraftsContext.Provider value={drafts}>{children}</TaskDraftsContext.Provider>
+}
+const show = (node: ReactNode) => act(() => root.render(<TooltipProvider><Drafts>{node}</Drafts></TooltipProvider>))
 beforeEach(() => { vi.useFakeTimers(); host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
@@ -58,4 +64,33 @@ describe('Draft conclusion', () => {
     expect(offered([plain(0)])).toBe(false)
     expect(offered([discussion])).toBe(true)
   })
+})
+
+it('resumes a draft and its file on the same task until the message is sent', async () => {
+  const unit = { id: 'draft-survey', title: 'Survey', tasks: [] } as unknown as Unit
+  const n = { id: '1', taskId: '1', agent: 'agent-R', discuss: 'open', output: {} } as unknown as Task
+  const onDiscuss = vi.fn<Talk['onDiscuss']>(async (_unit, _task, _agent, _text, _conclude, files) => { files.forEach(detach) })
+  const talk = { onDiscuss } as unknown as Talk
+  const open = (u: Unit) => show(<Discussion unit={u} n={n} talk={talk} />)
+  const box = () => host.querySelector('textarea')!
+
+  open(unit)
+  const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  act(() => { set.call(box(), 'Could we verify this?'); box().dispatchEvent(new Event('input', { bubbles: true })) })
+  const input = host.querySelector('input[type="file"]')!
+  Object.defineProperty(input, 'files', { value: [new File(['evidence'], 'discussion.txt')] })
+  act(() => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+  show(null)
+  open({ ...unit, id: 'other-survey' })
+  expect(box().value).toBe('')
+  expect(host.textContent).not.toContain('discussion.txt')
+  open(unit)
+  expect(box().value).toBe('Could we verify this?')
+  expect(host.textContent).toContain('discussion.txt')
+  await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click() })
+  expect(onDiscuss).toHaveBeenCalledExactlyOnceWith(unit.id, n.id, 'agent-R', 'Could we verify this?', false, [expect.objectContaining({ name: 'discussion.txt' })])
+  show(null)
+  open(unit)
+  expect(box().value).toBe('')
+  expect(host.textContent).not.toContain('discussion.txt')
 })
