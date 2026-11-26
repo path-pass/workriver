@@ -1,13 +1,14 @@
 // What the user puts in at a waiting gate: its result (with screenshots and findings), and
 // the result on its way to the agents. Nothing is sent from here: it all goes through the
 // shell's actions to one place in api/actions.ts.
-import { createContext, useContext, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Input } from '@/ui/primitives/input'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { gateKey, useAct } from './actions'
 import { SEVERITIES } from './select'
 import type { GateResult, NewFinding, Severity, Task } from './types'
+import { useTaskDraft, type GateDraft } from './drafts'
 import { useT } from '@/i18n'
 import { attach, detach } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
@@ -35,25 +36,13 @@ function AttachButton({ onAdd }: { onAdd: (a: Attachment[]) => void }) {
   )
 }
 
-type Draft = { severity: Severity; problem: string; impact: string; where: string; files: Attachment[] }
+type Draft = GateDraft['drafts'][number]
 const blank = (): Draft => ({ severity: 'P2', problem: '', impact: '', where: '', files: [] })
-
-type GateDraft = {
-  result: GateResult['result']
-  picked?: string
-  note?: string
-  files: Attachment[]
-  drafts: Draft[]
-}
-export type GateDrafts = Map<string, GateDraft>
-export const GateDraftsContext = createContext<GateDrafts | null>(null)
 
 const resultFiles = (r?: GateResult) => r ? [...r.attachments, ...r.findings.flatMap(f => f.attachments)] : []
 
 /** A draft's pictures go unless the sent result took them over. */
-export function forgetGateDraft(store: GateDrafts, key: string, retry?: GateResult, sent?: GateResult) {
-  const draft = store.get(key)
-  store.delete(key)
+export function releaseGateFiles(draft: GateDraft | undefined, retry?: GateResult, sent?: GateResult) {
   const unsent = draft ? [...draft.files, ...draft.drafts.flatMap(d => d.files)] : []
   const seen = new Set(resultFiles(sent).map(a => a.url))
   for (const file of [...unsent, ...resultFiles(retry)]) {
@@ -72,16 +61,16 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const act = useAct()
   const choice = gate.input.choice
   const key = gateKey(unit, gate)
-  const store = useContext(GateDraftsContext)!
+  const [draft, save] = useTaskDraft('gates', key)
   // What was sent from here and not taken by the service: the form starts from it again.
   const back = act.retry[key]
-  const [form, setForm] = useState<GateDraft>(() => store.get(key) ?? {
+  const form: GateDraft = draft ?? {
     result: back?.result ?? (choice ? 'answered' : 'done'),
     picked: back?.selected?.[0],
     note: back?.note,
     files: back?.attachments ?? [],
     drafts: back?.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence.join(', '), files: f.attachments })) ?? [],
-  })
+  }
   const { result, picked, files, drafts } = form
   // A conclusion starts the note until the user edits it, including clearing it.
   const [prefill, setPrefill] = useState(gate.draft)
@@ -89,11 +78,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const note = form.note ?? prefill ?? ''
   const [noteMissing, setNoteMissing] = useState(false)
   const [error, setError] = useState(false)
-  const update = (change: Partial<GateDraft>) => {
-    const next = { ...form, ...change }
-    store.set(key, next)
-    setForm(next)
-  }
+  const update = (change: Partial<GateDraft>) => save({ ...form, ...change })
   // A refused result still holds its pictures until it is replaced or the gate closes.
   const letGo = (a: Attachment) => { if (!resultFiles(back).some(x => x.url === a.url)) detach(a) }
 
@@ -123,7 +108,8 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
       result, ...(asked && { selected: [picked!] }), note: note.trim(), attachments: files,
       findings: result === 'problem' ? findings : [], at: new Date().toISOString(),
     }
-    forgetGateDraft(store, key, back, sent)
+    releaseGateFiles(draft, back, sent)
+    save()
     act.submitGate(unit, gate, sent)
   }
   const noteNeeded = !!(choice && result === 'answered' && picked && needsNote(choice, picked))

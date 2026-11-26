@@ -213,6 +213,12 @@ dropped one says why.
 Everything the user decides goes to the service through one place (`frontend/web/src/api/actions.ts`), which
 records it and delivers it to the agents through Herdr.
 
+Unsent drafts stay in the current tab's memory across unit, task and page switches. A gate
+keeps its result, choice, note, findings and pictures by task. Decision notes belong to their
+findings. Drop reasons and a discussion's text and files belong to their tasks. Sending a
+draft clears it. A gate's draft also clears when it stops waiting, and a result the service
+refuses comes back in the form. Cancelling a drop clears its reason.
+
 - **A waiting gate's output is a form**: Done or Problem; a note; with a problem, findings
   with the same three fields as a reviewer's (severity P1–P3, what is wrong, what happens
   if it is left, where), at least one. Pictures can be pasted into the note or a finding,

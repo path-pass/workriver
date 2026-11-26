@@ -1,6 +1,6 @@
 // A gate's detail, mounted: the files attached to the gate show while it waits, before the
 // user answers it, the way a task's attachments show, and they stay once it is submitted.
-import { act, useState, type ReactNode } from 'react'
+import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
@@ -14,7 +14,6 @@ import type { Workspace } from '@/workspace/types'
 import { Detail } from './TaskDetail'
 import { AgentContext } from '@/agents/context'
 import type { AgentRef, Session } from '@/agents/types'
-import { GateDraftsContext, type GateDrafts } from './GateForm'
 import { TaskDraftsContext, useTaskDrafts } from './drafts'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -37,14 +36,11 @@ beforeEach(() => { host = document.createElement('div'); document.body.append(ho
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
 function FormProviders({ children }: { children: ReactNode }) {
-  const [gates] = useState<GateDrafts>(() => new Map())
   const drafts = useTaskDrafts()
   return (
     <TooltipProvider>
       <ActContext.Provider value={acts}>
-        <GateDraftsContext.Provider value={gates}>
-          <TaskDraftsContext.Provider value={drafts}>{children}</TaskDraftsContext.Provider>
-        </GateDraftsContext.Provider>
+        <TaskDraftsContext.Provider value={drafts}>{children}</TaskDraftsContext.Provider>
       </ActContext.Provider>
     </TooltipProvider>
   )
@@ -77,7 +73,7 @@ describe('a finding decided by the manager', () => {
   })
 })
 
-it('keeps the decision note with its finding when its details close or another unit opens', () => {
+it('keeps the decision note with its finding through navigation and amendments', () => {
   const review: Task = {
     ...gate, kind: 'review', state: 'done', title: 'Review the change',
     output: { findings: [{
@@ -110,7 +106,7 @@ it('keeps the decision note with its finding when its details close or another u
 
   const replacement = { ...review.output.findings![0], problem: 'Refresh fails after expiry' }
   show(unit({ ...review, output: { findings: [replacement] } }))
-  expect(note()?.value).toBe('')
+  expect(note()?.value).toBe('Check the token expiry too')
 })
 
 it('keeps the drop reason with its task and discards it on Cancel', () => {

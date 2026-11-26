@@ -107,9 +107,9 @@ context; everything else still goes to the manager.
   unit's intent's workspace: with another workspace picked in the select, no chips show and
   none are sent. Every chip has a ×. Taking out the task's chip takes with it what needs the
   task (the finding, the open attachment); the file or lines and the other tasks that wrote
-  them stay with the unit. Taking out the unit's leaves no chip; the user's own files stay. A chip left out stays out until the
-  selection changes. A gate is a chip like any task: the manager relays to whoever wrote its
-  steps.
+  them stay with the unit. Taking out the unit's leaves no chip; the user's own files stay.
+  A chip left out stays out until the selection changes, even if the panel or sheet closes.
+  A gate is a chip like any task: the manager relays to whoever wrote its steps.
 - **How the box is reached.** The picked task's detail keeps only a small "Ask the
   manager"; it, "Ask the manager" floating by picked lines, the viewer's "Ask the manager"
   and `?` (outside a field) open the panel on Manager (the sheet on a narrow screen), on the
@@ -126,6 +126,9 @@ context; everything else still goes to the manager.
   input method composes. The line under the box ends with the keys that send, named the
   way the keyboard does: "⌘↵" with a Cmd key, "Ctrl+Enter" without. Other single-line
   fields keep Enter.
+- **The box keeps a draft** of the user's text and files in this tab's memory until sent.
+  It belongs to the selected workspace, with a separate draft for All managers. It comes
+  back when the user returns to that conversation, in the side panel or narrow sheet.
 - **Files** go with a message too, any kind (a screenshot, a log, Markdown, a PDF), several
   at once: dropped anywhere on the Manager panel, pasted into the box, or picked with the
   small attach button in the box, before Send; to any workspace's manager (they need no

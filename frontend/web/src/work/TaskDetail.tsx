@@ -21,7 +21,7 @@ import { GateForm, GateSent } from './GateForm'
 import { Chose } from '@/content/choice/Choice'
 import { Thumbs } from '@/attachments/Thumbs'
 import { gateKey } from './actions'
-import { TaskDraftsContext, useTaskDraft } from './drafts'
+import { useTaskDraft } from './drafts'
 import { TerminalButton, Who } from '@/agents/Mark'
 import { AgentContext } from '@/agents/context'
 import { refOf, taskSession } from '@/agents/select'
@@ -315,8 +315,7 @@ export function Detail({ unit, n, finding, onPick, talk, workspace, gitPending }
 /** The user marks work not done yet as no longer needed, saying why; nothing is deleted. */
 function DropTask({ unit, n }: { unit: Unit; n: Task }) {
   const { t } = useT()
-  const { drops } = useContext(TaskDraftsContext)!
-  const [draft, setReason] = useTaskDraft(drops, `${unit.id}:${n.id}`)
+  const [draft, setReason] = useTaskDraft('drops', `${unit.id}:${n.id}`)
   const reason = draft ?? ''
   const [open, setOpen] = useState(!!draft)
   const [error, setError] = useState('')

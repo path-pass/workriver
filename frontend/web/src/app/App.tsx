@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
 import { Activity } from '@/work/Activity'
-import { forgetGateDraft, GateDraftsContext, type GateDrafts } from '@/work/GateForm'
+import { releaseGateFiles } from '@/work/GateForm'
 import { TaskDraftsContext, useTaskDrafts } from '@/work/drafts'
 import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from './Side'
 import type { Also, CommitFocus, Lines } from '@/code/types'
@@ -474,11 +474,8 @@ export default function App() {
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
   const [message, setMessage] = useState<Record<string, string>>({})
   const [retry, setRetry] = useState<Record<string, GateResult>>({})
-  const [gateDrafts] = useState<GateDrafts>(() => new Map())
   const taskDrafts = useTaskDrafts()
-  useEffect(() => () => {
-    for (const key of gateDrafts.keys()) forgetGateDraft(gateDrafts, key)
-  }, [gateDrafts])
+  const gateDrafts = taskDrafts.gates
   useEffect(() => {
     if (!data) return
     const closed = new Set([...gateDrafts.keys(), ...Object.keys(retry)])
@@ -487,7 +484,10 @@ export default function App() {
     for (const unit of unitsOf(data)) for (const task of unit.tasks)
       if (task.kind === 'gate' && task.state === 'waiting') closed.delete(gateKey(unit, task))
     if (!closed.size) return
-    for (const key of closed) forgetGateDraft(gateDrafts, key, retry[key])
+    for (const key of closed) {
+      releaseGateFiles(gateDrafts.get(key), retry[key])
+      gateDrafts.delete(key)
+    }
     if ([...closed].some(key => retry[key]))
       setRetry(all => Object.fromEntries(Object.entries(all).filter(([key]) => !closed.has(key))))
   }, [data, gateDrafts, retry])
@@ -540,7 +540,6 @@ export default function App() {
     <>
     {dashboard && <Dashboard onClose={() => setDashboard(false)} />}
     <ActContext.Provider value={act}>
-    <GateDraftsContext.Provider value={gateDrafts}>
     <TaskDraftsContext.Provider value={taskDrafts}>
     <RunContext.Provider value={run}>
     <ViewerContext.Provider value={viewer}>
@@ -633,7 +632,6 @@ export default function App() {
     </ViewerContext.Provider>
     </RunContext.Provider>
     </TaskDraftsContext.Provider>
-    </GateDraftsContext.Provider>
     </ActContext.Provider>
     </>
   )

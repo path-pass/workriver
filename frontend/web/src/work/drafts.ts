@@ -1,40 +1,44 @@
-import { createContext, useEffect, useState, useSyncExternalStore } from 'react'
-import { detach } from '@/api/actions'
+import { createContext, useContext, useState } from 'react'
 import type { Attachment } from '@/attachments/types'
+import type { GateResult, Severity } from './types'
 
-function draftStore<T>() {
-  const entries = new Map<string, T>()
-  const listeners = new Set<() => void>()
-  return {
-    entries,
-    subscribe(listener: () => void) {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-    save(key: string, value?: T) {
-      if (value === undefined) entries.delete(key)
-      else entries.set(key, value)
-      listeners.forEach(listener => listener())
-    },
-  }
+export type GateDraft = {
+  result: GateResult['result']
+  picked?: string
+  note?: string
+  files: Attachment[]
+  drafts: { severity: Severity; problem: string; impact: string; where: string; files: Attachment[] }[]
 }
+
+type Drafts = {
+  gates: GateDraft
+  decisions: string
+  drops: string
+  discussions: { text: string; files: Attachment[] }
+}
+type TaskDrafts = { [K in keyof Drafts]: Map<string, Drafts[K]> }
 
 /** Drafts live for the page, even when the task detail or a finding's row closes. */
 export function useTaskDrafts() {
-  const [drafts] = useState(() => ({
-    decisions: draftStore<string>(),
-    drops: draftStore<string>(),
-    discussions: draftStore<{ text: string; files: Attachment[] }>(),
+  const [drafts] = useState<TaskDrafts>(() => ({
+    gates: new Map(),
+    decisions: new Map(),
+    drops: new Map(),
+    discussions: new Map(),
   }))
-  useEffect(() => () => {
-    for (const d of drafts.discussions.entries.values()) d.files.forEach(detach)
-  }, [drafts])
   return drafts
 }
 
-export const TaskDraftsContext = createContext<ReturnType<typeof useTaskDrafts> | null>(null)
+export const TaskDraftsContext = createContext<TaskDrafts | null>(null)
 
-export function useTaskDraft<T>(store: ReturnType<typeof draftStore<T>>, key: string) {
-  const draft = useSyncExternalStore(store.subscribe, () => store.entries.get(key))
-  return [draft, (next?: T) => store.save(key, next)] as const
+export function useTaskDraft<K extends keyof Drafts>(kind: K, key: string) {
+  const store = useContext(TaskDraftsContext)![kind]
+  // Each key has one editor. Only that editor needs to render when it writes.
+  const [, refresh] = useState(0)
+  const save = (next?: Drafts[K]) => {
+    if (next === undefined) store.delete(key)
+    else store.set(key, next)
+    refresh(n => n + 1)
+  }
+  return [store.get(key), save] as const
 }

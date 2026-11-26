@@ -4,7 +4,7 @@
 // amends its delivery if the result changed. Disabled, saying why, once its agent is gone or
 // the gate that asks about the result is submitted; the manager (the detail's own button) is
 // the way on from there.
-import { useContext, useState, type DragEvent } from 'react'
+import { useState, type DragEvent } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { useT } from '@/i18n'
 import { attach, detach, MAX_ATTACHMENT } from '@/api/actions'
@@ -14,7 +14,7 @@ import type { Unit } from '@/planning/types'
 import type { Talk } from './types'
 import { Box } from './Manager'
 import { Chips } from './Turns'
-import { TaskDraftsContext, useTaskDraft } from '@/work/drafts'
+import { useTaskDraft } from '@/work/drafts'
 
 /** A drag that carries files (not text dragged into the box). */
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
@@ -24,8 +24,7 @@ export function Discussion({ unit, n, talk }: { unit: Unit; n: Task; talk: Talk 
   const agent = n.agent ?? ''
   const state = n.discuss ?? 'open'
   const gate = unit.tasks.find(x => x.id === n.output.gate)
-  const { discussions } = useContext(TaskDraftsContext)!
-  const [draft, save] = useTaskDraft(discussions, `${unit.id}:${n.id}`)
+  const [draft, save] = useTaskDraft('discussions', `${unit.id}:${n.id}`)
   const { text = '', files = [] } = draft ?? {}
   const [refused, setRefused] = useState<string[]>([])
   const [error, setError] = useState('')

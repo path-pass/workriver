@@ -1,6 +1,6 @@
 // A review's findings and their decisions, with the line that follows a user's decision
 // or a gate's result to the agents.
-import { useContext, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Input } from '@/ui/primitives/input'
 import { findingKey, useAct } from './actions'
@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { Thumbs } from '@/attachments/Thumbs'
 import { Content, ExternalChip } from '@/content/Chips'
 import { NodeName } from './Nodes'
-import { TaskDraftsContext, useTaskDraft } from './drafts'
+import { useTaskDraft } from './drafts'
 
 /**
  * Where a message is: not gone yet (and can be taken back), delivered, picked up. Once the
@@ -90,10 +90,7 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
 export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
   const { t } = useT()
   const act = useAct()
-  const { decisions } = useContext(TaskDraftsContext)!
-  // An amended report can reuse the same finding number for a different problem.
-  const key = JSON.stringify([findingKey(unit, task, f), f.problem, f.impact, f.evidence, f.attachments?.map(a => a.id)])
-  const [draft, setNote] = useTaskDraft(decisions, key)
+  const [draft, setNote] = useTaskDraft('decisions', findingKey(unit, task, f))
   const note = draft ?? ''
   const decide = (d: Decision) => { setNote(); act.decide(unit, task, f, d, note.trim()) }
   return (

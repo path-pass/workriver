@@ -1,13 +1,14 @@
 // A gate result the service did not take: the waiting gate's form comes back as it was sent
 // (the option, the note, the pictures), under the line saying it failed. A gate the service
 // finalized shows the service's receipt, not a failed attempt of this page.
-import { act } from 'react'
+import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { en } from '@/i18n/en'
 import '@/i18n'
 import { ActContext, type Act } from './actions'
-import { GateDraftsContext, GateForm, type GateDrafts } from './GateForm'
+import { GateForm } from './GateForm'
+import { TaskDraftsContext, useTaskDrafts } from './drafts'
 import { DeliveryLine } from './Findings'
 import type { GateResult, Task } from './types'
 import type { Unit } from '@/planning/types'
@@ -21,17 +22,19 @@ const act0 = (more: Partial<Act>): Act => ({ submitGate: () => {}, decide: () =>
 
 let root: Root
 let el: HTMLDivElement
-let drafts: GateDrafts
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   el = document.createElement('div')
   document.body.append(el)
   root = createRoot(el)
-  drafts = new Map()
 })
 afterEach(() => { act(() => root.unmount()); el.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
-const show = (a: Act, node: React.ReactNode) => act(() => root.render(
-  <ActContext.Provider value={a}><GateDraftsContext.Provider value={drafts}>{node}</GateDraftsContext.Provider></ActContext.Provider>,
+function Drafts({ children }: { children: ReactNode }) {
+  const drafts = useTaskDrafts()
+  return <TaskDraftsContext.Provider value={drafts}>{children}</TaskDraftsContext.Provider>
+}
+const show = (a: Act, node: ReactNode) => act(() => root.render(
+  <ActContext.Provider value={a}><Drafts>{node}</Drafts></ActContext.Provider>,
 ))
 const typeText = (field: HTMLInputElement | HTMLTextAreaElement, value: string) => act(() => {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), 'value')!.set!.call(field, value)

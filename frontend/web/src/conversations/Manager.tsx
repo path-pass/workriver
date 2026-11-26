@@ -163,10 +163,6 @@ export function ManagerDraftProvider({ unit, n, finding, talk, children }: { uni
     else saved.delete(target)
     return saved
   })
-  const held = useRef(drafts)
-  held.current = drafts
-  useEffect(() => () => { for (const d of held.current.values()) d.files.forEach(detach) }, [])
-
   // The chips follow the current selection, including while neither composer is visible.
   const taskLabel = n ? (n.kind === 'gate' ? n.title : n.taskId ? `#${n.taskId}` : finderLabel(t, n)) : ''
   const chips = talk ? chipsOf({ unit, n, taskLabel, finding, file: talk.file, lines: talk.lines, extra: talk.extra }, !!target && target === places?.own) : []
