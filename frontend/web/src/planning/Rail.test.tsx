@@ -153,6 +153,47 @@ it('opens the Done section for matching units and restores its default fold on c
   expect(button('Done1').getAttribute('aria-expanded')).toBe('false')
 })
 
+it('keeps manual folds until the selected unit states change', () => {
+  const workspace = 'Show or hide the intents of workspace Example'
+  const intent = 'Show or hide the units of Mixed states'
+  const done = 'Done1'
+  const toggle = (name: string) => act(() => button(name).click())
+  const expanded = (name: string) => button(name).getAttribute('aria-expanded')
+
+  show('i1', '', withDone)
+  toggle(intent)
+  toggle(workspace)
+  expect(unitRows()).toEqual([])
+  openFilters()
+  pick('Done')
+  expect(unitRows()).toEqual(['u4', 'u6'])
+
+  toggle(intent)
+  expect(expanded(intent)).toBe('false')
+  toggle(workspace)
+  toggle(done)
+  show('i1', '', { ...withDone, builtAt: '2026-11-26T09:01:00Z' })
+  expect(expanded(workspace)).toBe('false')
+  expect(expanded(done)).toBe('false')
+  toggle(workspace)
+  expect(expanded(intent)).toBe('false')
+  toggle(intent)
+  toggle(done)
+  expect(unitRows()).toEqual(['u4', 'u6'])
+
+  toggle(intent)
+  toggle(workspace)
+  toggle(done)
+  pick('Waiting')
+  expect(unitRows()).toEqual(['u3', 'u4', 'u6'])
+
+  toggle('Clear')
+  expect(expanded(workspace)).toBe('false')
+  expect(expanded(done)).toBe('false')
+  toggle(workspace)
+  expect(expanded(intent)).toBe('false')
+})
+
 it('keeps a manual Done expansion through state filtering and resets when search alone hides it', () => {
   show('i1', '', withDone)
   act(() => button('Done1').click())
@@ -165,6 +206,17 @@ it('keeps a manual Done expansion through state filtering and resets when search
   expect(button('Done1')).toBeUndefined()
   show('i1', '', withDone)
   expect(button('Done1').getAttribute('aria-expanded')).toBe('false')
+})
+
+it('restores a manual Done expansion when the whole No project section was filtered away', () => {
+  const unassigned = { ...withDone, intents: withDone.intents.map(i => i.state === 'done' ? { ...i, project: undefined } : i) }
+  show('i1', '', unassigned)
+  act(() => button('Done1').click())
+  openFilters()
+  pick('Waiting')
+  expect(button('Done1')).toBeUndefined()
+  act(() => button('Clear').click())
+  expect(button('Done1').getAttribute('aria-expanded')).toBe('true')
 })
 
 it('names selected unit states even when intent filters are also active', () => {

@@ -206,14 +206,15 @@ function Fold({ open, onToggle }: Pick<Props, 'open' | 'onToggle'>) {
 }
 
 const stateOf = (i: Intent) => i.state ?? 'active'
+type GroupFold = { isOpen: boolean; onOpen: (open: boolean) => void }
 
 /**
  * One intent with its units, on two lines: its id and title (a click opens its page), then
  * quietly where it runs, its manager, quiet or finished. The chevron folds its units.
  */
 function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onIntent }: {
-  ws: Workspace | null; intent: Intent; units: Unit[]; isOpen: boolean; onOpen?: (o: boolean) => void; unitId: string | null; onUnit: (id: string) => void; onIntent: (id: string) => void
-}) {
+  ws: Workspace | null; intent: Intent; units: Unit[]; unitId: string | null; onUnit: (id: string) => void; onIntent: (id: string) => void
+} & GroupFold) {
   const { t } = useT()
   const sum = needs(intent.units)
   // Its agents waiting in their terminal count as blocking too.
@@ -221,7 +222,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
   const active = stateOf(intent) === 'active'
   const ran = ws?.workspaces?.find(w => w.id === intent.workspace)
   return (
-    <Collapsible open={isOpen} onOpenChange={onOpen} disabled={!onOpen}>
+    <Collapsible open={isOpen} onOpenChange={onOpen}>
       <div className="group/row flex items-start gap-0.5">
         <CollapsibleTrigger aria-label={t('rail.foldGroup', { title: intent.title })} className="group/intent mt-1 flex-none rounded-sm p-0.5 text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
           <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/intent:rotate-90" />
@@ -318,14 +319,14 @@ function RenameSpace({ space, onClose }: { space: Space | null; onClose: () => v
  * then its active intents with their units. The only level of the rail whose group folds
  * its intents.
  */
-function SpaceGroup({ ws, space, busy, isOpen, onOpen, onRename, onError, children }: { ws: Workspace | null; space: Space; busy: boolean; isOpen: boolean; onOpen?: (o: boolean) => void; onRename: () => void; onError: (e: string) => void; children: ReactNode }) {
+function SpaceGroup({ ws, space, busy, isOpen, onOpen, onRename, onError, children }: { ws: Workspace | null; space: Space; busy: boolean; onRename: () => void; onError: (e: string) => void; children: ReactNode } & GroupFold) {
   const { t } = useT()
   const pending = !!space.start && !space.start.reason
   const [menu, setMenu] = useState(false)
   const item = 'h-7 justify-start rounded-sm px-2 text-[13px] font-normal text-rail-ink hover:bg-rail-3 hover:text-rail-ink'
   const close = () => { setMenu(false); setSpace({ action: 'close', workspace: space.id }).catch(e => onError(t('rail.failed', { error: e instanceof Error ? e.message : String(e) }))) }
   return (
-    <Collapsible open={isOpen} onOpenChange={onOpen} disabled={!onOpen} className="rail-space">
+    <Collapsible open={isOpen} onOpenChange={onOpen} className="rail-space">
       <div className="flex items-start gap-0.5">
         <CollapsibleTrigger aria-label={t('rail.foldSpace', { name: space.name, id: space.id })} className="group/space flex min-w-0 flex-1 items-start gap-0.5 rounded-md py-1 pr-1 text-left text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
           <Icon name="chev" className="mt-0.5 size-3.5 flex-none transition-transform group-data-[state=open]/space:rotate-90" />
@@ -500,12 +501,10 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
   )
 }
 
-function Done({ count, forcedOpen, children }: { count: number; forcedOpen: boolean; children: ReactNode }) {
+function Done({ count, isOpen, onOpen, children }: { count: number; children: ReactNode } & GroupFold) {
   const { t } = useT()
-  const [open, setOpen] = useState(false)
-  if (!count) return null
   return (
-    <Collapsible open={forcedOpen || open} disabled={forcedOpen} onOpenChange={setOpen}>
+    <Collapsible open={isOpen} onOpenChange={onOpen}>
       <CollapsibleTrigger className="group/done flex w-full items-center gap-1.5 rounded-md px-1.5 pt-2 pb-0.5 text-[11px] font-semibold tracking-wide text-rail-ink-2 uppercase hover:text-rail-ink">
         <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/done:rotate-90" />
         {t('rail.done')}<span className="font-normal">{count}</span>
@@ -551,7 +550,17 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
     const saved = recall(UNIT_STATES)?.split(',')
     return UNIT_PROGRESS.filter(p => saved?.includes(p))
   })
-  const filterUnits = (states: UnitProgress[]) => { setUnitStates(states); remember(UNIT_STATES, states.join(',')) }
+  // Groups start open on each state selection; their folds here leave the unfiltered ones intact.
+  const [filteredFolds, setFilteredFolds] = useState<string[]>([])
+  const filteredGroup = (id: string): GroupFold => ({
+    isOpen: !filteredFolds.includes(id),
+    onOpen: open => setFilteredFolds(folds => open ? folds.filter(x => x !== id) : [...folds, id]),
+  })
+  const filterUnits = (states: UnitProgress[]) => {
+    setUnitStates(states)
+    setFilteredFolds([])
+    remember(UNIT_STATES, states.join(','))
+  }
   const intentFiltersOn = filtersOn(filter) > 0
   const unitFilterOn = unitStates.length > 0
   const selectedStates = unitFilterOn && new Intl.ListFormat(lang, { style: 'narrow' }).format(
@@ -594,6 +603,14 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const [folded, setFolded] = useState<string[]>([])
   const homeSpace = intents.find(i => i.id === home)?.workspace
   useEffect(() => { if (homeSpace) setFolded(f => f.filter(x => x !== homeSpace)) }, [homeSpace, unitId])
+  // Keep Done folds even if the filter hides an entire section. Outside the filter,
+  // a section that leaves the rail loses its expansion as before.
+  const [doneOpen, setDoneOpen] = useState<string[]>([])
+  useEffect(() => {
+    if (unitFilterOn || !doneOpen.length) return
+    const visible = doneOpen.filter(id => railOpen && sections.some(sec => (sec.project?.id ?? '') === id && sec.done.length > 0))
+    if (visible.length !== doneOpen.length) setDoneOpen(visible)
+  }, [doneOpen, railOpen, sections, unitFilterOn])
   const [renaming, setRenaming] = useState<Space | null>(null)
   useEffect(() => {
     if (!error) return
@@ -616,9 +633,10 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       ws={ws}
       intent={intent}
       units={units}
-      // Search and status filtering open every visible intent.
-      isOpen={unitFilterOn || !!needle || open.includes(intent.id) || !units.length}
-      onOpen={unitFilterOn ? undefined : o => setOpen(list => (o ? [...list, intent.id] : list.filter(x => x !== intent.id)))}
+      {...(unitFilterOn ? filteredGroup(intent.id) : {
+        isOpen: !!needle || open.includes(intent.id) || !units.length,
+        onOpen: o => setOpen(list => o ? [...list, intent.id] : list.filter(x => x !== intent.id)),
+      })}
       unitId={unitId}
       onUnit={onUnit}
       onIntent={onIntent}
@@ -628,9 +646,10 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   // workspace, its open workspaces, its roadmap, what is done. "No project": no workspaces.
   const section = (sec: RailProject) => {
     const p = sec.project
+    const projectId = p?.id ?? ''
     const title = p ? (project ? t('rail.workspaces') : p.title) : t('rail.noProject')
     return (
-      <section key={p?.id ?? ''} aria-label={p ? p.title : t('rail.noProject')} className="flex flex-col gap-1" data-project={p?.id ?? ''}>
+      <section key={projectId} aria-label={p ? p.title : t('rail.noProject')} className="flex flex-col gap-1" data-project={projectId}>
         <h2 className="flex items-center gap-1.5 px-1.5 pt-2 pb-0.5 text-[11px] font-semibold tracking-wide text-rail-ink-2 uppercase">
           <span className="min-w-0 flex-1 truncate" lang={p && !project ? contentLang(p.title) : undefined}>{title}</span>
           {p && <AddSpace project={p.id} onError={setError} />}
@@ -639,8 +658,10 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         {sec.spaces.map(({ space, intents: list }) => (
           <SpaceGroup
             key={space.id} ws={ws} space={space} busy={activeIn(ws?.intents ?? [], space.id).length > 0}
-            isOpen={unitFilterOn || !!needle || !folded.includes(space.id)}
-            onOpen={unitFilterOn ? undefined : o => setFolded(f => (o ? f.filter(x => x !== space.id) : [...f, space.id]))}
+            {...(unitFilterOn ? filteredGroup(space.id) : {
+              isOpen: !!needle || !folded.includes(space.id),
+              onOpen: o => setFolded(f => o ? f.filter(x => x !== space.id) : [...f, space.id]),
+            })}
             onRename={() => setRenaming(space)} onError={setError}
           >
             {list.map(group)}
@@ -648,8 +669,13 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         ))}
         {sec.loose.length > 0 && <section aria-label={t('rail.loose')} className="flex flex-col gap-0.5"><Heading>{t('rail.loose')}</Heading>{sec.loose.map(group)}</section>}
         {ws && (sec.planned.length > 0 || (p && !needle)) && <Roadmap ws={ws} list={sec.planned} all={intents} addTo={p?.id ?? null} onStart={onStart} onIntent={onIntent} here={unitId} onError={setError} />}
-        {(sec.done.length > 0 || unitFilterOn) && (
-          <Done count={sec.done.length} forcedOpen={unitFilterOn}>{sec.done.map(group)}</Done>
+        {sec.done.length > 0 && (
+          <Done count={sec.done.length} {...(unitFilterOn ? filteredGroup(`done:${projectId}`) : {
+            isOpen: doneOpen.includes(projectId),
+            onOpen: o => setDoneOpen(list => o ? [...list, projectId] : list.filter(x => x !== projectId)),
+          })}>
+            {sec.done.map(group)}
+          </Done>
         )}
       </section>
     )
