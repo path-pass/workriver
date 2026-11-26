@@ -45,8 +45,8 @@ describe('closing from the page', () => {
     await act(async () => button('Close unit').click())
     expect(fetchClose).toHaveBeenCalledOnce()
     const [path, request] = fetchClose.mock.calls[0]
-    expect(path).toBe('/api/close')
-    expect(JSON.parse(request.body)).toEqual({ kind: 'unit', id: 'u1', reason: 'Experiment ended' })
+    expect(path).toBe('/api/append')
+    expect(JSON.parse(request.body)).toEqual({ kind: 'unit.done', body: { unit: 'u1', reason: 'Experiment ended' } })
     expect(button('Close unit').disabled).toBe(true)
     // The stream can refresh the workspace before the response comes back.
     act(() => root.render(<CloseDialog kind="unit" id="u1" available={false} />))
@@ -69,9 +69,9 @@ describe('closing from the page', () => {
     type('Goal changed')
     await act(async () => button('Close intent').click())
     const [path, request] = fetchClose.mock.calls[0]
-    expect(path).toBe('/api/close')
-    expect(JSON.parse(request.body)).toEqual({ kind: 'intent', id: 'i1', reason: 'Goal changed' })
-    expect(dialog()?.querySelector('[role=alert]')?.textContent).toContain('intent i1 is done; it cannot become done')
+    expect(path).toBe('/api/append')
+    expect(JSON.parse(request.body)).toEqual({ kind: 'intent.state_changed', body: { intent: 'i1', state: 'done', reason: 'Goal changed' } })
+    expect(dialog()?.querySelector('[role=alert]')?.textContent).toBe('intent i1 is done; it cannot become done')
     expect(input().value).toBe('Goal changed')
     fetchClose.mockResolvedValueOnce(Response.json({}))
     await act(async () => button('Close intent').click())

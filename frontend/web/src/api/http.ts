@@ -10,10 +10,13 @@ export async function post(path: string, body: unknown) {
 }
 
 /** A POST that answers JSON; a refusal is thrown with the service's words. */
-export async function call<T>(path: string, body: unknown): Promise<T> {
+export async function call<T>(path: string, body: unknown, { includeStatus = false } = {}): Promise<T> {
   const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) {
+    const words = await res.text()
+    throw new Error(includeStatus ? `${path}: ${res.status} ${words}` : words)
+  }
   return res.status === 204 ? (undefined as T) : res.json()
 }
 

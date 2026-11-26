@@ -110,10 +110,6 @@ machine reads its own machine's only, never this one's or the others'. The servi
 the rules of the event store refuse those events from anyone else as a last line of
 defence.
 
-Only the user can close units and active intents from the page (`/api/close`). The route
-requires a single-line reason and is served on the local listener. The close events go
-through the same rules as the CLI, where the user and the intent's manager may close work.
-
 Templates are your words and your library. A template is saved only from its text, by the
 action that reads it (`/api/template`): `/api/append` refuses `template.set`, as it refuses a
 manager's start, so a template's steps and the text you see and edit cannot differ. Neither

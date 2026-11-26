@@ -200,19 +200,23 @@ export function choreDone(id: string) {
 }
 
 /**
- * Records a change the user makes to the roadmap or backlog (adding or moving an intent,
- * batching or dropping findings); the service delivers what goes to an agent. Nothing is
- * recorded with the sample.
+ * Records a user event. The service delivers what goes to an agent and may return a
+ * warning. Nothing is recorded with the sample.
  */
-export async function record(kind: string, body: unknown) {
-  if (MOCK) return
+export async function record(kind: string, body: unknown, { includeStatus = true } = {}): Promise<{ warning?: string }> {
+  if (MOCK) return {}
   // Who records is the service's to find: this page's session is the user's.
-  await post('/api/append', { kind, body })
+  return call('/api/append', { kind, body }, { includeStatus })
 }
 
 /** Closes a unit or intent as the user. The service can return a warning along with success. */
 export async function closeWork(kind: 'unit' | 'intent', id: string, reason: string): Promise<{ warning?: string }> {
-  if (!MOCK) return call('/api/close', { kind, id, reason })
+  if (!MOCK) {
+    const options = { includeStatus: false }
+    return kind === 'unit'
+      ? record('unit.done', { unit: id, reason }, options)
+      : record('intent.state_changed', { intent: id, state: 'done', reason }, options)
+  }
   window.dispatchEvent(new CustomEvent(MOCK_CHANGED, {
     detail: (ws: Workspace) => ({
       ...ws,

@@ -21,7 +21,6 @@ local GET /api/task?task=u1%231  anonymous 401  agent 200  user 200
 local GET /api/status  anonymous 200  agent 200  user 200
 local GET /api/events  anonymous 401  agent 403  user 200
 local POST /api/append  anonymous 401  agent 200  user 200
-local POST /api/close  anonymous 401  agent 403  user 422
 local POST /api/decide  anonymous 401  agent 403  user 422
 local POST /api/task/drop  anonymous 401  agent 403  user 422
 local GET /api/template?name=development  anonymous 401  agent 200  user 200

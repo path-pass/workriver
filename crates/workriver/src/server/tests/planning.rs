@@ -5,8 +5,7 @@ use serde_json::json;
 
 use super::support::*;
 
-/// A browser user closes with a reason and the usual rules and warning. Even the manager
-/// who may close from the CLI cannot use the user's page action.
+/// A browser user closes through append with a reason and the usual rules and warning.
 #[test]
 fn the_user_closes_units_and_intents_from_the_page() {
     let tmp = tempfile::tempdir().unwrap();
@@ -23,13 +22,8 @@ fn the_user_closes_units_and_intents_from_the_page() {
     let boss = at_place(&user, "p1");
     boss.append("", "unit.created", json!({ "template": "development", "intent": "i1", "title": "Experiment", "repo": repo, "branch": "feat/experiment", "base": "main" })).unwrap();
 
-    let path = "/api/close";
-    let unit = json!({ "kind": "unit", "id": "u1", "reason": "  Experiment ended  " });
-    let intent = json!({ "kind": "intent", "id": "i1", "reason": "Goal changed" });
-    for body in [&unit, &intent] {
-        let (status, words) = from_place(&user, "p1", "POST", path, Some(body));
-        assert_eq!(status, 403, "{words}");
-    }
+    let unit = json!({ "kind": "unit.done", "body": { "unit": "u1", "reason": "Experiment ended" } });
+    let intent = json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "done", "reason": "Goal changed" } });
 
     let origin = format!("http://127.0.0.1:{}", user.port);
     let link = user.call("/api/session/code", Some(json!({}))).unwrap();
@@ -39,18 +33,9 @@ fn the_user_closes_units_and_intents_from_the_page() {
     let cookie = answer.lines().find(|l| l.to_lowercase().starts_with("set-cookie:")).unwrap()
         .split_once(':').unwrap().1.split(';').next().unwrap().trim();
     let close = |body: &serde_json::Value| {
-        let (status, answer) = http(user.port, "POST", path, &[("Origin", &origin), ("Cookie", cookie)], Some(&body.to_string()));
+        let (status, answer) = http(user.port, "POST", "/api/append", &[("Origin", &origin), ("Cookie", cookie)], Some(&body.to_string()));
         (status, answer.split_once("\r\n\r\n").unwrap().1.to_string())
     };
-    for body in [&unit, &intent] {
-        for reason in ["  ", "first\nsecond", "first\x0bsecond", "first\x0csecond"] {
-            let mut bad = body.clone();
-            bad["reason"] = json!(reason);
-            let (status, words) = close(&bad);
-            assert_eq!(status, 422, "{words}");
-            assert!(words.contains("reason"), "{words}");
-        }
-    }
 
     // Closing the intent is allowed while its unit is still open.
     let (status, answer) = close(&intent);
