@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{dir, files};
+use super::{PageApiTiming, dir, files};
 
 /// The log's lines since `since` (a duration like `1h`, `30m`, `2d`; none: all).
 fn lines(home: &Path, since: Option<std::time::Duration>) -> Vec<Value> {
@@ -52,6 +52,55 @@ pub fn summary(home: &Path, since: Option<std::time::Duration>, top: usize) -> S
     let _ = writeln!(out, "\nRequests (slowest first): count, p50, p95, max ms");
     for (r, t) in rows.iter().take(top) {
         let _ = writeln!(out, "  {r:<40} {:>6} {:>6} {:>6} {:>6}", t.len(), pct(t, 0.5), pct(t, 0.95), t.last().unwrap_or(&0));
+    }
+    let mut page_loads: Vec<_> = of("page_load").map(|v| {
+        let api: Vec<PageApiTiming> = v["api"].as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+        (v, api)
+    }).collect();
+    if !page_loads.is_empty() {
+        let _ = writeln!(out, "\nPage loads (from navigation start): count, p50, p95, max");
+        for (field, label) in [
+            ("ms", "Board visible (ms)"),
+            ("js_ms", "Entry JS downloaded (ms)"),
+            ("css_ms", "Entry CSS downloaded (ms)"),
+            ("request_ms", "Workspace request start (ms)"),
+            ("response_ms", "Workspace response end (ms)"),
+            ("ready_ms", "Workspace ready (ms)"),
+            ("parse_ms", "Parse and prepare (ms)"),
+            ("app_ms", "Build and commit board (ms)"),
+            ("render_ms", "Rendering opportunity (ms)"),
+            ("bytes", "Workspace response (bytes)"),
+        ] {
+            let mut t: Vec<_> = page_loads.iter().filter_map(|(v, _)| v[field].as_u64()).collect();
+            t.sort_unstable();
+            let _ = writeln!(out, "  {label:<40} {:>6} {:>6} {:>6} {:>6}", t.len(), pct(&t, 0.5), pct(&t, 0.95), t.last().unwrap_or(&0));
+        }
+        page_loads.sort_by_key(|(v, _)| std::cmp::Reverse(ms(v)));
+        let _ = writeln!(out, "\nSlowest page loads:");
+        for (v, api) in page_loads.iter().take(top) {
+            let at = v["timestamp"].as_str().unwrap_or("?");
+            let build = v["build"].as_u64().unwrap_or(0);
+            let pending = if v["git_pending"] == 1 { "  records-only" } else { "" };
+            let count = api.iter().map(|a| a.count).sum::<u64>();
+            let total = api.iter().map(|a| a.ms).sum::<u64>();
+            let longest = api.iter().map(|a| a.max_ms).max().unwrap_or(0);
+            let _ = writeln!(out, "  {at}  {} ms  build {build:012x}{pending}  {count} other API requests, {total} ms total, {longest} ms max", ms(v));
+        }
+        let mut paths = BTreeMap::<&str, (u64, u64, u64)>::new();
+        for a in page_loads.iter().flat_map(|(_, api)| api) {
+            let (count, total, longest) = paths.entry(&a.path).or_default();
+            *count += a.count;
+            *total += a.ms;
+            *longest = (*longest).max(a.max_ms);
+        }
+        if !paths.is_empty() {
+            let mut rows: Vec<_> = paths.into_iter().collect();
+            rows.sort_by_key(|(_, (_, total, _))| std::cmp::Reverse(*total));
+            let _ = writeln!(out, "\nOther API requests before board paint: count, total ms, max ms");
+            for (path, (count, total, longest)) in rows.into_iter().take(top) {
+                let _ = writeln!(out, "  {path:<40} {count:>6} {total:>6} {longest:>6}");
+            }
+        }
     }
     // Snapshots.
     for (kind, title) in [("snapshot", "Snapshots (what a page or board reads)"), ("remote_read", "Background reads of other machines")] {
@@ -162,4 +211,46 @@ pub fn bundle(home: &Path, bytes: usize) -> std::io::Result<PathBuf> {
 /// `1h`, `30m`, `2d`, `45s`.
 pub fn parse_since(s: &str) -> anyhow::Result<std::time::Duration> {
     humantime::parse_duration(s).map_err(|e| anyhow::anyhow!("--since {s}: {e} (for example 30m, 1h, 2d)"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn page_loads_report_each_milestone_and_the_slowest_loads() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir(home.path())).unwrap();
+        std::fs::write(dir(home.path()).join(crate::common::home::PERF_LOG), concat!(
+            r#"{"kind":"page_load","timestamp":"2026-01-01T01:00:00Z","ms":100,"js_ms":12,"css_ms":11,"request_ms":14,"response_ms":34,"bytes":1000,"ready_ms":40,"parse_ms":6,"app_ms":40,"render_ms":20,"git_pending":0,"build":1,"api":"[{\"path\":\"/api/task\",\"count\":1,\"ms\":30,\"max_ms\":30}]"}"#, "\n",
+            r#"{"kind":"page_load","timestamp":"2026-01-01T01:01:00Z","ms":900,"js_ms":120,"css_ms":70,"request_ms":160,"response_ms":430,"bytes":3000,"ready_ms":500,"parse_ms":70,"app_ms":290,"render_ms":110,"git_pending":1,"build":2,"api":"[{\"path\":\"/api/task\",\"count\":2,\"ms\":225,\"max_ms\":150},{\"path\":\"/api/session\",\"count\":1,\"ms\":15,\"max_ms\":15}]"}"#, "\n",
+            r#"{"kind":"page_load","timestamp":"2026-01-01T01:02:00Z","ms":200,"ready_ms":150,"app_ms":45,"render_ms":5,"git_pending":0,"build":3,"api":"[]"}"#, "\n",
+            r#"{"kind":"http","method":"GET","route":"/api/workspace","ms":999}"#, "\n",
+        )).unwrap();
+        let report = summary(home.path(), None, 2);
+        for (label, counts) in [
+            ("Board visible (ms)", ["3", "200", "900", "900"]),
+            ("Entry JS downloaded (ms)", ["2", "120", "120", "120"]),
+            ("Entry CSS downloaded (ms)", ["2", "70", "70", "70"]),
+            ("Workspace request start (ms)", ["2", "160", "160", "160"]),
+            ("Workspace response end (ms)", ["2", "430", "430", "430"]),
+            ("Workspace response (bytes)", ["2", "3000", "3000", "3000"]),
+            ("Workspace ready (ms)", ["3", "150", "500", "500"]),
+            ("Parse and prepare (ms)", ["2", "70", "70", "70"]),
+            ("Build and commit board (ms)", ["3", "45", "290", "290"]),
+            ("Rendering opportunity (ms)", ["3", "20", "110", "110"]),
+        ] {
+            let row = report.lines().find_map(|l| l.trim_start().strip_prefix(label));
+            assert_eq!(row.map(|l| l.split_whitespace().collect::<Vec<_>>()), Some(counts.to_vec()), "{label}: {report}");
+        }
+        let slow = report.split_once("Slowest page loads:").unwrap().1.split("\n\n").next().unwrap();
+        assert!(slow.contains("2026-01-01T01:01:00Z  900 ms  build 000000000002  records-only"), "{slow}");
+        assert!(slow.contains("3 other API requests, 240 ms total, 150 ms max"), "{slow}");
+        assert!(slow.contains("2026-01-01T01:02:00Z  200 ms  build 000000000003"), "{slow}");
+        assert!(!slow.contains("2026-01-01T01:00:00Z"), "{slow}");
+        assert!(report.contains("GET /api/workspace"), "{report}");
+        let api = report.split_once("Other API requests before board paint: count, total ms, max ms").unwrap().1;
+        let task = api.lines().find_map(|l| l.trim_start().strip_prefix("/api/task")).unwrap();
+        assert_eq!(task.split_whitespace().collect::<Vec<_>>(), ["3", "255", "150"], "{api}");
+    }
 }

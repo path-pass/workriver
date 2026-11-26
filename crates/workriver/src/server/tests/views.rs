@@ -6,6 +6,54 @@ use serde_json::json;
 use super::support::*;
 
 #[test]
+fn page_load_timing_requires_a_page_session_and_bounded_numbers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", workriver_core::runtime::AgentState::Idle))];
+    let (port, kernel) = real_service(fake, tmp.path());
+    let user = kernel.client(port, tmp.path());
+    let origin = format!("http://127.0.0.1:{port}");
+    let path = "/api/perf/page-load";
+    let valid = json!({
+        "ms": 120, "js_ms": 35, "css_ms": 28, "request_ms": 48,
+        "response_ms": 85, "bytes": 1234, "ready_ms": 98, "parse_ms": 13, "app_ms": 14,
+        "render_ms": 8, "git_pending": 1, "build": 42,
+        "api": [{ "path": "/api/task", "count": 2, "ms": 25, "max_ms": 15 }]
+    });
+    let bearer = format!("Bearer {}", user.token().unwrap());
+    let (status, answer) = http_at(&user, port, "p1", "POST", path, &[("Authorization", &bearer)], Some(&valid.to_string()));
+    assert_eq!(status, 401, "{answer}");
+    assert_eq!(as_user(&user, "POST", path, Some(&valid)).0, 401);
+
+    let link = user.call("/api/session/code", Some(json!({}))).unwrap();
+    let code = link["url"].as_str().unwrap().split_once("#k=").unwrap().1;
+    let (status, answer) = http(port, "POST", "/api/session", &[("Origin", &origin)], Some(&json!({ "code": code }).to_string()));
+    assert_eq!(status, 200, "{answer}");
+    let cookie = answer.lines().find(|l| l.starts_with("set-cookie:")).unwrap().split_once(':').unwrap().1.split(';').next().unwrap().trim();
+    let post = |body: &serde_json::Value| http(port, "POST", path, &[("Origin", &origin), ("Cookie", cookie)], Some(&body.to_string()));
+    assert_eq!(http(port, "POST", path, &[("Cookie", cookie)], Some(&valid.to_string())).0, 401);
+    assert_eq!(post(&valid).0, 204);
+    assert_eq!(post(&json!({"ms": 100, "ready_ms": 90, "app_ms": 5, "render_ms": 5, "git_pending": 0, "build": 0, "api": []})).0, 204);
+    for (field, bad) in [
+        ("ms", json!(u64::MAX)), ("ready_ms", json!(-1)), ("response_ms", json!("85")),
+        ("css_ms", json!(null)), ("bytes", json!(u64::MAX)), ("git_pending", json!(2)),
+        ("build", json!(1_u64 << 48)), ("url", json!("/unexpected")),
+        ("render_ms", json!(10)), ("parse_ms", json!(u64::MAX)),
+        ("api", json!([{ "path": "/api/task?id=private", "count": 1, "ms": 8, "max_ms": 8 }])),
+        ("api", json!([{ "path": "/api/unit/private/code", "count": 1, "ms": 8, "max_ms": 8 }])),
+        ("api", json!([{ "path": "/api/task", "count": 0, "ms": 8, "max_ms": 8 }])),
+        ("api", json!([{ "path": "/api/task", "count": 1, "ms": 500, "max_ms": 500 }])),
+    ] {
+        let mut data = valid.clone();
+        data[field] = bad;
+        let (status, answer) = post(&data);
+        assert_eq!(status, 422, "{field}: {answer}");
+    }
+    let oversized = format!("{}{}", valid, " ".repeat(8192));
+    assert_eq!(http(port, "POST", path, &[("Origin", &origin), ("Cookie", cookie)], Some(&oversized)).0, 413);
+}
+
+#[test]
 fn browser_workspace_shows_records_before_git_and_notifies_when_ready() {
     use std::io::{BufRead, BufReader, Write};
     use std::time::Duration;

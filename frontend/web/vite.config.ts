@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -16,8 +17,19 @@ const noElk = (): Plugin => ({
   load: id => (id === '\0mermaid-without-elk' ? 'export {}' : undefined),
 })
 
-export default defineConfig({
+// Twelve hex digits fit in a JSON number and identify the revision of this page build.
+function buildRevision() {
+  try {
+    const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return Number.parseInt(revision.slice(0, 12), 16)
+  } catch {
+    return 0
+  }
+}
+
+export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss()],
+  define: { __WORKRIVER_BUILD__: String(command === 'build' ? buildRevision() : 0) },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   // The service's API, from `workriver serve`. It answers only its own Host and Origin.
   server: {
@@ -30,4 +42,4 @@ export default defineConfig({
   worker: { format: 'es', plugins: () => [noElk()] },
   // `pnpm test`: the page's logic and its safety-relevant views, in a DOM of happy-dom.
   test: { environment: 'happy-dom', include: ['src/**/*.test.{ts,tsx}'] },
-})
+}))

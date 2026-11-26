@@ -25,6 +25,7 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/settings/attachments", &["GET", "POST"]),
     ("/api/settings/attachments/run", &["POST"]),
     ("/api/workspace", &["GET"]),
+    ("/api/perf/page-load", &["POST"]),
     ("/api/unit/{id}/code", &["GET"]),
     ("/api/intent/{id}/history", &["GET"]),
     ("/api/state", &["GET"]),
@@ -201,6 +202,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     // The guard's service runs no jobs: the user is answered that it does not run the rule.
     ("POST", "/api/settings/attachments/run", "{}"),
     ("GET", "/api/workspace", ""),
+    ("POST", "/api/perf/page-load", r#"{"ms":100,"ready_ms":80,"app_ms":12,"render_ms":8,"git_pending":1,"build":42,"api":[]}"#),
     ("GET", "/api/unit/u1/code", ""),
     ("GET", "/api/intent/i1/history", ""),
     ("GET", "/api/state", ""),
