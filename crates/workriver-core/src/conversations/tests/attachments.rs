@@ -234,8 +234,8 @@ fn records_of_no_intent_hold_until_they_are_closed() {
     seeded(&mut s);
     stored(&mut s, "user", A, 3);
     let held = |s: &Records| s.state().attachment_holders().into_iter().filter(|h| h.id == A).map(|h| h.by).collect::<Vec<_>>();
-    // A chore of no intent: until it is done.
-    add(&mut s, "agent-a", json!({"kind": "chore.created", "body": {"title": format!("Look at {A}.png")}})).unwrap();
+    // An old chore recorded without an intent or project: until it is done.
+    let mut s = recorded_before(s, "agent-a", json!({"kind": "chore.created", "body": {"id": "c1", "title": format!("Look at {A}.png")}}));
     assert_eq!(held(&s), [Holder::Record { open: true }]);
     assert!(due(&s, &rule(1), after(10)).is_empty());
     let chore = s.state().chores[0].id.clone();

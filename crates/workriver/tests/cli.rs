@@ -161,8 +161,11 @@ fn lists_findings_and_machines_from_the_cli() {
     let said = String::from_utf8_lossy(&refused.stderr);
     assert!(!refused.status.success() && said.contains("--template") && said.contains("bare: Nothing placed.") && said.contains("development:"), "{said}");
 
-    // A review's finding, shown in full, deferred, then dropped by the user.
     run(&["unit", "add", "i1", "--title", "Index", "--branch", "feat/index", "--base", "main", "--repo", &repo, "--template", "bare"]);
+    assert_eq!(run(&["chore", "add", "i1", "--title", "Try the index"]), "c1\n");
+    assert_eq!(run(&["chore", "add", "--project", "p1", "--title", "Renew the certificate"]), "c2\n");
+
+    // A review's finding, shown in full, deferred, then dropped by the user.
     run(&["task", "add", "u1", "--kind", "review", "--title", "Review it"]);
     let findings = tmp.path().join("findings.json");
     std::fs::write(&findings, json!([{ "severity": "P2", "problem": "No limit", "impact": "Out of memory", "where": ["src/index.rs"], "suggestion": { "decision": "defer", "reason": "later" } }]).to_string()).unwrap();

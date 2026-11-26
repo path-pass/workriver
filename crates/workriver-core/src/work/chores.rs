@@ -6,7 +6,7 @@ use crate::*;
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Chore {
     pub id: String,
-    /// Empty: a project's chore (`project`), or nobody's.
+    /// Empty for project chores and old chores recorded without an intent or project.
     pub intent: String,
     #[serde(default)]
     pub project: String,
@@ -27,9 +27,10 @@ impl State {
         use Body::*;
         Ok(match body {
             ChoreCreated { intent, project, unit, title, steps, .. } => {
-                // Of an intent, or (no intent) of a project, or of nothing at all.
                 if !intent.is_empty() {
                     self.intent(&intent)?;
+                } else if project.is_empty() {
+                    return no("a chore needs an intent or a project");
                 }
                 if let Some(u) = &unit
                     && (intent.is_empty() || self.unit(u)?.intent != intent)

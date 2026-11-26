@@ -566,13 +566,13 @@ fn here_is_where_the_process_is() {
     for says in [None, Some("p2")] {
         let (code, text) = here(says, Some(in_p2()));
         let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{code} {text}"));
-        assert_eq!((v["actor"].as_str(), v["name"].as_str()), (Some("s-two"), Some("two")), "{v}");
+        assert_eq!((code, v), (200, json!({ "actor": "s-two" })));
     }
     let (code, text) = here(Some("p3"), Some(in_p2()));
     assert!(code == 403 && text.contains("says it runs in pane p3") && text.contains("runs in pane p2"), "{text}");
-    // In no pane: nobody and no group; answered without the token, but not without a process.
+    // In no pane: nobody. A process proof is sufficient.
     let (code, text) = here(None, Some(vec![proc(4800, 1, Some("ttys000"), "zsh")]));
-    assert_eq!((code, serde_json::from_str::<serde_json::Value>(&text).unwrap()), (200, json!({ "actor": null, "name": null, "workspace": null, "manager": false, "intent": null })));
+    assert_eq!((code, serde_json::from_str::<serde_json::Value>(&text).unwrap()), (200, json!({ "actor": null })));
     let (code, text) = here(Some("p2"), None);
     assert!(code == 401 && text.contains("does not show which process sends it"), "{text}");
 }

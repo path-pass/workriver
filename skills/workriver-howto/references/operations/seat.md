@@ -49,10 +49,6 @@ messages included, and of a message to every manager your own copy and replies. 
 workspaces' conversations are not shown to you. Intents, units, tasks, findings and
 questions of every workspace stay readable.
 
-**Which workspace is yours** when a command leaves the intent out: the one you hold the
-seat of; for a worker, the one workspace of the tasks it has running. A worker with tasks
-in two workspaces names the intent.
-
 **Started from the page.** A manager the user started from the page reads the same
 `[workriver] The user made you the manager of workspace ws1 …` once seated; before that it
 is an agent with no seat (refused what a manager does). Its first prompt may be the

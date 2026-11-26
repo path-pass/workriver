@@ -62,7 +62,7 @@ fn machines_are_separate_and_need_no_link() {
     manage(&d, "w1:p1", "s-boss");
     assert_eq!(at_place(&d, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-boss");
     let there = at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((there["actor"].as_str(), there["intent"].as_str(), there["workspace"].is_null()), (Some("s-far"), None, true), "the same group name over there is no workspace");
+    assert_eq!(there["actor"], "s-far");
     assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
     // A template is read there as /api/state gives it, steps and all; its text, which is for
     // editing on this machine, is not served there.
@@ -446,15 +446,19 @@ fn units_on_another_machine() {
     assert!(boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": "y", "repo": path(&there), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
     std::fs::remove_file(&slow).unwrap();
 
-    // Chores of no intent: a project's (a registered one's; a repository outside every
-    // project is nobody's), and nobody's.
-    boss.append("", "chore.created", json!({ "project": path(&here), "title": "Outside every project" })).unwrap();
+    // Chores of no intent must name a registered project.
+    let e = boss.append("", "chore.created", json!({ "project": path(&here), "title": "Outside every project" })).unwrap_err().to_string();
+    assert!(e.contains("is in no registered project"), "{e}");
+    let e = boss.append("", "chore.created", json!({ "project": "p99", "title": "Unknown project" })).unwrap_err().to_string();
+    assert!(e.contains("no such id or folder"), "{e}");
+    let e = boss.append("", "chore.created", json!({ "title": "Pay the invoice" })).unwrap_err().to_string();
+    assert!(e.contains("a chore needs an intent or a project"), "{e}");
     user.append("", "project.added", json!({ "path": path(&here), "title": "Mac" })).unwrap();
     boss.append("", "chore.created", json!({ "project": path(&here), "title": "Renew the certificate" })).unwrap();
-    boss.append("", "chore.created", json!({ "title": "Pay the invoice" })).unwrap();
     let ws = user.get("/api/workspace").unwrap();
-    assert_eq!(ws["chores"].as_array().unwrap().iter().map(|c| (c["title"].as_str().unwrap(), c["project"].as_str().unwrap().to_string())).collect::<Vec<_>>(), [("Outside every project", String::new()), ("Renew the certificate", path(&here)), ("Pay the invoice", String::new())]);
-    assert!(crate::cli::board_text(&boss, None).unwrap().contains("chore c3 Pay the invoice (by boss)"));
+    assert_eq!(ws["chores"].as_array().unwrap().len(), 1);
+    assert_eq!(ws["chores"][0]["project"], path(&here));
+    assert!(crate::cli::board_text(&boss, None).unwrap().contains(&format!("chore c1 Renew the certificate [project {}] (by boss)", path(&here))));
     user.call("/api/chore-done", Some(json!({ "chore": "c1" }))).unwrap();
 
     // The build is told, to tell a CLI and a service of different builds apart.

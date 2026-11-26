@@ -153,7 +153,7 @@ workriver 会在那个 agent 的终端里告诉它：它现在是这个工作区
 ```sh
 workriver backlog list                 # 路线图：i1 "Mentions"（进行中，由你开始）……
 workriver template list --unit code    # 代码单元可以用的模板
-workriver unit add --title "Mentions" --branch feat/mention --template development   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
+workriver unit add i1 --title "Mentions" --branch feat/mention --template development   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
 workriver task fill u1#4 --title "Notify the people mentioned, with unit tests" --agent finder
 ```
 
@@ -233,7 +233,7 @@ workriver status                              # 回答来自你这台机器上�
 worker 通过拿到的任务在某个工作区里工作；那边的 agent 也可以像别的 agent 一样被你指定为工作区的管理者。
 
 单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
-并给出那边的路径和分支名（`workriver unit add --template development --machine box --repo /home/me/app --branch feat/queue`）；
+并给出那边的路径和分支名（`workriver unit add i1 --template development --machine box --repo /home/me/app --branch feat/queue`）；
 登记错了地方的单元用 `workriver unit move u1 --machine box --repo … --branch …` 改正。分支改了名、
 或者变基到了新分支，也用这条命令（`workriver unit move u1 --branch feat/queue-2 [--base main-2]`）：单元、
 任务和发现都留着，提交从新分支读，页面上写"之前在 feat/queue"，提交留在旧分支上的任务会如实标出来。

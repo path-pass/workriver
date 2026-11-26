@@ -368,8 +368,8 @@ fn the_user_moves_an_active_intent_to_another_workspace_of_its_project() {
     assert_eq!(replayed(&s), *s.state());
 }
 
-/// An agent's workspace, where a command leaves it out, comes from the records alone: the
-/// one whose seat it holds; else the one workspace of the intents of the tasks it has
+/// An agent's workspace comes from the records alone: the one whose seat it holds;
+/// else the one workspace of the intents of the tasks it has
 /// (started, not over); none when those are in two, or it has none.
 #[test]
 fn an_agents_workspace_comes_from_the_records() {

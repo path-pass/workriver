@@ -3,7 +3,7 @@
 **When:** you are on one machine and the work happens on another.
 
     workriver machine list                 # is that machine followed, and connected?
-    workriver unit add --title "Queue" --machine box --repo /home/me/app --branch feat/queue --template development [--base main]
+    workriver unit add i3 --title "Queue" --machine box --repo /home/me/app --branch feat/queue --template development [--base main]
     workriver board u1                     # machine, path and branch as the worker sees them
 
 Give `--repo` and `--branch` as they are **on that machine**: never a path or ref that

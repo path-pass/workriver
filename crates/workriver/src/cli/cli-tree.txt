@@ -502,7 +502,7 @@ workriver unit add
 workriver unit add  arg base --base value=["BASE"] num=1 action=Set
 workriver unit add  arg branch --branch value=["BRANCH"] num=1 action=Set
 workriver unit add  arg help --help -h num=0 action=Help
-workriver unit add  arg intent index=1 value=["INTENT"] num=1 action=Set
+workriver unit add  arg intent index=1 value=["INTENT"] num=1 action=Set required
 workriver unit add  arg kind --kind value=["KIND"] num=1 one-of=["code", "research", "spike"] default=["code"] action=Set
 workriver unit add  arg machine --machine value=["LABEL"] num=1 action=Set
 workriver unit add  arg purpose --purpose value=["PURPOSE"] num=1 default=[""] action=Set

@@ -45,7 +45,7 @@ this task", with whether the user confirmed it) and follows it; reviews check th
 against it.
 
 A design for the whole intent (across units or repositories) goes in a research unit
-(`units`): `workriver unit add --kind research --title "…" --template research` (its
+(`units`): `workriver unit add i3 --kind research --title "…" --template research` (its
 `research` step and `direction` gate are placed: `templates`), then the design task there
 (`task add … --kind design --after 1`, or `--after start` with the research step dropped
 and why) and the placed `direction` gate filled after it (`task fill u2#2 --go --after
