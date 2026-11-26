@@ -8,6 +8,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { gateKey, useAct } from './actions'
 import { SEVERITIES } from './select'
 import type { GateResult, NewFinding, Severity, Task } from './types'
+import { useTaskDraft, type GateDraft } from './drafts'
 import { useT } from '@/i18n'
 import { attach, detach } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
@@ -35,8 +36,21 @@ function AttachButton({ onAdd }: { onAdd: (a: Attachment[]) => void }) {
   )
 }
 
-type Draft = { severity: Severity; problem: string; impact: string; where: string; files: Attachment[] }
+type Draft = GateDraft['drafts'][number]
 const blank = (): Draft => ({ severity: 'P2', problem: '', impact: '', where: '', files: [] })
+
+const resultFiles = (r?: GateResult) => r ? [...r.attachments, ...r.findings.flatMap(f => f.attachments)] : []
+
+/** A draft's pictures go unless the sent result took them over. */
+export function releaseGateFiles(draft: GateDraft | undefined, retry?: GateResult, sent?: GateResult) {
+  const unsent = draft ? [...draft.files, ...draft.drafts.flatMap(d => d.files)] : []
+  const seen = new Set(resultFiles(sent).map(a => a.url))
+  for (const file of [...unsent, ...resultFiles(retry)]) {
+    if (seen.has(file.url)) continue
+    seen.add(file.url)
+    detach(file)
+  }
+}
 
 /**
  * A waiting gate's output: what came of it, a note, and with a problem, findings; pictures
@@ -46,29 +60,29 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const { t } = useT()
   const act = useAct()
   const choice = gate.input.choice
+  const key = gateKey(unit, gate)
+  const [draft, save] = useTaskDraft('gates', key)
   // What was sent from here and not taken by the service: the form starts from it again.
-  const back = act.retry[gateKey(unit, gate)]
-  const [result, setResult] = useState<GateResult['result']>(back?.result ?? (choice ? 'answered' : 'done'))
-  const [picked, setPicked] = useState<string | undefined>(back?.selected?.[0])
+  const back = act.retry[key]
+  const form: GateDraft = draft ?? {
+    result: back?.result ?? (choice ? 'answered' : 'done'),
+    picked: back?.selected?.[0],
+    note: back?.note,
+    files: back?.attachments ?? [],
+    drafts: back?.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence.join(', '), files: f.attachments })) ?? [],
+  }
+  const { result, picked, files, drafts } = form
+  // A conclusion starts the note until the user edits it, including clearing it.
+  const [prefill, setPrefill] = useState(gate.draft)
+  useEffect(() => { if (gate.draft) setPrefill(initial => initial || gate.draft) }, [gate.draft])
+  const note = form.note ?? prefill ?? ''
   const [noteMissing, setNoteMissing] = useState(false)
-  // A conclusion reached by asking about it starts the note; the user edits it.
-  const [note, setNote] = useState(back?.note ?? gate.draft ?? '')
-  useEffect(() => { if (gate.draft) setNote(n => n || gate.draft!) }, [gate.draft])
-  const [files, setFiles] = useState<Attachment[]>(back?.attachments ?? [])
-  const [drafts, setDrafts] = useState<Draft[]>(
-    () => back?.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence.join(', '), files: f.attachments })) ?? [],
-  )
   const [error, setError] = useState(false)
-  // Pictures not handed in are let go when the form goes away, but for those of a result the
-  // service did not take: that draft holds them until it is sent again (then what the new
-  // result no longer carries goes), so the form coming back shows and sends them.
-  const held = (a: Attachment) => !!back && [...back.attachments, ...back.findings.flatMap(f => f.attachments)].some(x => x.url === a.url)
-  const kept = useRef<Attachment[]>([])
-  kept.current = [...files, ...drafts.flatMap(d => d.files)].filter(a => !held(a))
-  const sent = useRef(false)
-  useEffect(() => () => { if (!sent.current) kept.current.forEach(detach) }, [])
+  const update = (change: Partial<GateDraft>) => save({ ...form, ...change })
+  // A refused result still holds its pictures until it is replaced or the gate closes.
+  const letGo = (a: Attachment) => { if (!resultFiles(back).some(x => x.url === a.url)) detach(a) }
 
-  const edit = (k: number, change: Partial<Draft>) => setDrafts(ds => ds.map((d, i) => (i === k ? { ...d, ...change } : d)))
+  const edit = (k: number, change: Partial<Draft>) => update({ drafts: drafts.map((d, i) => (i === k ? { ...d, ...change } : d)) })
   const pasted = (add: (a: Attachment[]) => void) => (e: ClipboardEvent) => {
     const got = images(e.clipboardData.files)
     if (got.length) { e.preventDefault(); add(got) }
@@ -77,8 +91,11 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     e.preventDefault(); e.stopPropagation()
     add(images(e.dataTransfer.files))
   }
-  const addNote = (a: Attachment[]) => setFiles(f => [...f, ...a])
-  const drop = (a: Attachment) => { if (!held(a)) detach(a); setFiles(f => f.filter(x => x !== a)); setDrafts(ds => ds.map(d => ({ ...d, files: d.files.filter(x => x !== a) }))) }
+  const addNote = (a: Attachment[]) => update({ files: [...files, ...a] })
+  const drop = (a: Attachment) => {
+    letGo(a)
+    update({ files: files.filter(x => x !== a), drafts: drafts.map(d => ({ ...d, files: d.files.filter(x => x !== a) })) })
+  }
   const findings: NewFinding[] = drafts.filter(d => d.problem.trim()).map(d => ({
     severity: d.severity, problem: d.problem.trim(), impact: d.impact.trim(),
     evidence: d.where.split(/[,，\n]/).map(p => p.trim()).filter(Boolean), attachments: d.files,
@@ -87,11 +104,13 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     if (result === 'problem' && !findings.length) return setError(true)
     const asked = choice && result === 'answered'
     if (asked && (!picked || (needsNote(choice, picked) && showsNothing(note)))) return setNoteMissing(true)
-    sent.current = true
-    // The held draft goes with this result: its pictures this one no longer carries go too.
-    const sending = [...files, ...(result === 'problem' ? drafts.flatMap(d => d.files) : [])]
-    if (back) [...back.attachments, ...back.findings.flatMap(f => f.attachments)].filter(p => !sending.some(x => x.url === p.url)).forEach(detach)
-    act.submitGate(unit, gate, { result, ...(asked && { selected: [picked!] }), note: note.trim(), attachments: files, findings: result === 'problem' ? findings : [], at: new Date().toISOString() })
+    const sent: GateResult = {
+      result, ...(asked && { selected: [picked!] }), note: note.trim(), attachments: files,
+      findings: result === 'problem' ? findings : [], at: new Date().toISOString(),
+    }
+    releaseGateFiles(draft, back, sent)
+    save()
+    act.submitGate(unit, gate, sent)
   }
   const noteNeeded = !!(choice && result === 'answered' && picked && needsNote(choice, picked))
   // What the note is for: why, for an option that asks it; what to do instead, for Other.
@@ -101,7 +120,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
       <textarea
         className="field" rows={2} value={note} placeholder={t(words?.prompt ?? 'gate.note')} aria-label={t(words?.prompt ?? 'gate.note')}
         aria-required={noteNeeded || undefined} aria-invalid={(noteMissing && noteNeeded) || undefined}
-        onChange={e => { setNote(e.target.value); setNoteMissing(false) }} onPaste={pasted(addNote)}
+        onChange={e => { update({ note: e.target.value }); setNoteMissing(false) }} onPaste={pasted(addNote)}
       />
       <div className="flex flex-wrap items-center gap-2">
         <AttachButton onAdd={addNote} />
@@ -120,17 +139,22 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
       onDrop={dropped(addNote)}
     >
       {/* A result sent from here that the service did not take: said, and the form is back. */}
-      <DeliveryLine id={gateKey(unit, gate)} />
+      <DeliveryLine id={key} />
       <ToggleGroup
         type="single" variant="outline" size="sm" value={result} aria-label={t('gate.result')}
-        onValueChange={v => { if (v) { setResult(v as GateResult['result']); setError(false); setNoteMissing(false); if (v === 'problem' && !drafts.length) setDrafts([blank()]) } }}
+        onValueChange={v => {
+          if (!v) return
+          update({ result: v as GateResult['result'], drafts: v === 'problem' && !drafts.length ? [blank()] : drafts })
+          setError(false)
+          setNoteMissing(false)
+        }}
       >
         {/* The picked one must read as picked in both themes: its own colour, not a grey tint. */}
         <ToggleGroupItem value={choice ? 'answered' : 'done'} className="h-7 px-3 text-xs data-[state=on]:border-add data-[state=on]:bg-add-row data-[state=on]:font-semibold data-[state=on]:text-add">{t(choice ? 'gate.answer' : 'gate.done')}</ToggleGroupItem>
         <ToggleGroupItem value="problem" className="h-7 px-3 text-xs data-[state=on]:border-del data-[state=on]:bg-del-row data-[state=on]:font-semibold data-[state=on]:text-del">{t('gate.problem')}</ToggleGroupItem>
       </ToggleGroup>
       {choice && result === 'answered' && (
-        <ChoiceSurface choice={choice} picked={picked} onPick={v => { setPicked(v); setNoteMissing(false) }} onAnswer={submit}>
+        <ChoiceSurface choice={choice} picked={picked} onPick={v => { update({ picked: v }); setNoteMissing(false) }} onAnswer={submit}>
           {noteBlock}
           {noteMissing && <p className="text-xs text-del" role="alert">{t(words?.missing ?? 'choice.needNote')}</p>}
         </ChoiceSurface>
@@ -147,7 +171,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
                   <ToggleGroup type="single" variant="outline" size="sm" value={d.severity} aria-label={t('gate.severity')} onValueChange={v => v && edit(k, { severity: v as Severity })}>
                     {SEVERITIES.map(s => <ToggleGroupItem key={s} value={s} className="h-6 px-2 font-mono text-xs data-[state=on]:border-you data-[state=on]:bg-you-bg data-[state=on]:font-semibold data-[state=on]:text-you-ink">{s}</ToggleGroupItem>)}
                   </ToggleGroup>
-                  <Button type="button" variant="ghost" size="icon-xs" className="ml-auto" aria-label={t('gate.removeFinding')} onClick={() => { d.files.forEach(detach); setDrafts(ds => ds.filter((_, i) => i !== k)) }}>
+                  <Button type="button" variant="ghost" size="icon-xs" className="ml-auto" aria-label={t('gate.removeFinding')} onClick={() => { d.files.forEach(letGo); update({ drafts: drafts.filter((_, i) => i !== k) }) }}>
                     <Icon name="no" className="size-3.5" />
                   </Button>
                 </div>
@@ -159,7 +183,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
               </fieldset>
             )
           })}
-          <div><Button type="button" variant="outline" size="xs" className="rounded-sm" onClick={() => setDrafts(ds => [...ds, blank()])}><Icon name="plus" className="size-3" />{t('gate.addFinding')}</Button></div>
+          <div><Button type="button" variant="outline" size="xs" className="rounded-sm" onClick={() => update({ drafts: [...drafts, blank()] })}><Icon name="plus" className="size-3" />{t('gate.addFinding')}</Button></div>
           {error && <p className="text-xs text-del" role="alert">{t('gate.needFinding')}</p>}
         </div>
       )}

@@ -28,7 +28,7 @@ function show(rows: WaitingAgentRow[]) {
   act(() => root.render(
     <TooltipProvider>
       <AgentContext.Provider value={{ answer: a => answered.push(a), view: () => {} }}>
-        <Manager unit={null} n={null} talk={null} needs={<NeedsBar rows={rows} />} />
+        <Manager talk={null} needs={<NeedsBar rows={rows} />} />
       </AgentContext.Provider>
     </TooltipProvider>,
   ))

@@ -3,7 +3,7 @@
 // the user picked on screen (the unit, a task, a finding, lines, the open attachment) goes
 // with the message as chips, and so do the files they drop, paste or pick; the manager
 // answers itself, or asks the task's agent (`workriver ask`) and replies again.
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { finderLabel } from '@/work/select'
 import { ms } from '@/planning/select'
@@ -17,7 +17,7 @@ import type { Talk, Answer } from './types'
 import { Choice } from '@/ui/Choice'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { chipKey, chipsOf, entryOf, EVERY, leaveOut, messageOf, placesOf, repliesOf } from './select'
+import { chipKey, chipsOf, entryOf, EVERY, leaveOut, messageOf, placesOf, repliesOf, type Chip, type Places } from './select'
 import { Chips, Log, MessageView } from './Turns'
 import { openSeat } from '@/planning/Seat'
 
@@ -44,11 +44,10 @@ const hasCmd = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform)
  *  Enter and Shift+Enter break the line; nothing sends while an input method composes.
  *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button.
  *  (A task's discussion uses it too, under its Questions block.) */
-export function Box({ label, placeholder, focusAt, above, below, disabled, closed, onSend, onFiles }: {
-  label: string; placeholder: string; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; closed?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
+export function Box({ label, placeholder, text, setText, focusAt, above, below, disabled, closed, onSend, onFiles }: {
+  label: string; placeholder: string; text: string; setText: (text: string) => void; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; closed?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
 }) {
   const { t } = useT()
-  const [text, setText] = useState('')
   const box = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   // Asked for from outside ("Ask the manager", `?`): the cursor comes here, once per request, and only
@@ -73,7 +72,6 @@ export function Box({ label, placeholder, focusAt, above, below, disabled, close
     const q = text.trim()
     if (!q || disabled) return
     onSend(q)
-    setText('')
   }
   return (
     <div className="flex-none border-t border-line px-4 pt-3 pb-4 text-sm">
@@ -141,6 +139,41 @@ function ManagerStatus({ state }: Seat) {
   )
 }
 
+type ManagerDraft = { text: string; files: Attachment[] }
+const EMPTY_DRAFT: ManagerDraft = { text: '', files: [] }
+const ManagerDraftContext = createContext<{
+  places: Places | null
+  draft: ManagerDraft
+  update: (change: (draft: ManagerDraft) => ManagerDraft) => void
+  context: Chip[]
+  exclude: (key: string) => void
+} | null>(null)
+
+/** The wide panel and narrow sheet share drafts, kept with their workspace or All managers. */
+export function ManagerDraftProvider({ unit, n, finding, talk, children }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null; children: ReactNode }) {
+  const { t } = useT()
+  const places = talk && placesOf(talk, unit?.id)
+  const target = places?.id ?? null
+  const [drafts, setDrafts] = useState(() => new Map<string | null, ManagerDraft>())
+  const draft = drafts.get(target) ?? EMPTY_DRAFT
+  const update = (change: (draft: ManagerDraft) => ManagerDraft) => setDrafts(old => {
+    const next = change(old.get(target) ?? EMPTY_DRAFT)
+    const saved = new Map(old)
+    if (next.text || next.files.length) saved.set(target, next)
+    else saved.delete(target)
+    return saved
+  })
+  // The chips follow the current selection, including while neither composer is visible.
+  const taskLabel = n ? (n.kind === 'gate' ? n.title : n.taskId ? `#${n.taskId}` : finderLabel(t, n)) : ''
+  const chips = talk ? chipsOf({ unit, n, taskLabel, finding, file: talk.file, lines: talk.lines, extra: talk.extra }, !!target && target === places?.own) : []
+  const selection = JSON.stringify([target, unit?.id, n?.id, chips])
+  const [out, setOut] = useState<string[]>([])
+  useEffect(() => setOut([]), [selection])
+  const context = leaveOut(chips, out)
+  const exclude = (key: string) => setOut(previous => [...previous, key])
+  return <ManagerDraftContext.Provider value={{ places, draft, update, context, exclude }}>{children}</ManagerDraftContext.Provider>
+}
+
 /**
  * The conversation with a workspace's manager: the picked unit's intent's workspace, or one
  * picked from those with a manager (the page holds the pick: `talk.to`; a project switch may
@@ -148,7 +181,7 @@ function ManagerStatus({ state }: Seat) {
  * into the manager's terminal (held while it waits for a person there); it replies with
  * `workriver reply`. To every manager: each running one gets its copy, and replies under it.
  */
-export function Manager({ unit, n, finding, talk, needs }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null; needs?: ReactNode }) {
+export function Manager({ talk, needs }: { talk: Talk | null; needs?: ReactNode }) {
   const { t } = useT()
   // Files dropped anywhere on the panel go with the message being written.
   const takeFiles = useRef<((files: File[]) => void) | null>(null)
@@ -161,16 +194,17 @@ export function Manager({ unit, n, finding, talk, needs }: { unit: Unit | null; 
       <h2 id="side-talk" className="mb-2 flex-none px-4.5 text-sm font-[650]">{t('talk.title')}</h2>
       {/* Agents waiting in their terminals stay in sight while the user talks. */}
       {needs}
-      {talk && <ManagerTalk unit={unit} n={n} finding={finding} talk={talk} takeFiles={takeFiles} />}
+      {talk && <ManagerTalk talk={talk} takeFiles={takeFiles} />}
     </section>
   )
 }
 
-function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk; takeFiles: { current: ((files: File[]) => void) | null } }) {
+function ManagerTalk({ talk, takeFiles }: { talk: Talk; takeFiles: { current: ((files: File[]) => void) | null } }) {
   const { t } = useT()
   // Every manager at once: offered with more than one running, or once written to; once
   // picked it stays picked, however many run (none: the draft stays and nothing is sent).
-  const { intent, own, running, ids, closed, every, id: label } = placesOf(talk, unit?.id)
+  const { places, draft: { text, files }, update, context, exclude } = useContext(ManagerDraftContext)!
+  const { intent, own, running, ids, closed, every, id: label } = places!
   const all = label === EVERY
   const space = all ? undefined : talk.spaces.find(w => w.id === label)
   // Its manager, while it runs: a conversation shows its history with the seat empty too.
@@ -182,28 +216,14 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
     return a.reply ? q?.replies[a.reply - 1]?.choice : q?.choice
   }
 
-  // What is picked, as chips; only to the unit's own workspace's manager. A chip left out
-  // stays out until the selection changes.
-  const taskLabel = n ? (n.kind === 'gate' ? n.title : n.taskId ? `#${n.taskId}` : finderLabel(t, n)) : ''
-  const chips = chipsOf({ unit, n, taskLabel, finding, file: talk.file, lines: talk.lines, extra: talk.extra }, !!label && label === own)
-  const allKeys = chips.map(chipKey).join('|')
-  const [out, setOut] = useState<string[]>([])
-  useEffect(() => setOut([]), [allKeys])
-  const context = leaveOut(chips, out)
-
-  // Files dropped on the panel, pasted into the box or picked: the page holds them, shown as
-  // chips, until the message is sent (then they are stored); one taken out, or left when
-  // the panel goes away, is let go and never stored. Too large for the store: refused at once.
-  const [files, setFiles] = useState<Attachment[]>([])
+  // The page holds files dropped, pasted or picked until the message is sent.
   const [refused, setRefused] = useState<string[]>([])
-  const held = useRef(files)
-  held.current = files
-  useEffect(() => () => held.current.forEach(detach), [])
   const addFiles = (list: File[]) => {
     setRefused(list.filter(f => f.size > MAX_ATTACHMENT).map(f => f.name))
-    setFiles(fs => [...fs, ...list.filter(f => f.size <= MAX_ATTACHMENT).map(attach)])
+    const added = list.filter(f => f.size <= MAX_ATTACHMENT).map(attach)
+    update(d => ({ ...d, files: [...d.files, ...added] }))
   }
-  const remove = (a: Attachment) => { detach(a); setFiles(fs => fs.filter(x => x !== a)); setRefused([]) }
+  const remove = (a: Attachment) => { detach(a); update(d => ({ ...d, files: d.files.filter(x => x !== a) })); setRefused([]) }
   useEffect(() => { takeFiles.current = addFiles; return () => { takeFiles.current = null } })
 
   // The manager's newest words not read yet: read once the conversation has been on screen a
@@ -233,7 +253,7 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
     if (label === null || (all ? !running.length : !manager)) return
     if (all) talk.onTell({ workspace: EVERY, all: true }, text, '', messageOf(context, []), files)
     else talk.onTell(label === own && intent ? { intent: intent.id, workspace: label } : { workspace: label }, text, manager!.name, messageOf(context, []), files)
-    setFiles([])
+    update(() => EMPTY_DRAFT)
     setRefused([])
   }
   return (
@@ -260,6 +280,8 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
       <Box
         label={t('talk.label')}
         placeholder={all ? t('talk.everyPlaceholder') : t('talk.placeholder', { agent: manager?.name ?? t('manager.state.none') })}
+        text={text}
+        setText={text => update(d => ({ ...d, text }))}
         focusAt={talk.focusAt}
         disabled={all ? !running.length : !manager}
         onSend={send}
@@ -267,7 +289,7 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
         above={(
           <>
             {(context.length > 0 || files.length > 0) && (
-              <div className="mb-1.5"><Chips chips={context} onDrop={c => { setOut(o => [...o, chipKey(c)]); setRefused([]) }} files={files} onRemove={remove} /></div>
+              <div className="mb-1.5"><Chips chips={context} onDrop={c => { exclude(chipKey(c)); setRefused([]) }} files={files} onRemove={remove} /></div>
             )}
             {refused.length > 0 && (
               <p className="mb-1.5 flex items-start gap-1 text-xs text-del" role="alert">

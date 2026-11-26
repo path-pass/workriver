@@ -1,6 +1,6 @@
 // A review's findings and their decisions, with the line that follows a user's decision
 // or a gate's result to the agents.
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Input } from '@/ui/primitives/input'
 import { findingKey, useAct } from './actions'
@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { Thumbs } from '@/attachments/Thumbs'
 import { Content, ExternalChip } from '@/content/Chips'
 import { NodeName } from './Nodes'
+import { useTaskDraft } from './drafts'
 
 /**
  * Where a message is: not gone yet (and can be taken back), delivered, picked up. Once the
@@ -89,11 +90,12 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
 export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
   const { t } = useT()
   const act = useAct()
-  const [note, setNote] = useState('')
-  const decide = (d: Decision) => act.decide(unit, task, f, d, note.trim())
+  const [draft, setNote] = useTaskDraft('decisions', findingKey(unit, task, f))
+  const note = draft ?? ''
+  const decide = (d: Decision) => { setNote(); act.decide(unit, task, f, d, note.trim()) }
   return (
     <div className="mt-2 flex flex-col gap-1.5">
-      <Input value={note} onChange={e => setNote(e.target.value)} placeholder={t('decide.note')} aria-label={t('decide.note')} className="h-7 text-xs md:text-xs" />
+      <Input value={note} onChange={e => setNote(e.target.value || undefined)} placeholder={t('decide.note')} aria-label={t('decide.note')} className="h-7 text-xs md:text-xs" />
       <div role="group" aria-label={t('decide.label', { id: f.id })} className="flex flex-wrap gap-1.5">
         {(['accept', 'revise', 'reject', 'defer'] as const).map(d => {
           const suggested = f.recommendation?.decision === d
