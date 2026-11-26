@@ -11,7 +11,7 @@ import type { Answer, AskContext, Sent, Vote } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import type { RunView, RunReview, RunAsk } from '@/commands/types'
 import type { StartSettings } from '@/agents/types'
-import { call, post, read, request, SIGNED_OUT } from './http'
+import { call, post, read, SIGNED_OUT } from './http'
 import { labelOf } from '@/content/choice/surface'
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
@@ -95,8 +95,8 @@ export function gateMessage(gate: Task, r: GateResult): string {
 
 /** Puts a file the page holds into the service's store; its id. */
 async function upload(a: Attachment): Promise<string> {
-  const blob = await (await request(a.url)).blob()
-  const res = await request(`/api/attachments?name=${encodeURIComponent(a.name)}`, { method: 'POST', headers: { 'content-type': blob.type || 'application/octet-stream' }, body: blob })
+  const blob = await (await fetch(a.url)).blob()
+  const res = await fetch(`/api/attachments?name=${encodeURIComponent(a.name)}`, { method: 'POST', headers: { 'content-type': blob.type || 'application/octet-stream' }, body: blob })
   if (!res.ok) throw new Error(`upload ${a.name}: ${res.status} ${await res.text()}`)
   return (await res.json()).id
 }
@@ -272,7 +272,7 @@ export async function mergeIntents(into: string, from: string[], title?: string)
 /** CPU and memory of this machine and the followed ones, with the alert thresholds. */
 export async function metrics(): Promise<MetricsReport> {
   if (MOCK) return (await import('@/mock/metrics')).mockMetrics()
-  const res = await request('/api/metrics')
+  const res = await fetch('/api/metrics')
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
@@ -280,7 +280,7 @@ export async function metrics(): Promise<MetricsReport> {
 /** One machine's minutes (means of its samples) over the last `hours`, oldest first. */
 export async function metricsHistory(machine: string, hours = 24): Promise<MetricSample[]> {
   if (MOCK) return (await import('@/mock/metrics')).mockHistory(machine, hours)
-  const res = await request(`/api/metrics/history?machine=${encodeURIComponent(machine)}&hours=${hours}`)
+  const res = await fetch(`/api/metrics/history?machine=${encodeURIComponent(machine)}&hours=${hours}`)
   if (!res.ok) throw new Error(await res.text())
   return (await res.json()).points
 }
@@ -292,7 +292,7 @@ export async function setThresholds(t: Thresholds): Promise<MetricsReport> {
     mock.setMockThresholds(t)
     return mock.mockMetrics()
   }
-  const res = await request('/api/metrics/thresholds', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(t) })
+  const res = await fetch('/api/metrics/thresholds', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(t) })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
@@ -303,7 +303,7 @@ let mockStall = 10
 /** After how many idle minutes a running task's agent is reminded (then escalated). */
 export async function stallMinutes(): Promise<number> {
   if (MOCK) return mockStall
-  const res = await request('/api/settings/stall')
+  const res = await fetch('/api/settings/stall')
   if (!res.ok) throw new Error(await res.text())
   return (await res.json()).minutes
 }
@@ -311,7 +311,7 @@ export async function stallMinutes(): Promise<number> {
 /** Sets it (1 to 240 minutes); answers what the service kept. */
 export async function setStallMinutes(minutes: number): Promise<number> {
   if (MOCK) return (mockStall = minutes)
-  const res = await request('/api/settings/stall', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ minutes }) })
+  const res = await fetch('/api/settings/stall', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ minutes }) })
   if (!res.ok) throw new Error(await res.text())
   return (await res.json()).minutes
 }
@@ -322,7 +322,7 @@ let mockStart: StartSettings = { harness: 'claude', model: '', harnesses: [{ kin
 /** The harness and model a start of a manager takes by default, with every harness as offered here. */
 export async function startSettings(): Promise<StartSettings> {
   if (MOCK) return mockStart
-  const res = await request('/api/settings/start')
+  const res = await fetch('/api/settings/start')
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
@@ -336,14 +336,14 @@ export async function setStartSettings(harness: string, model: string): Promise<
 /** The machines the service knows, followed or not. */
 export async function machines(): Promise<Machine[]> {
   if (MOCK) return []
-  const res = await request('/api/machines')
+  const res = await fetch('/api/machines')
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
 
 /** Adds, enables, disables or removes a machine; answers the list after it. */
 export async function setMachine(label: string, action: 'add' | 'enable' | 'disable' | 'remove', ssh = ''): Promise<Machine[]> {
-  const res = await request('/api/machines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, action, ssh }) })
+  const res = await fetch('/api/machines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, action, ssh }) })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
@@ -434,7 +434,7 @@ export async function setSpace(act: SpaceAct): Promise<void> {
     window.dispatchEvent(new CustomEvent(MOCK_CHANGED, { detail: (ws: Workspace) => mockSpace(ws, act) }))
     return
   }
-  const res = await request('/api/workspaces', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(act) })
+  const res = await fetch('/api/workspaces', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(act) })
   if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
   if (!res.ok) {
     const words = await res.text()
@@ -527,7 +527,7 @@ export async function readRun(id: string): Promise<RunView> {
     const k = Math.floor((Date.now() - r.at) / 1000)
     return { ...r, review, output: lines.slice(0, k).join('\n'), exit: k > lines.length ? 0 : null, watching: k <= lines.length }
   }
-  const res = await request(`/api/run/${encodeURIComponent(id)}`)
+  const res = await fetch(`/api/run/${encodeURIComponent(id)}`)
   if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
   if (!res.ok) throw new Error(await res.text())
   return res.json()

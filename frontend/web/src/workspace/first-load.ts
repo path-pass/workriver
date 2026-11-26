@@ -1,8 +1,11 @@
-import { post } from '@/api/http'
-import { finishInitialRequests } from '@/api/initial-requests'
+import { initialRequestTimings, postPageLoad } from '@/api/initial-requests'
 import type { Workspace } from './types'
 
-declare const __WORKRIVER_BUILD__: number
+declare global {
+  interface Window {
+    takeInitialPageHidden?: () => boolean
+  }
+}
 
 export const WORKSPACE_PATH = '/api/workspace'
 
@@ -15,13 +18,26 @@ type WorkspaceTiming = {
 }
 
 const snapshots = new WeakMap<Workspace, WorkspaceTiming>()
-let reported = false
+const initiallyHidden = window.takeInitialPageHidden?.()
+delete window.takeInitialPageHidden
+let handled = initiallyHidden || document.hidden || performance.getEntriesByType('visibility-state').some(entry => entry.name === 'hidden')
+
+function stopTracking() {
+  handled = true
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+}
+
+function onVisibilityChange() {
+  if (document.hidden) stopTracking()
+}
+
+if (!handled) document.addEventListener('visibilitychange', onVisibilityChange)
 
 const ms = (time: number | undefined) => time === undefined ? undefined : Math.round(time)
 const resources = (url: string) => performance.getEntriesByName(url, 'resource') as PerformanceResourceTiming[]
 
 export function recordWorkspaceReady(ws: Workspace, started: number) {
-  if (reported) return
+  if (handled) return
   const ready = Math.round(performance.now())
   const entry = resources(new URL(WORKSPACE_PATH, location.href).href).findLast(r => r.startTime >= started)
   const response = ms(entry?.responseEnd)
@@ -40,15 +56,12 @@ function downloaded(url?: string) {
 
 export function reportFirstBoardPaint(ws: Workspace) {
   const timing = snapshots.get(ws)
-  if (!timing || reported) return
+  if (!timing || handled) return
   const committed = Math.round(performance.now())
-  let frame = requestAnimationFrame(function firstFrame() {
-    if (reported) return
-    if (document.hidden) {
-      frame = requestAnimationFrame(firstFrame)
-      return
-    }
-    reported = true
+  const frame = requestAnimationFrame(() => {
+    if (handled) return
+    stopTracking()
+    if (document.hidden) return
     // A task queued from the frame can run after the browser's rendering update.
     setTimeout(() => {
       const paint = performance.now()
@@ -62,10 +75,9 @@ export function reportFirstBoardPaint(ws: Workspace) {
         app_ms: committed - timing.ready_ms,
         render_ms: Math.round(paint) - committed,
         git_pending: Number(!!ws.gitPending),
-        build: __WORKRIVER_BUILD__,
-        api: finishInitialRequests(paint),
+        api: initialRequestTimings(paint),
       }
-      void post('/api/perf/page-load', report, { notifySignedOut: false }).catch(() => {})
+      postPageLoad(report)
     }, 0)
   })
   return () => cancelAnimationFrame(frame)

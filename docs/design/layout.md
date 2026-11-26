@@ -295,6 +295,7 @@ crates/workriver/
 │   │   │   │                         # a client still sending gets the answer, not a reset;
 │   │   │   │                         # one that asked first (Expect) and was not read, none.
 │   │   │   ├── session.rs            # Session status/code/exchange routes.
+│   │   │   ├── page_load.rs          # Signed-in page timing, bounds and route templates; writes the perf log.
 │   │   │   ├── error.rs              # ApiError, status mapping, blocking helper.
 │   │   │   └── assets.rs             # Embedded web dist, MIME/caching, SPA fallback.
 │   │   ├── planning/
@@ -477,6 +478,7 @@ stay with their owner.
 
 ```text
 frontend/web/
+├── index.html                       # HTML entry and early page visibility tracking.
 ├── package.json / pnpm-lock.yaml     # Dependencies; Vitest/happy-dom dev-only.
 ├── vite.config.ts                    # Build, proxy, the `test` block.
 ├── tsconfig*.json / components.json  # Type and shadcn setup; ui/utils aliases.
@@ -491,9 +493,12 @@ frontend/web/
     │   ├── http.ts                   # GET (read), POST (post, call), the change stream, errors, SIGNED_OUT.
     │   ├── session.ts                # One-time code exchange, the remembered deep link.
     │   ├── actions.ts                # The page's actions, focus included.
+    │   ├── initial-requests.ts       # Completed Resource Timing by route and the silent timing POST.
+    │   ├── page-load-paths.txt       # Shared page-timing route templates, checked by the service route guard.
     │   └── terminal.ts               # An agent's terminal: its screen, the keys pressed, its view's stream.
     ├── workspace/                    # Snapshot loading and the optimistic overlay; no components.
     │   ├── types.ts  source.ts  edits.ts
+    │   └── first-load.ts             # Reports the first board paint of a page that stayed visible.
     ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
     │                                 # Merge.tsx EditIntent.tsx IntentHistory.tsx
     │                                 # classify.ts (kind, size, tags, the rail's filter) Sort.tsx (their chips and fields)

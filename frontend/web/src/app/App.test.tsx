@@ -128,7 +128,6 @@ it('opens statistics on the tenth consecutive mark click within four seconds', a
 
 it('reports the first board paint once, even when the workspace refreshes', async () => {
   const { recordWorkspaceReady } = await import('@/workspace/first-load')
-  const { request } = await import('@/api/http')
   const pending = { ...ws, gitPending: true }
   const refreshed = { ...ws }
   let update: (snapshot: Workspace) => void = () => {}
@@ -163,23 +162,27 @@ it('reports the first board paint once, even when the workspace refreshes', asyn
     ]
     return []
   })
-  vi.spyOn(performance, 'getEntriesByType').mockReturnValue([{
-    name: new URL('/api/attachments/private-id', location.href).href,
-    initiatorType: 'img', startTime: 101, responseEnd: 105,
-  } as PerformanceResourceTiming])
+  const resource = (path: string, initiatorType: string, startTime: number, responseEnd: number) => ({
+    name: new URL(path, location.href).href, initiatorType, startTime, responseEnd,
+  }) as PerformanceResourceTiming
+  vi.spyOn(performance, 'getEntriesByType').mockImplementation(type => type === 'resource' ? [
+    resource('/api/task?ref=private', 'fetch', 10, 40),
+    resource('/api/task?ref=another', 'fetch', 45, 55),
+    resource('/api/unit/private-id/code?have=secret', 'fetch', 110, 125),
+    resource('/api/attachments/private-id', 'img', 101, 105),
+    resource('/api/task', 'fetch', 120, 125),
+    resource('https://other.example/api/task', 'fetch', 10, 40),
+    resource('/api/workspace', 'fetch', 51, 75.8),
+    resource('/api/events', 'eventsource', 60, 70),
+    resource('/api/agent/view?agent=private', 'eventsource', 60, 70),
+    resource('/api/task', 'xmlhttprequest', 10, 40),
+    resource('/api/unknown/private', 'fetch', 10, 40),
+  ] : [])
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   try {
     act(() => root.render(<StrictMode><TooltipProvider><App /></TooltipProvider></StrictMode>))
     expect(send).not.toHaveBeenCalled()
-    const task = request('/api/task?ref=private')
-    now.mockReturnValue(40)
-    await task
-    now.mockReturnValue(50)
-    void request('/api/task?ref=still-pending')
-    now.mockReturnValue(52)
-    const code = request('/api/unit/private-id/code?have=secret')
-    now.mockReturnValue(60)
-    await code
+    void fetch('/api/task?ref=still-pending')
     now.mockReturnValue(90)
     recordWorkspaceReady(pending, 50)
     now.mockReturnValue(100)
@@ -200,11 +203,11 @@ it('reports the first board paint once, even when the workspace refreshes', asyn
     expect(JSON.parse(init.body as string)).toEqual({
       ms: 120, js_ms: 33, request_ms: 54, response_ms: 76, bytes: 456,
       ready_ms: 90, parse_ms: 14, app_ms: 10, render_ms: 20,
-      git_pending: 1, build: expect.any(Number),
+      git_pending: 1,
       api: [
         { path: '/api/attachments/{id}', count: 1, ms: 4, max_ms: 4 },
-        { path: '/api/task', count: 2, ms: 100, max_ms: 70 },
-        { path: '/api/unit/{id}/code', count: 1, ms: 8, max_ms: 8 },
+        { path: '/api/task', count: 2, ms: 40, max_ms: 30 },
+        { path: '/api/unit/{id}/code', count: 1, ms: 10, max_ms: 10 },
       ],
     })
     expect(signedOut).not.toHaveBeenCalled()

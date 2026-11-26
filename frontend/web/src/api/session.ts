@@ -1,6 +1,5 @@
 // Whether this page is the user's: the one-time code from `workriver open`, and the link
 // opened while signed out, kept for the sign-in.
-import { request } from './http'
 
 /**
  * Whether this page is the user's. A one-time code in the address (`#k=…`, from
@@ -13,9 +12,9 @@ export async function startSession(): Promise<boolean> {
     // `workriver open` opens the root: a link the user opened while signed out lands there.
     const wanted = recallWanted()
     history.replaceState(null, '', location.pathname === '/' && wanted ? wanted : location.pathname + location.search)
-    await request('/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => undefined)
+    await fetch('/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => undefined)
   }
-  const res = await request('/api/session')
+  const res = await fetch('/api/session')
   if (!res.ok) throw new Error(await res.text())
   return (await res.json()).user === true
 }

@@ -58,33 +58,46 @@ pub fn summary(home: &Path, since: Option<std::time::Duration>, top: usize) -> S
         (v, api)
     }).collect();
     if !page_loads.is_empty() {
-        let _ = writeln!(out, "\nPage loads (from navigation start): count, p50, p95, max");
-        for (field, label) in [
-            ("ms", "Board visible (ms)"),
-            ("js_ms", "Entry JS downloaded (ms)"),
-            ("css_ms", "Entry CSS downloaded (ms)"),
-            ("request_ms", "Workspace request start (ms)"),
-            ("response_ms", "Workspace response end (ms)"),
-            ("ready_ms", "Workspace ready (ms)"),
-            ("parse_ms", "Parse and prepare (ms)"),
-            ("app_ms", "Build and commit board (ms)"),
-            ("render_ms", "Rendering opportunity (ms)"),
-            ("bytes", "Workspace response (bytes)"),
-        ] {
-            let mut t: Vec<_> = page_loads.iter().filter_map(|(v, _)| v[field].as_u64()).collect();
-            t.sort_unstable();
-            let _ = writeln!(out, "  {label:<40} {:>6} {:>6} {:>6} {:>6}", t.len(), pct(&t, 0.5), pct(&t, 0.95), t.last().unwrap_or(&0));
+        let _ = writeln!(out, "\nPage loads: count, p50, p95, max");
+        let sections: &[(&str, &[(&str, &str)])] = &[
+            ("Time from navigation start (ms)", &[
+                ("ms", "Board visible"),
+                ("js_ms", "Entry JS downloaded"),
+                ("css_ms", "Entry CSS downloaded"),
+                ("request_ms", "Workspace request started"),
+                ("response_ms", "Workspace response received"),
+                ("ready_ms", "Workspace data ready"),
+            ]),
+            ("Durations (ms)", &[
+                ("parse_ms", "Parse and prepare workspace"),
+                ("app_ms", "Build and commit board"),
+                ("render_ms", "Paint after commit"),
+            ]),
+            ("Response size (bytes)", &[("bytes", "Workspace response")]),
+        ];
+        for (section, fields) in sections {
+            let _ = writeln!(out, "  {section}");
+            for &(field, label) in *fields {
+                let mut t: Vec<_> = page_loads.iter().filter_map(|(v, _)| v[field].as_u64()).collect();
+                t.sort_unstable();
+                let _ = writeln!(out, "    {label:<38} {:>6} {:>6} {:>6} {:>6}", t.len(), pct(&t, 0.5), pct(&t, 0.95), t.last().unwrap_or(&0));
+            }
         }
         page_loads.sort_by_key(|(v, _)| std::cmp::Reverse(ms(v)));
         let _ = writeln!(out, "\nSlowest page loads:");
         for (v, api) in page_loads.iter().take(top) {
             let at = v["timestamp"].as_str().unwrap_or("?");
-            let build = v["build"].as_u64().unwrap_or(0);
+            let build = v["build"].as_str().map(str::to_owned)
+                .or_else(|| v["build"].as_u64().map(|n| format!("{n:012x}"))).unwrap_or_else(|| "?".into());
             let pending = if v["git_pending"] == 1 { "  records-only" } else { "" };
             let count = api.iter().map(|a| a.count).sum::<u64>();
             let total = api.iter().map(|a| a.ms).sum::<u64>();
             let longest = api.iter().map(|a| a.max_ms).max().unwrap_or(0);
-            let _ = writeln!(out, "  {at}  {} ms  build {build:012x}{pending}  {count} other API requests, {total} ms total, {longest} ms max", ms(v));
+            let _ = writeln!(out, "  {at}  {} ms  build {build}{pending}  {count} other API requests, {total} ms total, {longest} ms max", ms(v));
+            let time = |n: Option<u64>| n.map_or_else(|| "?".into(), |ms| format!("{ms} ms"));
+            let response_ms = v["response_ms"].as_u64().zip(v["request_ms"].as_u64()).and_then(|(end, start)| end.checked_sub(start));
+            let (ready, parse, app, paint) = (time(v["ready_ms"].as_u64()), time(v["parse_ms"].as_u64()), time(v["app_ms"].as_u64()), time(v["render_ms"].as_u64()));
+            let _ = writeln!(out, "    workspace response {}, data ready at {ready}, parse {parse}, app {app}, paint {paint}", time(response_ms));
         }
         let mut paths = BTreeMap::<&str, (u64, u64, u64)>::new();
         for a in page_loads.iter().flat_map(|(_, api)| api) {
@@ -196,7 +209,7 @@ pub fn bundle(home: &Path, bytes: usize) -> std::io::Result<PathBuf> {
     raw.drain(..start);
     let path = dir(home).join(crate::common::home::perf_bundle(&humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string().replace(':', "")));
     let mut text = format!(
-        "workriver {} timing bundle\nTimes, counts, route templates, unit ids and machine names only: no commit messages, file texts, task texts, findings, notes, prompts, tokens, cookies or paths.\n\n",
+        "workriver {} timing bundle\nTimes, sizes, counts, service builds, route templates, unit ids and machine names only: no commit messages, file texts, task texts, findings, notes, prompts, tokens, cookies or paths.\n\n",
         crate::common::BUILD
     );
     text += &summary(home, None, 30);
@@ -223,30 +236,35 @@ mod tests {
         std::fs::create_dir(dir(home.path())).unwrap();
         std::fs::write(dir(home.path()).join(crate::common::home::PERF_LOG), concat!(
             r#"{"kind":"page_load","timestamp":"2026-01-01T01:00:00Z","ms":100,"js_ms":12,"css_ms":11,"request_ms":14,"response_ms":34,"bytes":1000,"ready_ms":40,"parse_ms":6,"app_ms":40,"render_ms":20,"git_pending":0,"build":1,"api":"[{\"path\":\"/api/task\",\"count\":1,\"ms\":30,\"max_ms\":30}]"}"#, "\n",
-            r#"{"kind":"page_load","timestamp":"2026-01-01T01:01:00Z","ms":900,"js_ms":120,"css_ms":70,"request_ms":160,"response_ms":430,"bytes":3000,"ready_ms":500,"parse_ms":70,"app_ms":290,"render_ms":110,"git_pending":1,"build":2,"api":"[{\"path\":\"/api/task\",\"count\":2,\"ms\":225,\"max_ms\":150},{\"path\":\"/api/session\",\"count\":1,\"ms\":15,\"max_ms\":15}]"}"#, "\n",
+            r#"{"kind":"page_load","timestamp":"2026-01-01T01:01:00Z","ms":900,"js_ms":120,"css_ms":70,"request_ms":160,"response_ms":430,"bytes":3000,"ready_ms":500,"parse_ms":70,"app_ms":290,"render_ms":110,"git_pending":1,"build":"0.1.0 (abc123456)","api":"[{\"path\":\"/api/task\",\"count\":2,\"ms\":225,\"max_ms\":150},{\"path\":\"/api/session\",\"count\":1,\"ms\":15,\"max_ms\":15}]"}"#, "\n",
             r#"{"kind":"page_load","timestamp":"2026-01-01T01:02:00Z","ms":200,"ready_ms":150,"app_ms":45,"render_ms":5,"git_pending":0,"build":3,"api":"[]"}"#, "\n",
             r#"{"kind":"http","method":"GET","route":"/api/workspace","ms":999}"#, "\n",
         )).unwrap();
         let report = summary(home.path(), None, 2);
-        for (label, counts) in [
-            ("Board visible (ms)", ["3", "200", "900", "900"]),
-            ("Entry JS downloaded (ms)", ["2", "120", "120", "120"]),
-            ("Entry CSS downloaded (ms)", ["2", "70", "70", "70"]),
-            ("Workspace request start (ms)", ["2", "160", "160", "160"]),
-            ("Workspace response end (ms)", ["2", "430", "430", "430"]),
-            ("Workspace response (bytes)", ["2", "3000", "3000", "3000"]),
-            ("Workspace ready (ms)", ["3", "150", "500", "500"]),
-            ("Parse and prepare (ms)", ["2", "70", "70", "70"]),
-            ("Build and commit board (ms)", ["3", "45", "290", "290"]),
-            ("Rendering opportunity (ms)", ["3", "20", "110", "110"]),
+        let points = report.split_once("Time from navigation start (ms)").unwrap().1;
+        let (points, durations) = points.split_once("Durations (ms)").unwrap();
+        let (durations, size) = durations.split_once("Response size (bytes)").unwrap();
+        for (section, label, counts) in [
+            (points, "Board visible", ["3", "200", "900", "900"]),
+            (points, "Entry JS downloaded", ["2", "120", "120", "120"]),
+            (points, "Entry CSS downloaded", ["2", "70", "70", "70"]),
+            (points, "Workspace request started", ["2", "160", "160", "160"]),
+            (points, "Workspace response received", ["2", "430", "430", "430"]),
+            (points, "Workspace data ready", ["3", "150", "500", "500"]),
+            (durations, "Parse and prepare workspace", ["2", "70", "70", "70"]),
+            (durations, "Build and commit board", ["3", "45", "290", "290"]),
+            (durations, "Paint after commit", ["3", "20", "110", "110"]),
+            (size, "Workspace response", ["2", "3000", "3000", "3000"]),
         ] {
-            let row = report.lines().find_map(|l| l.trim_start().strip_prefix(label));
+            let row = section.lines().find_map(|l| l.trim_start().strip_prefix(label));
             assert_eq!(row.map(|l| l.split_whitespace().collect::<Vec<_>>()), Some(counts.to_vec()), "{label}: {report}");
         }
         let slow = report.split_once("Slowest page loads:").unwrap().1.split("\n\n").next().unwrap();
-        assert!(slow.contains("2026-01-01T01:01:00Z  900 ms  build 000000000002  records-only"), "{slow}");
+        assert!(slow.contains("2026-01-01T01:01:00Z  900 ms  build 0.1.0 (abc123456)  records-only"), "{slow}");
+        assert!(slow.contains("workspace response 270 ms, data ready at 500 ms, parse 70 ms, app 290 ms, paint 110 ms"), "{slow}");
         assert!(slow.contains("3 other API requests, 240 ms total, 150 ms max"), "{slow}");
         assert!(slow.contains("2026-01-01T01:02:00Z  200 ms  build 000000000003"), "{slow}");
+        assert!(slow.contains("workspace response ?, data ready at 150 ms, parse ?, app 45 ms, paint 5 ms"), "{slow}");
         assert!(!slow.contains("2026-01-01T01:00:00Z"), "{slow}");
         assert!(report.contains("GET /api/workspace"), "{report}");
         let api = report.split_once("Other API requests before board paint: count, total ms, max ms").unwrap().1;

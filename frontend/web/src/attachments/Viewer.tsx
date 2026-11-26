@@ -13,7 +13,6 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { kindOf } from './preview'
 import { CAP } from '@/config/defaults'
-import { request } from '@/api/http'
 
 /** react-markdown and remark-gfm load only once a Markdown file is opened. */
 const MarkdownView = lazy(() => import('@/content/Markdown'))
@@ -31,7 +30,7 @@ function useText(url: string, cap: number) {
   const [got, setGot] = useState<{ url: string; text: string; size: number } | { url: string; failed: true } | null>(null)
   useEffect(() => {
     let gone = false
-    request(url)
+    fetch(url)
       .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.blob() })
       .then(async b => { const text = await b.slice(0, cap).text(); if (!gone) setGot({ url, text, size: b.size }) })
       .catch(() => { if (!gone) setGot({ url, failed: true }) })
