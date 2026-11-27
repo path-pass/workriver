@@ -141,9 +141,9 @@ fn browser_workspace_shows_records_before_git_and_notifies_when_ready() {
 }
 
 /// The unit open on the page (its code read) is followed: a file changed in its work tree
-/// tells the page, and the next snapshot has the new file with its line counts and a new code
-/// token, which the code read follows. Another open unit's uncommitted work is on the board
-/// by name, without counts; a file git ignores in its work tree tells nobody.
+/// tells the page, and the next snapshot names the new file with a new code token, which the
+/// code read follows with its texts and counts. Uncommitted work is on the board by name,
+/// without counts but those its code read found.
 #[test]
 fn the_open_unit_is_followed_and_the_others_named() {
     use std::io::{BufRead, BufReader, Write};
@@ -231,8 +231,10 @@ fn the_open_unit_is_followed_and_the_others_named() {
             }
         }
     };
-    assert_eq!(changed["commits"][0]["files"][0]["add"], 2);
-    assert_eq!(browser("/api/unit/u1/code")["commits"][0]["files"][0]["after"], "a\none\nmore\n");
+    assert_eq!(changed["commits"][0]["files"][0]["uncounted"], true, "the board names it; its counts are the code's");
+    let code = browser("/api/unit/u1/code");
+    assert_eq!((code["commits"][0]["files"][0]["after"].as_str(), code["commits"][0]["files"][0]["add"].as_u64()), (Some("a\none\nmore\n"), Some(2)));
+    assert_eq!(code["code"], changed["code"], "the same token");
     assert_eq!(unit(&browser("/api/workspace"), "u2")["code"], unit(&board, "u2")["code"], "u2 as it was");
 }
 

@@ -18,10 +18,10 @@ pub const STALL_MINUTES: u32 = 10;
 /// The most the stall threshold may be set to: four hours.
 pub const STALL_MAX: u32 = 240;
 
-/// How many units count as open on the page (the last whose code it read): their uncommitted
-/// work is read with its texts in every snapshot that reads it again, so their line counts are
-/// there. A page keeps the code of its last two units; two pages, four.
-pub const OPENED_UNITS: usize = 4;
+/// How many units' uncommitted texts the service holds between reads of their code (the
+/// last whose code was read): memory only, what the page shows never depends on it. A page
+/// keeps the code of its last two units; two pages, four.
+pub const TEXT_UNITS: usize = 4;
 
 /// Anything slower than this is marked so in the timing log.
 pub const SLOW_MS: u64 = 500;

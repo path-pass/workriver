@@ -52,18 +52,20 @@ export const isNull = (id: string) => /^0+$/.test(id)
 /** A submodule pointer's mode (a gitlink): its object id is a commit, it has no text. */
 const GITLINK = '160000'
 
-type Entries = Pick<FileChange, 'beforeMode' | 'beforeId' | 'afterMode' | 'afterId' | 'beforeBinary' | 'afterBinary'>
+type Entries = Pick<FileChange, 'beforeMode' | 'beforeId' | 'afterMode' | 'afterId' | 'beforeBinary' | 'afterBinary' | 'uncounted'>
 
 /**
  * What the change from `first`'s before to `last`'s after is when it has no lines: a submodule's
  * pointer (either end one: its commits), else a binary file's (either end binary, as git says
- * "Binary files differ"). Empty for a text change. Only the ends count: a binary version
- * between two texts leaves a text change.
+ * "Binary files differ"), else one not counted (either end over the size limit, its texts not
+ * read). Empty for a text change. Only the ends count: a binary version between two texts
+ * leaves a text change.
  */
 export function kindOf(first: Entries, last: Entries): Kind {
   if (first.beforeMode === GITLINK || last.afterMode === GITLINK)
     return { pointer: { from: first.beforeMode === GITLINK ? first.beforeId : null, to: last.afterMode === GITLINK ? last.afterId : null } }
-  return first.beforeBinary || last.afterBinary ? { binary: true } : {}
+  if (first.beforeBinary || last.afterBinary) return { binary: true }
+  return first.uncounted || last.uncounted ? { uncounted: true } : {}
 }
 
 /**
@@ -145,7 +147,7 @@ const counts = new WeakMap<FileChange, WeakMap<FileChange, { add: number; del: n
 function counted(first: FileChange, last: FileChange) {
   if (first === last) return { add: first.add, del: first.del }
   const kind = kindOf(first, last)
-  if (kind.binary || kind.pointer) return { add: 0, del: 0 }
+  if (kind.binary || kind.pointer || kind.uncounted) return { add: 0, del: 0 }
   let to = counts.get(first)
   if (!to) counts.set(first, (to = new WeakMap()))
   let c = to.get(last)

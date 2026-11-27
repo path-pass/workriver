@@ -1010,6 +1010,7 @@ export const ja: OneForm<typeof en> = {
     M: '変更',
     D: '削除',
     binary: 'バイナリファイルが異なります',
+    uncounted: '512 KB 超：読み込まず、行数は数えていません',
     pointerMoved: 'サブモジュールのコミット {{from}} → {{to}}',
     pointerAdded: 'サブモジュール、コミット {{to}}',
     pointerRemoved: 'サブモジュール、元はコミット {{from}}',

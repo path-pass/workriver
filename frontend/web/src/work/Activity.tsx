@@ -276,7 +276,11 @@ function Legend() {
 }
 
 /** `workspace`: the workspace of the unit's intent (a `Space.id`), when known. */
-export function Activity({ unit, pick, onPick, talk, fitKey, workspace, gitPending }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; workspace?: string; gitPending?: boolean }) {
+/**
+ * `coded`: the unit as its code was read (`useCode`), its uncommitted files with their line
+ * counts, which the snapshot leaves out (it names them only).
+ */
+export function Activity({ unit, coded, pick, onPick, talk, fitKey, workspace, gitPending }: { unit: Unit; coded?: Unit | null; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; workspace?: string; gitPending?: boolean }) {
   const { t } = useT()
   const pickedId = pick?.kind === 'task' ? pick.id : null
   const picked = unit.tasks.find(n => n.id === pickedId)
@@ -287,7 +291,7 @@ export function Activity({ unit, pick, onPick, talk, fitKey, workspace, gitPendi
       {unit.tasks.length ? (
         <>
           <Graph unit={unit} picked={pickedId} finding={pick?.finding} onPick={pickNode} fitKey={fitKey} />
-          {picked && <Detail unit={unit} n={picked} finding={pick?.finding} onPick={onPick} talk={talk} workspace={workspace} gitPending={gitPending} />}
+          {picked && <Detail unit={unit} coded={coded} n={picked} finding={pick?.finding} onPick={onPick} talk={talk} workspace={workspace} gitPending={gitPending} />}
           {/* Past questions about the unit as a whole, with no task picked. */}
           {!picked && (unit.threads?.length ?? 0) > 0 && (
             <div className="mt-2"><Questions id={`questions-${unit.id}`} key={unit.id} threads={unit.threads!} agent={null} onFile={talk.onFile} /></div>

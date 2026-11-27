@@ -609,6 +609,10 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     // What it changes, for the files another open unit changes too: from the texts, which a
     // bare build leaves out of what it shows but has read (`Cache::nets`, `Cache::commits`;
     // another machine's as the background read them, in full).
+    // Closed: nothing of it is held with its texts.
+    if !open_work(state, u) && cache.texted.contains(&u.id) {
+        cache.release(&u.id);
+    }
     if !cache.light && open_work(state, u) {
         let net = net.as_ref().map(|(id, files)| cache.nets.get(id).unwrap_or(files).as_slice());
         let full: Vec<&scan::Commit> = if net.is_some() { vec![] } else { commits.iter().map(|c| cache.commits.get(&c.hash).unwrap_or(c)).collect() };

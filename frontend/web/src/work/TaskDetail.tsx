@@ -141,7 +141,7 @@ function Waiting({ s }: { s: Session | undefined }) {
 }
 
 /** `workspace`: the workspace of the unit's intent (a `Space.id`), when known: where its agents are found. */
-export function Detail({ unit, n, finding, onPick, talk, workspace, gitPending }: { unit: Unit; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk; workspace?: string; gitPending?: boolean }) {
+export function Detail({ unit, coded, n, finding, onPick, talk, workspace, gitPending }: { unit: Unit; coded?: Unit | null; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk; workspace?: string; gitPending?: boolean }) {
   const { t, num, when } = useT()
   // The instance of its agent in its workspace (on its unit's machine, for code): the one its buttons reach.
   const live = taskSession(talk.sessions, n, unit, workspace)
@@ -240,7 +240,9 @@ export function Detail({ unit, n, finding, onPick, talk, workspace, gitPending }
     output = <>
       {commits.length
         ? commits.map(c => {
-            const s = commitStats(c)
+            // Line counts from the code read for this same state of the unit (its token), where
+            // the snapshot names the files only.
+            const s = commitStats((coded?.id === unit.id && coded.code === unit.code && coded.commits.find(x => x.id === c.id)) || c)
             return (
               <div key={c.id}>
                 {c.live ? t('io.uncommitted') : <span lang={contentLang(c.subject)}>{c.subject}</span>}

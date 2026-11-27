@@ -3,16 +3,13 @@
 use super::*;
 
 /// The texts of unit `id` as `state` lets its reader see them (none of a blind view's),
-/// but for the commits in `have` (short hashes), which the reader has. The unit counts as
-/// open on the page from then on (`Cache::open`).
+/// but for the commits in `have` (short hashes), which the reader has.
 pub(super) fn code(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, id: &str, have: &[&str]) -> Option<Code> {
     let u = state.units.iter().find(|u| u.id == id && u.has_code())?;
     cache.refs.clear();
     cache.worktrees.clear();
     cache.read_live.clear();
     (cache.recomputed, cache.reused) = (0, 0);
-    // Open on the page: its uncommitted work is read with its texts from now on, in snapshots too.
-    cache.open(id);
     cache.take_marks();
     let mut shown = unit(state, live.unwrap_or_default(), u, cache, &Names(HashMap::new()), None);
     if state.reduced {
@@ -269,6 +266,10 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
             cache.dirty = true;
         }
     }
+    // Merged: its work tree's work is no longer the unit's; what was held of it goes.
+    if u.merged.is_some() && cache.live.remove(&u.id).is_some() {
+        cache.release(&u.id);
+    }
     let files = if u.merged.is_some() || cache.light {
         vec![]
     } else {
@@ -303,31 +304,49 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
     (commits, files, net)
 }
 
-/// A local unit's uncommitted work in its work tree `dir`: as read last while the watcher saw
-/// nothing change there or in its repository's git folder (`Cache::take_marks`) and that read
-/// had what this one needs; else read again, without reading the files known by then again
-/// (`scan::live_with`). Their texts (and line counts) for a unit open on the page
-/// (`Cache::opened`) and in a build with texts (`code`); names only for the rest of the board,
-/// which needs no more, with the ids of those among `ends` (the files its commits changed).
+/// A local unit's uncommitted work in its work tree `dir`: as read last while the watcher
+/// followed that work tree (since before that read) and saw nothing change there or in what
+/// it is checked out against (`Cache::take_marks`), if that read had what this one needs;
+/// else read again, without reading the files known by then again (`scan::live_with`), but
+/// those the watcher named. A work tree not followed yet is registered first, so a change
+/// after this read is seen. Texts (and line counts) in a build with texts (`code`), held for
+/// the last few units so read (`Cache::hold_texts`); names only for the board, with the ids of
+/// those among `ends` (the files its commits changed).
 fn live_work(at: &scan::Runner, u: &core::Unit, dir: &Path, cache: &mut Cache, ends: BTreeSet<String>) -> Vec<scan::FileChange> {
-    let texts = !cache.bare || cache.opened.contains(&u.id);
-    let real = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-    let followed = cache.follows(&real);
-    if let Some(l) = cache.live.get(&u.id).filter(|l| followed && l.dir == dir && !l.stale && (l.texts || !texts)) {
-        return l.files.clone();
+    let texts = !cache.bare;
+    let real = real_dir(dir);
+    let followed = cache.follow(&real);
+    if let Some(l) = cache.live.get(&u.id).filter(|l| followed && l.followed && l.dir == dir && !l.stale) {
+        if !texts {
+            return l.files.clone();
+        }
+        if let Some(files) = l.known.with_texts(&l.files) {
+            cache.hold_texts(&u.id);
+            return files;
+        }
     }
-    let mut l = cache.live.remove(&u.id).filter(|l| l.dir == dir).unwrap_or_default();
-    if l.dir != dir {
-        let common = scan::common_dir(at, dir).ok().map(|c| c.canonicalize().unwrap_or(c));
-        l = Live { dir: dir.to_path_buf(), real, common, ..Default::default() };
-    }
+    let mut l = match cache.live.remove(&u.id).filter(|l| l.dir == dir) {
+        Some(l) => l,
+        None => {
+            let Ok((git, common)) = scan::git_dirs(at, dir) else {
+                tracing::warn!("unit {}: cannot tell the git folders of {}", u.id, dir.display());
+                return vec![];
+            };
+            Live { dir: dir.to_path_buf(), real, git: real_dir(&git), common: real_dir(&common), branch: u.branch.clone(), ..Default::default() }
+        }
+    };
+    let touched = std::mem::take(&mut l.touched);
+    l.known.forget(touched.iter().map(String::as_str));
     cache.read_live.push(u.id.clone());
     let want = if texts { scan::Want::Texts } else { scan::Want::Names(ends.into_iter().collect()) };
     match scan::live_with(at, dir, &mut l.known, &want) {
         Ok(files) => {
-            (l.texts, l.stale) = (texts, false);
-            l.files = files.clone();
+            (l.followed, l.stale) = (followed, false);
+            l.files = files.iter().map(scan::FileChange::bare).collect();
             cache.live.insert(u.id.clone(), l);
+            if texts {
+                cache.hold_texts(&u.id);
+            }
             files
         }
         Err(e) => {

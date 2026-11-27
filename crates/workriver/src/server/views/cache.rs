@@ -52,39 +52,117 @@ pub(in crate::server) struct Cache {
     pub(super) live: HashMap<String, Live>,
     /// What the watcher saw change since a build took it, shared with it.
     pub(in crate::server) marks: std::sync::Arc<std::sync::Mutex<Marks>>,
-    /// The units open on the page, the last first: those whose code it read last
-    /// (`OPENED_UNITS`).
-    pub(super) opened: Vec<String>,
+    /// The watcher, shared with the service: a work tree a read finds is registered there.
+    pub(in crate::server) watcher: Watcher,
+    /// The units whose uncommitted texts are held (those whose code was read last, the last
+    /// first; `TEXT_UNITS`): memory only, the board never reads texts.
+    pub(super) texted: Vec<String>,
     /// This build: the units whose uncommitted work was read again.
     pub(in crate::server) read_live: Vec<String>,
 }
 
-/// A local unit's uncommitted work as last read: where, what was found, the files as read
-/// (`scan::Known`), whether with their texts, and whether the watcher saw its work tree or
-/// its repository's git folder change since.
+/// The watcher of this machine's repositories (none: it could not start).
+pub(in crate::server) type Watcher = std::sync::Arc<std::sync::Mutex<Option<notify_debouncer_mini::Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>>>;
+
+/// A local unit's uncommitted work as last read: where, what was found (no texts: those are
+/// in `known` alone, for the units in `Cache::texted`), the files as read (`scan::Known`),
+/// whether the watcher followed its work tree when it was read, whether it saw a change there
+/// since, and the paths it named.
 #[derive(Default)]
 pub(super) struct Live {
     pub(super) dir: std::path::PathBuf,
-    /// `dir` as the file system names it (symlinks resolved), and the repository's git
-    /// folder likewise: what the watcher's paths are matched against.
+    /// `dir` as the file system names it (symlinks resolved), its own git folder (where its
+    /// index and HEAD are) and its repository's: what the watcher's paths are matched against.
     pub(super) real: std::path::PathBuf,
-    pub(super) common: Option<std::path::PathBuf>,
+    pub(super) git: std::path::PathBuf,
+    pub(super) common: std::path::PathBuf,
+    /// The branch checked out there: a move of its ref changes what the work is against.
+    pub(super) branch: String,
     pub(super) files: Vec<scan::FileChange>,
     pub(super) known: scan::Known,
-    pub(super) texts: bool,
+    pub(super) followed: bool,
     pub(super) stale: bool,
+    /// Paths (in the work tree) the watcher named since: read again whatever their stat says.
+    pub(super) touched: BTreeSet<String>,
 }
 
 /// What the watcher of this machine's repositories saw change, for the snapshots: the paths
 /// it found changed (not ignored), and the folders it follows. A unit whose work tree it does
-/// not follow (none yet, or it does not run) is read again in every build, as is one never read.
+/// not follow (none yet, or it does not run) is read again in every build, as is one never
+/// read, and one read before it was followed.
 #[derive(Default)]
 pub(in crate::server) struct Marks {
     pub(in crate::server) on: bool,
     pub(in crate::server) paths: std::collections::HashSet<std::path::PathBuf>,
     /// The watcher failed to say what changed: every unit's is read again.
     pub(in crate::server) all: bool,
+    /// The folders registered (as the file system names them), and the inode each had then: a
+    /// folder made again (a work tree removed and added back) is registered again.
     pub(in crate::server) watched: std::collections::HashSet<std::path::PathBuf>,
+    pub(in crate::server) inodes: HashMap<std::path::PathBuf, u64>,
+    /// When registering a folder last failed: tried again after `RETRY`, not on every read.
+    pub(in crate::server) failed: HashMap<std::path::PathBuf, std::time::Instant>,
+}
+
+/// How long a folder the watcher could not register waits before it is tried again.
+const RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A folder as the file system names it: symlinks resolved, all of it.
+pub(in crate::server) fn real_dir(p: &Path) -> std::path::PathBuf {
+    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+}
+
+fn inode(p: &Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(p).ok().map(|m| m.ino())
+}
+
+impl Marks {
+    /// Whether the watcher follows `real` (a folder as the file system names it): inside a
+    /// folder registered, that folder still the one registered.
+    pub(in crate::server) fn covers(&self, real: &Path) -> bool {
+        self.on && self.watched.iter().any(|w| real.starts_with(w) && self.inodes.get(w).is_none_or(|i| inode(w) == Some(*i)))
+    }
+}
+
+/// Registers `path` (a folder) with the watcher, unless it already follows it; whether it
+/// does now. The one way a folder is followed: the service's own list (`App::watch`) and the
+/// reads that find a work tree (`code::live_work`) both come here. A failure is tried again
+/// after a while.
+pub(in crate::server) fn register(watcher: &Watcher, marks: &std::sync::Mutex<Marks>, path: &Path) -> bool {
+    use notify_debouncer_mini::notify::RecursiveMode;
+    let real = real_dir(path);
+    {
+        let m = marks.lock().unwrap();
+        if !m.on {
+            return false;
+        }
+        if m.covers(&real) {
+            return true;
+        }
+        if m.failed.get(&real).is_some_and(|at| at.elapsed() < RETRY) {
+            return false;
+        }
+    }
+    let mut w = watcher.lock().unwrap();
+    let Some(w) = w.as_mut() else { return false };
+    let done = w.watcher().watch(&real, RecursiveMode::Recursive);
+    let mut m = marks.lock().unwrap();
+    match done {
+        Ok(()) => {
+            m.failed.remove(&real);
+            if let Some(i) = inode(&real) {
+                m.inodes.insert(real.clone(), i);
+            }
+            m.watched.insert(real);
+            true
+        }
+        Err(e) => {
+            tracing::warn!("cannot watch {}: {e}", real.display());
+            m.failed.insert(real, std::time::Instant::now());
+            false
+        }
+    }
 }
 
 /// The rules by which a unit's commits are worked out (`scan::branch`). Bump it whenever the
@@ -200,26 +278,42 @@ impl Cache {
         }
     }
 
-    /// Takes what the watcher saw change: each unit's uncommitted work whose work tree a path
-    /// is in (the deepest, where one is inside another) is read again; all of a repository's
-    /// where a path is in its git folder (a commit, a branch moved). A path in neither (the
-    /// base's checkout, a unit's not read yet) changes no unit's.
+    /// Takes what the watcher saw change. A path in a unit's work tree (the deepest, where one
+    /// is inside another) marks that unit, and the path to be read again; a folder holding work
+    /// trees, as a coarse event names it, marks those. In a git folder: a work tree's own
+    /// index or HEAD (a `git add`, a checkout) marks that work tree; a branch's ref, the units
+    /// on that branch; another ref, none (no work tree has it checked out); anything else
+    /// there (packed-refs, what cannot be told), every unit of that repository. A path in no
+    /// unit's (the base's checkout, a unit not read yet) marks none.
     pub(super) fn take_marks(&mut self) {
         let (paths, all) = {
             let mut m = self.marks.lock().unwrap();
             (std::mem::take(&mut m.paths), std::mem::take(&mut m.all))
         };
         for p in paths {
-            if let Some(common) = self.live.values().filter_map(|l| l.common.clone()).find(|c| p.starts_with(c)) {
-                for l in self.live.values_mut().filter(|l| l.common.as_ref() == Some(&common)) {
-                    l.stale = true;
+            if let Some(l) = self.live.values_mut().find(|l| p == l.git.join("index") || p == l.git.join("HEAD")) {
+                l.stale = true;
+                continue;
+            }
+            if let Some(common) = self.live.values().map(|l| l.common.clone()).find(|c| p.starts_with(c)) {
+                let rel = p.strip_prefix(&common).unwrap_or(&p).to_string_lossy().into_owned();
+                let own = self.live.values().filter(|l| l.git != common && p.starts_with(&l.git)).map(|l| l.git.clone()).next();
+                for l in self.live.values_mut().filter(|l| l.common == common) {
+                    l.stale |= match (rel.strip_prefix("refs/heads/"), rel.starts_with("refs/"), &own) {
+                        (Some(branch), ..) => l.branch == branch,
+                        (None, true, _) => false,
+                        (None, false, Some(git)) => l.git == *git,
+                        (None, false, None) => true,
+                    };
                 }
                 continue;
             }
             if let Some(l) = self.live.values_mut().filter(|l| p.starts_with(&l.real)).max_by_key(|l| l.real.as_os_str().len()) {
                 l.stale = true;
+                if let Ok(rel) = p.strip_prefix(&l.real) {
+                    l.touched.insert(rel.to_string_lossy().into_owned());
+                }
             }
-            // A folder holding work trees, as a coarse event names it.
             for l in self.live.values_mut().filter(|l| l.real.starts_with(&p) && l.real != p) {
                 l.stale = true;
             }
@@ -231,18 +325,27 @@ impl Cache {
         }
     }
 
-    /// Whether the watcher follows the work tree `real`: else what is read there is never
-    /// taken as it was.
-    pub(super) fn follows(&self, real: &Path) -> bool {
-        let m = self.marks.lock().unwrap();
-        m.on && m.watched.iter().any(|w| real.starts_with(w))
+    /// Whether the watcher follows the work tree `real`, registering it there if not.
+    pub(super) fn follow(&self, real: &Path) -> bool {
+        register(&self.watcher, &self.marks, real)
     }
 
-    /// Unit `id` is open on the page now.
-    pub(in crate::server) fn open(&mut self, id: &str) {
-        self.opened.retain(|x| x != id);
-        self.opened.insert(0, id.to_string());
-        self.opened.truncate(crate::common::config::defaults::OPENED_UNITS);
+    /// Unit `id`'s texts were read now: held, the oldest beyond `TEXT_UNITS` let go of.
+    pub(super) fn hold_texts(&mut self, id: &str) {
+        self.texted.retain(|x| x != id);
+        self.texted.insert(0, id.to_string());
+        for old in self.texted.split_off(self.texted.len().min(crate::common::config::defaults::TEXT_UNITS)) {
+            self.release(&old);
+        }
+    }
+
+    /// Lets go of unit `id`'s uncommitted texts (names, entries and counts stay): it fell out
+    /// of `texted`, or it is closed.
+    pub(in crate::server) fn release(&mut self, id: &str) {
+        self.texted.retain(|x| x != id);
+        if let Some(l) = self.live.get_mut(id) {
+            l.known.drop_texts();
+        }
     }
 
     /// A repository's refs, read once per build.

@@ -1010,6 +1010,7 @@ export const zhCN: OneForm<typeof en> = {
     M: '修改',
     D: '删除',
     binary: '二进制文件不同',
+    uncounted: '超过 512 KB：未读取，未计行数',
     pointerMoved: '子模块提交 {{from}} → {{to}}',
     pointerAdded: '子模块，位于提交 {{to}}',
     pointerRemoved: '子模块，原在提交 {{from}}',

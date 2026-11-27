@@ -80,17 +80,29 @@ its sections went.
      same in a line of its own, each unit a link that opens it. Both units' changes are
      their net change as the tree shows it with nothing picked: the net change against the
      base (`unit.net`) with uncommitted work on top, an uncommitted side compared by its text,
-     as above, or, for a unit not open on the page (its uncommitted work read for its names
-     only, below), by the id git would give it, hashed for the files its commits changed
-     alone; so nothing the base brought in, however it came, and nothing changed back
-     (the service compares them). The service reads a unit's uncommitted work again only
-     when its watcher saw that unit's work tree (not a path git ignores) or its repository's
-     git folder change, and then only the files whose entry, size or time changed; the
-     board reads the names and git entries alone, texts and +/− only for the units open on
-     the page (the last few whose code it read), so a task's uncommitted files of a unit
-     not open show their count without +/−; one over the size limit is never read, its
-     name only, without +/− anywhere. The open unit's change reaches the page as any
-     change: it is told, its code token changes, and its code is read again. Units on two machines are not compared: their repositories are two copies. A
+     as above, or, on the board (its uncommitted work read for its names only, below), by
+     the id git would give it, hashed for the files its commits changed alone (a symlink's
+     from where it points, its own text, as git stores it, in both reads); so nothing the
+     base brought in, however it came, and nothing changed back (the service compares
+     them). Uncommitted work is read again only when the service's watcher saw a change
+     that touches it, and then only the files whose git entry or stat (size, modification
+     and change times, inode) changed, or that the watcher named: a file in the unit's work
+     tree that git does not ignore (the work tree's own lock files too, not git's), its work
+     tree's own index or HEAD (a `git add`, a checkout), the ref of its branch; packed-refs
+     or anything else in its repository's git folder that cannot be told, every unit of that
+     repository; another branch's ref, none. A work tree is followed from the first read that
+     finds it (registered with the watcher then, or tried again a minute later), and what
+     was read of it before it was followed is read again once. Where the watcher cannot
+     run, every read reads it all again. The board reads the names and git entries alone:
+     a task's uncommitted files show their count, with +/− where the unit's code (read for
+     the same code token) or an earlier read counted them, else without; the unit's code
+     read reads the texts and counts. The service holds the texts of the last few units
+     whose code it read (memory only), lets go of them when a unit falls out of those or is
+     closed, and of a merged unit's work altogether. A file over the size limit on either
+     side (512 KB: the work tree's by its stat, the committed one by its size in git) is
+     never read, cat-filed or hashed: its name only, the same file and token in both reads,
+     and the code shows it as not read, without +/−. The open unit's change reaches the
+     page as any change: it is told, its code token changes, and its code is read again. Units on two machines are not compared: their repositories are two copies. A
      folder does not sum the mark; nothing goes to Needs you and no one is told: the user
      sees it and coordinates. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added

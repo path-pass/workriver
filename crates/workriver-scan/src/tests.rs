@@ -930,28 +930,116 @@ fn a_work_tree_read_again_reads_only_what_changed() {
     let after = live_with(&at, repo, &mut known, &Want::Texts).unwrap();
     assert_eq!(known.reads, 4);
     assert_eq!(after, live_in(&at, repo).unwrap());
-    // Names only: nothing read; the files known keep their counts, without their texts.
+    // Names only: nothing read; the files known keep their counts, and give no texts.
     write(repo, "a.txt", "changed\n");
     let names = live_with(&at, repo, &mut known, &Want::Names(Default::default())).unwrap();
     assert_eq!(known.reads, 4);
     let shape: Vec<_> = names.iter().map(|f| (f.path.as_str(), f.status.as_str(), f.add, f.del, f.uncounted, f.before.is_some() || f.after.is_some())).collect();
     assert_eq!(shape, [("a.txt", "M", 0, 0, true, false), ("b.txt", "M", 2, 0, false, false), ("new.txt", "A", 1, 0, false, false)]);
     // Names, and an id where it is wanted: hashed by git, nothing read here.
-    let ids = live_with(&at, repo, &mut known, &Want::Names(["b.txt".to_string()].into())).unwrap();
-    let out = Command::new("git").arg("-C").arg(repo).args(["hash-object", "b.txt"]).output().unwrap();
-    assert_eq!(ids[1].after_id, String::from_utf8_lossy(&out.stdout).trim());
-    assert!(is_null(&ids[0].after_id) && is_null(&ids[2].after_id));
+    let ids = live_with(&at, repo, &mut known, &Want::Names(["a.txt".to_string()].into())).unwrap();
+    let out = Command::new("git").arg("-C").arg(repo).args(["hash-object", "a.txt"]).output().unwrap();
+    assert_eq!(ids[0].after_id, String::from_utf8_lossy(&out.stdout).trim());
+    assert!(is_null(&ids[1].after_id) && is_null(&ids[2].after_id));
     assert_eq!(known.reads, 4);
-    // Read with texts again: the ones whose texts were dropped are read; all as from nothing.
+    // Read with texts again: only the file not held with its texts is read; all as from nothing.
+    assert!(known.with_texts(&names).is_none());
     let full = live_with(&at, repo, &mut known, &Want::Texts).unwrap();
-    assert_eq!(known.reads, 7);
+    assert_eq!(known.reads, 5);
     assert_eq!(full, live_in(&at, repo).unwrap());
+    assert_eq!(known.with_texts(&names), Some(full.clone()), "every file held with its texts");
+    // Texts let go of: read again with texts, each.
+    known.drop_texts();
+    assert!(!known.has_texts());
+    live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 8);
+    // A path a change was seen at is read again, whatever its stat.
+    known.forget(["b.txt"]);
+    live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 9);
     // A file committed is no longer changed: forgotten.
     sh(repo, &["add", "a.txt"]);
     sh(repo, &["commit", "-q", "-m", "a"]);
     let paths: Vec<_> = live_with(&at, repo, &mut known, &Want::Texts).unwrap().into_iter().map(|f| f.path).collect();
     assert_eq!(paths, ["b.txt", "new.txt"]);
-    assert_eq!(known.reads, 7);
+    assert_eq!(known.reads, 9);
+}
+
+/// A file written again with its size and modification time kept (a copy or sync that keeps
+/// times) is a new file to the cache: its change time moved, which no one sets back; one
+/// replaced by another (a new inode) likewise.
+#[test]
+fn a_rewrite_that_keeps_size_and_time_is_read_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "a.txt", "one\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    write(repo, "a.txt", "two\n");
+    let at = Runner::Local;
+    let mut known = Known::default();
+    live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    let file = repo.join("a.txt");
+    let kept = std::fs::metadata(&file).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&file, "six\n").unwrap();
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(kept).unwrap();
+    let now = live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(now[0].after.as_deref(), Some("six\n"));
+    // Replaced by another file of the same size, its time set back.
+    let next = repo.join("next");
+    std::fs::write(&next, "ten\n").unwrap();
+    std::fs::File::options().write(true).open(&next).unwrap().set_modified(kept).unwrap();
+    std::fs::rename(&next, &file).unwrap();
+    assert_eq!(live_with(&at, repo, &mut known, &Want::Texts).unwrap()[0].after.as_deref(), Some("ten\n"));
+}
+
+/// A symlink's id is that of where it points (its own text, as git stores a link), read for
+/// its names or with texts alike: never the file it points to, which may be large or elsewhere.
+#[test]
+fn a_symlinks_id_is_its_own_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "first", "file bytes\n");
+    std::os::unix::fs::symlink("first", repo.join("link")).unwrap();
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    std::fs::remove_file(repo.join("link")).unwrap();
+    std::os::unix::fs::symlink("second", repo.join("link")).unwrap();
+    let names = live_with(&Runner::Local, repo, &mut Known::default(), &Want::Names(["link".to_string()].into())).unwrap();
+    let out = Command::new("git").arg("-C").arg(repo).args(["hash-object", "--stdin"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+    out.stdin.as_ref().unwrap().write_all(b"second").unwrap();
+    let want = String::from_utf8(out.wait_with_output().unwrap().stdout).unwrap();
+    assert_eq!(names[0].after_id, want.trim());
+    let full = live_in(&Runner::Local, repo).unwrap();
+    assert_eq!(full[0].after.as_deref(), Some("second"), "the text is where it points, as with names");
+}
+
+/// A change whose committed side is over the size limit (the file shrunk or deleted) is named
+/// and uncounted, as one whose work-tree side is: the committed side is never cat-filed, and
+/// a read with texts lists the same files as one with names.
+#[test]
+fn a_large_committed_side_is_not_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    for name in ["deleted.txt", "shrunk.txt"] {
+        std::fs::write(repo.join(name), vec![b'a'; 512 * 1024 + 1]).unwrap();
+    }
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "large"]);
+    std::fs::remove_file(repo.join("deleted.txt")).unwrap();
+    write(repo, "shrunk.txt", "small\n");
+    let mut known = Known::default();
+    let full = live_with(&Runner::Local, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 0);
+    let shape: Vec<_> = full.iter().map(|f| (f.path.as_str(), f.status.as_str(), f.uncounted, f.before.is_some(), f.after.is_some())).collect();
+    assert_eq!(shape, [("deleted.txt", "D", true, false, false), ("shrunk.txt", "M", true, false, false)]);
+    let names = live_with(&Runner::Local, repo, &mut Known::default(), &Want::Names(Default::default())).unwrap();
+    assert_eq!(names, full);
 }
 
 /// A work-tree file over the size limit is never read, cat-filed or hashed: listed by its

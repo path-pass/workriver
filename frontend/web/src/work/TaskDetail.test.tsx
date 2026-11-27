@@ -296,3 +296,17 @@ describe('a task’s waiting line and terminal button', () => {
     expect(terminal()).toBeNull()
   })
 })
+
+it('shows uncommitted line counts from the code read for the same state of the unit', () => {
+  const writer: Task = { ...gate, kind: 'implement', gate: undefined, state: 'running', title: 'Write', output: { commits: ['uncommitted'] } }
+  const file = (counted: boolean) => ({ path: 'a.txt', status: 'M', add: counted ? 3 : 0, del: counted ? 1 : 0, uncounted: !counted, before: null, after: null, lines: [], beforeMode: '100644', beforeId: '1', afterMode: '100644', afterId: '0' })
+  const named = { ...unit(writer), code: 't1', commits: [{ id: 'uncommitted', subject: '', date: '', author: '', live: true, files: [file(false)] }] } as unknown as Unit
+  const coded = (code: string) => ({ ...named, code, commits: [{ ...named.commits[0], files: [file(true)] }] }) as Unit
+  const shown = (c: Unit | null) => {
+    act(() => root.render(<FormProviders><Detail unit={named} coded={c} n={writer} onPick={() => {}} talk={talk} /></FormProviders>))
+    return host.textContent ?? ''
+  }
+  expect(shown(null)).not.toContain('+3')
+  expect(shown(coded('t1'))).toContain('+3 −1')
+  expect(shown(coded('t0')), 'read for another state of the unit').not.toContain('+3')
+})

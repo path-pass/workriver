@@ -63,8 +63,8 @@ export interface FileChange {
   del: number;
   /**
    * The service did not read its texts, so `add` and `del` are 0, not counted: uncommitted
-   * work of a unit not open on the page (the board reads its names only), or a work-tree file
-   * over the size limit. Shown without +/−.
+   * work in the snapshot (the board reads its names only; the unit's code has its counts), or
+   * uncommitted work over the size limit on either side (in its code too). Shown without +/−.
    */
   uncounted?: boolean;
   /** Unified-diff lines including `@@ -a,b +c,d @@ context` hunk headers; from the texts. */
@@ -90,8 +90,11 @@ export interface FileChange {
 /** A submodule's pointer at the ends of a change: its commits, null where an end is not one. */
 export interface Pointer { from: string | null; to: string | null }
 
-/** What a change is that has no lines: a binary file's, or a submodule pointer's. */
-export interface Kind { binary?: boolean; pointer?: Pointer }
+/**
+ * What a change is that has no lines: a binary file's, a submodule pointer's, or one whose
+ * lines were not counted (`FileChange.uncounted`: over the size limit).
+ */
+export interface Kind { binary?: boolean; pointer?: Pointer; uncounted?: boolean }
 
 /**
  * A unit's net change against its base, as `git diff base...head` names it: from where the
