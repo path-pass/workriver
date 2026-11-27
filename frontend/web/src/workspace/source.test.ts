@@ -1,5 +1,4 @@
-// When the page reads the workspace: a hidden tab reads nothing unless the user asked to hear
-// or be told of what comes (then at most once every few seconds); shown again, it catches up.
+// When the page reads the workspace after a change, and when catch-up reads bypass that wait.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HIDDEN_READ } from '@/config/defaults'
 import type { Workspace } from './types'
@@ -24,6 +23,29 @@ describe('watching the workspace', () => {
   const changed = () => stream.dispatchEvent(new Event('changed'))
   const hide = (h: boolean) => { hidden = h; document.dispatchEvent(new Event('visibilitychange')) }
 
+  it.each([
+    { duration: 100, gap: 5000 },
+    { duration: 3000, gap: 6000 },
+  ])('coalesces changes into one read $gap ms after a $duration ms read ends', async ({ duration, gap }) => {
+    read.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(snapshot), duration)))
+    const stop = watchWorkspace(() => {}, () => {}, () => false)
+    try {
+      changed()
+      await vi.advanceTimersByTimeAsync(duration)
+      expect(read).toHaveBeenCalledTimes(1)
+      changed()
+      await vi.advanceTimersByTimeAsync(gap - 1)
+      changed()
+      expect(read).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(read).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(gap)
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+    }
+  })
+
   it('shows the board while the stream connects, then picks up Git data on changed', async () => {
     const pending = { ...snapshot, gitPending: true }
     read.mockResolvedValueOnce(pending).mockResolvedValueOnce(pending)
@@ -34,6 +56,7 @@ describe('watching the workspace', () => {
       expect(seen).toHaveBeenNthCalledWith(1, pending)
       stream.onopen?.()
       await settle()
+      expect(seen).toHaveBeenNthCalledWith(2, pending)
       changed()
       await settle()
       expect(seen).toHaveBeenNthCalledWith(3, snapshot)
@@ -56,6 +79,41 @@ describe('watching the workspace', () => {
     }
   })
 
+  it('catches up on reconnect as soon as the read in flight ends', async () => {
+    read.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(snapshot), 100)))
+    const stop = watchWorkspace(() => {}, () => {}, () => false)
+    try {
+      stream.onopen?.()
+      changed()
+      stream.onopen?.()
+      changed()
+      expect(read).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(read).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+    }
+  })
+
+  it('catches up on reconnect while a change is waiting', async () => {
+    const stop = watchWorkspace(() => {}, () => {}, () => false)
+    try {
+      stream.onopen?.()
+      await settle()
+      changed()
+      expect(read).toHaveBeenCalledTimes(1)
+      stream.onopen?.()
+      await settle()
+      expect(read).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+    }
+  })
+
   it('reads nothing while neither the sound nor notifications is on, and once when shown', async () => {
     const stop = watchWorkspace(() => {}, () => {}, () => false)
     await settle()
@@ -68,6 +126,55 @@ describe('watching the workspace', () => {
     await settle()
     expect(read).toHaveBeenCalledTimes(2)
     stop()
+  })
+
+  it('catches up when shown while a change is waiting', async () => {
+    const stop = watchWorkspace(() => {}, () => {}, () => false)
+    try {
+      await settle()
+      changed()
+      hide(true)
+      expect(read).toHaveBeenCalledTimes(1)
+      hide(false)
+      await settle()
+      expect(read).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+    }
+  })
+
+  it('paces an ordinary foreground change after a completed background read', async () => {
+    hide(true)
+    const stop = watchWorkspace(() => {}, () => {}, () => true)
+    try {
+      await settle()
+      hide(false)
+      changed()
+      await vi.advanceTimersByTimeAsync(4999)
+      expect(read).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+    }
+  })
+
+  it('uses the hidden interval for a pending change when the tab goes into the background', async () => {
+    read.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(snapshot), 3000)))
+    const stop = watchWorkspace(() => {}, () => {}, () => true)
+    try {
+      await vi.advanceTimersByTimeAsync(3000)
+      changed()
+      hide(true)
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(read).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(read).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+    }
   })
 
   it('reads when told of a change while one is on, at most once every few seconds', async () => {

@@ -94,3 +94,19 @@ it('resumes a draft and its file on the same task until the message is sent', as
   expect(box().value).toBe('')
   expect(host.textContent).not.toContain('discussion.txt')
 })
+
+it('leaves the discussion around the editor alone while typing', () => {
+  const readTasks = vi.fn(() => [])
+  const unit = { id: 'survey', get tasks() { return readTasks() } } as unknown as Unit
+  const n = { id: '1', agent: 'agent-R', discuss: 'open', output: {} } as unknown as Task
+  const talk = { onDiscuss: async () => {} } as unknown as Talk
+  show(<Discussion unit={unit} n={n} talk={talk} />)
+  const box = host.querySelector('textarea')!
+  readTasks.mockClear()
+
+  const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  act(() => { set.call(box, 'Could we verify this?'); box.dispatchEvent(new Event('input', { bubbles: true })) })
+
+  expect(box.value).toBe('Could we verify this?')
+  expect(readTasks).not.toHaveBeenCalled()
+})

@@ -10,7 +10,7 @@ import { unitsOf, noCode } from '@/planning/select'
 import { selectionOf } from '@/work/select'
 import { changes, read } from '@/api/http'
 import { setRuntime } from '@/i18n'
-import { HIDDEN_READ } from '@/config/defaults'
+import { HIDDEN_READ, VISIBLE_READ_PACING } from '@/config/defaults'
 import { recordWorkspaceReady, WORKSPACE_PATH } from './first-load'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
@@ -66,52 +66,68 @@ async function loadWorkspace(): Promise<Workspace> {
 export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => void, awake: () => boolean): () => void {
   let stopped = false
   let opened = false
-  // At most one read at a time: changes told meanwhile make one more read after it. A hidden
-  // tab reads nothing unless `awake`, and then at most once every HIDDEN_READ; it reads once
-  // when shown again, if anything changed meanwhile.
-  let reading = false, again = false, missed = true
-  let lastRead = -Infinity, later: ReturnType<typeof setTimeout> | undefined
+  // Catch-up takes priority over changes waiting for the visible read gap.
+  let reading = false, pending: 'changed' | 'catch-up' | undefined
+  let lastReadStarted = -Infinity, nextVisibleRead = -Infinity
+  let later: ReturnType<typeof setTimeout> | undefined
   let shown: Workspace | null = null
-  const get = () => {
+  const get = (reason?: typeof pending) => {
     if (stopped) return
-    if (document.hidden) {
-      missed = true
-      if (!awake()) return
-      const wait = lastRead + HIDDEN_READ - Date.now()
-      if (wait > 0) { later ??= setTimeout(() => { later = undefined; if (missed) get() }, wait); return }
+    if (reason && pending !== 'catch-up') pending = reason
+    if (!pending || reading) return
+    const hidden = document.hidden
+    if (hidden && !awake()) return
+    const started = performance.now()
+    const due = hidden ? lastReadStarted + HIDDEN_READ : pending === 'changed' ? nextVisibleRead : started
+    if (due > started) {
+      later ??= setTimeout(() => { later = undefined; get() }, Math.ceil(due - started))
+      return
     }
-    if (reading) { again = true; return }
+    clearTimeout(later)
+    later = undefined
     reading = true
-    lastRead = Date.now()
-    missed = again = false
+    pending = undefined
+    lastReadStarted = started
     const beforeOpen = !opened
     loadWorkspace()
       .then(ws => {
         if (stopped) return
         onData((shown = ws))
         // A pending read begun before the stream opened may have missed Git becoming ready.
-        if (ws.gitPending && beforeOpen && opened) again = true
+        if (ws.gitPending && beforeOpen && opened) pending = 'catch-up'
       }, () => { if (!stopped) onDown() })
-      .finally(() => { reading = false; if (again) get() })
+      .finally(() => {
+        const ended = performance.now()
+        nextVisibleRead = ended + Math.max(VISIBLE_READ_PACING.minGap, VISIBLE_READ_PACING.durationMultiplier * (ended - started))
+        reading = false
+        get()
+      })
   }
-  const visible = () => { if (!document.hidden && missed) get() }
-  document.addEventListener('visibilitychange', visible)
-  get()
+  const visibilityChanged = () => {
+    if (!pending) return
+    // A waiting change moves to the read policy of the tab's new visibility.
+    clearTimeout(later)
+    later = undefined
+    get(document.hidden ? undefined : 'catch-up')
+  }
+  document.addEventListener('visibilitychange', visibilityChanged)
+  get('catch-up')
   if (MOCK) {
     const changed = (e: Event) => { if (shown && !stopped) onData((shown = (e as CustomEvent<(ws: Workspace) => Workspace>).detail(shown))) }
     window.addEventListener(MOCK_CHANGED, changed)
-    return () => { stopped = true; clearTimeout(later); document.removeEventListener('visibilitychange', visible); window.removeEventListener(MOCK_CHANGED, changed) }
+    return () => { stopped = true; clearTimeout(later); document.removeEventListener('visibilitychange', visibilityChanged); window.removeEventListener(MOCK_CHANGED, changed) }
   }
   const events = changes()
-  events.addEventListener('changed', get)
+  // Git warm-up uses the same change event to tell us the full snapshot is ready.
+  events.addEventListener('changed', () => get(shown?.gitPending ? 'catch-up' : 'changed'))
   // Reopening catches up after a disconnect; the first open does so if Git was pending.
   events.onopen = () => {
     const refresh = opened || shown?.gitPending
     opened = true
-    if (refresh) get()
+    if (refresh) get('catch-up')
   }
   events.onerror = () => { if (!stopped) onDown() }
-  return () => { stopped = true; clearTimeout(later); events.close(); document.removeEventListener('visibilitychange', visible) }
+  return () => { stopped = true; clearTimeout(later); events.close(); document.removeEventListener('visibilitychange', visibilityChanged) }
 }
 
 /**

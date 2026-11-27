@@ -3,12 +3,12 @@
 // shell's actions to one place in api/actions.ts.
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { Button } from '@/ui/primitives/button'
-import { Input } from '@/ui/primitives/input'
+import { DraftInput, DraftTextarea } from '@/ui/DraftField'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { gateKey, useAct } from './actions'
 import { SEVERITIES } from './select'
 import type { GateResult, NewFinding, Severity, Task } from './types'
-import { useTaskDraft, type GateDraft } from './drafts'
+import { DraftText, useTaskDraft, type GateDraft } from './drafts'
 import { useT } from '@/i18n'
 import { attach, detach } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
@@ -61,28 +61,30 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const act = useAct()
   const choice = gate.input.choice
   const key = gateKey(unit, gate)
-  const [draft, save] = useTaskDraft('gates', key)
+  const [draft, save, saved] = useTaskDraft('gates', key)
   // What was sent from here and not taken by the service: the form starts from it again.
   const back = act.retry[key]
-  const form: GateDraft = draft ?? {
+  const initial: GateDraft = {
     result: back?.result ?? (choice ? 'answered' : 'done'),
     picked: back?.selected?.[0],
     note: back?.note,
     files: back?.attachments ?? [],
     drafts: back?.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence.join(', '), files: f.attachments })) ?? [],
   }
-  const { result, picked, files, drafts } = form
+  const current = () => saved() ?? initial
+  const { result, picked, files, drafts } = draft ?? initial
   // A conclusion starts the note until the user edits it, including clearing it.
   const [prefill, setPrefill] = useState(gate.draft)
   useEffect(() => { if (gate.draft) setPrefill(initial => initial || gate.draft) }, [gate.draft])
-  const note = form.note ?? prefill ?? ''
+  const readNote = () => current().note ?? prefill ?? ''
   const [noteMissing, setNoteMissing] = useState(false)
   const [error, setError] = useState(false)
-  const update = (change: Partial<GateDraft>) => save({ ...form, ...change })
+  const update = (change: Partial<GateDraft>, render = true) => save({ ...current(), ...change }, render)
   // A refused result still holds its pictures until it is replaced or the gate closes.
   const letGo = (a: Attachment) => { if (!resultFiles(back).some(x => x.url === a.url)) detach(a) }
 
-  const edit = (k: number, change: Partial<Draft>) => update({ drafts: drafts.map((d, i) => (i === k ? { ...d, ...change } : d)) })
+  const edit = (k: number, change: Partial<Draft>, render = true) =>
+    update({ drafts: current().drafts.map((d, i) => i === k ? { ...d, ...change } : d) }, render)
   const pasted = (add: (a: Attachment[]) => void) => (e: ClipboardEvent) => {
     const got = images(e.clipboardData.files)
     if (got.length) { e.preventDefault(); add(got) }
@@ -94,13 +96,15 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const addNote = (a: Attachment[]) => update({ files: [...files, ...a] })
   const drop = (a: Attachment) => {
     letGo(a)
-    update({ files: files.filter(x => x !== a), drafts: drafts.map(d => ({ ...d, files: d.files.filter(x => x !== a) })) })
+    update({ files: files.filter(x => x !== a), drafts: current().drafts.map(d => ({ ...d, files: d.files.filter(x => x !== a) })) })
   }
-  const findings: NewFinding[] = drafts.filter(d => d.problem.trim()).map(d => ({
-    severity: d.severity, problem: d.problem.trim(), impact: d.impact.trim(),
-    evidence: d.where.split(/[,，\n]/).map(p => p.trim()).filter(Boolean), attachments: d.files,
-  }))
   const submit = () => {
+    const { result, picked, files, drafts } = current()
+    const note = readNote()
+    const findings: NewFinding[] = drafts.filter(d => d.problem.trim()).map(d => ({
+      severity: d.severity, problem: d.problem.trim(), impact: d.impact.trim(),
+      evidence: d.where.split(/[,，\n]/).map(p => p.trim()).filter(Boolean), attachments: d.files,
+    }))
     if (result === 'problem' && !findings.length) return setError(true)
     const asked = choice && result === 'answered'
     if (asked && (!picked || (needsNote(choice, picked) && showsNothing(note)))) return setNoteMissing(true)
@@ -108,7 +112,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
       result, ...(asked && { selected: [picked!] }), note: note.trim(), attachments: files,
       findings: result === 'problem' ? findings : [], at: new Date().toISOString(),
     }
-    releaseGateFiles(draft, back, sent)
+    releaseGateFiles(saved(), back, sent)
     save()
     act.submitGate(unit, gate, sent)
   }
@@ -117,11 +121,13 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const words = choice && result === 'answered' ? noteWords(choice, picked) : undefined
   const noteBlock = (
     <>
-      <textarea
-        className="field" rows={2} value={note} placeholder={t(words?.prompt ?? 'gate.note')} aria-label={t(words?.prompt ?? 'gate.note')}
-        aria-required={noteNeeded || undefined} aria-invalid={(noteMissing && noteNeeded) || undefined}
-        onChange={e => { update({ note: e.target.value }); setNoteMissing(false) }} onPaste={pasted(addNote)}
-      />
+      <DraftText read={readNote} save={note => { update({ note }, false); if (noteMissing) setNoteMissing(false) }}>
+        {(text, onText) => <DraftTextarea
+          className="field" rows={2} value={text} placeholder={t(words?.prompt ?? 'gate.note')} aria-label={t(words?.prompt ?? 'gate.note')}
+          aria-required={noteNeeded || undefined} aria-invalid={(noteMissing && noteNeeded) || undefined}
+          onChange={e => onText(e.target.value)} onPaste={pasted(addNote)}
+        />}
+      </DraftText>
       <div className="flex flex-wrap items-center gap-2">
         <AttachButton onAdd={addNote} />
         <span className="text-xs text-ink-2">{t('attach.hint')}</span>
@@ -144,7 +150,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
         type="single" variant="outline" size="sm" value={result} aria-label={t('gate.result')}
         onValueChange={v => {
           if (!v) return
-          update({ result: v as GateResult['result'], drafts: v === 'problem' && !drafts.length ? [blank()] : drafts })
+          update({ result: v as GateResult['result'], ...(v === 'problem' && !drafts.length ? { drafts: [blank()] } : {}) })
           setError(false)
           setNoteMissing(false)
         }}
@@ -171,19 +177,25 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
                   <ToggleGroup type="single" variant="outline" size="sm" value={d.severity} aria-label={t('gate.severity')} onValueChange={v => v && edit(k, { severity: v as Severity })}>
                     {SEVERITIES.map(s => <ToggleGroupItem key={s} value={s} className="h-6 px-2 font-mono text-xs data-[state=on]:border-you data-[state=on]:bg-you-bg data-[state=on]:font-semibold data-[state=on]:text-you-ink">{s}</ToggleGroupItem>)}
                   </ToggleGroup>
-                  <Button type="button" variant="ghost" size="icon-xs" className="ml-auto" aria-label={t('gate.removeFinding')} onClick={() => { d.files.forEach(letGo); update({ drafts: drafts.filter((_, i) => i !== k) }) }}>
+                  <Button type="button" variant="ghost" size="icon-xs" className="ml-auto" aria-label={t('gate.removeFinding')} onClick={() => { d.files.forEach(letGo); update({ drafts: current().drafts.filter((_, i) => i !== k) }) }}>
                     <Icon name="no" className="size-3.5" />
                   </Button>
                 </div>
-                <Input value={d.problem} onChange={e => { edit(k, { problem: e.target.value }); setError(false) }} onPaste={pasted(add)} placeholder={t('io.problem')} aria-label={t('io.problem')} className="h-8 text-sm md:text-sm" />
-                <Input value={d.impact} onChange={e => edit(k, { impact: e.target.value })} onPaste={pasted(add)} placeholder={t('io.impact')} aria-label={t('io.impact')} className="h-8 text-sm md:text-sm" />
-                <textarea className="field font-mono text-xs" rows={1} value={d.where} onChange={e => edit(k, { where: e.target.value })} onPaste={pasted(add)} placeholder={t('gate.where')} aria-label={t('io.evidence')} />
+                <DraftText read={() => current().drafts[k].problem} save={problem => { edit(k, { problem }, false); if (error) setError(false) }}>
+                  {(text, onText) => <DraftInput value={text} onChange={e => onText(e.target.value)} onPaste={pasted(add)} placeholder={t('io.problem')} aria-label={t('io.problem')} className="h-8 text-sm md:text-sm" />}
+                </DraftText>
+                <DraftText read={() => current().drafts[k].impact} save={impact => edit(k, { impact }, false)}>
+                  {(text, onText) => <DraftInput value={text} onChange={e => onText(e.target.value)} onPaste={pasted(add)} placeholder={t('io.impact')} aria-label={t('io.impact')} className="h-8 text-sm md:text-sm" />}
+                </DraftText>
+                <DraftText read={() => current().drafts[k].where} save={where => edit(k, { where }, false)}>
+                  {(text, onText) => <DraftTextarea className="field font-mono text-xs" rows={1} value={text} onChange={e => onText(e.target.value)} onPaste={pasted(add)} placeholder={t('gate.where')} aria-label={t('io.evidence')} />}
+                </DraftText>
                 <div><AttachButton onAdd={add} /></div>
                 <Thumbs list={d.files} onRemove={drop} />
               </fieldset>
             )
           })}
-          <div><Button type="button" variant="outline" size="xs" className="rounded-sm" onClick={() => update({ drafts: [...drafts, blank()] })}><Icon name="plus" className="size-3" />{t('gate.addFinding')}</Button></div>
+          <div><Button type="button" variant="outline" size="xs" className="rounded-sm" onClick={() => update({ drafts: [...current().drafts, blank()] })}><Icon name="plus" className="size-3" />{t('gate.addFinding')}</Button></div>
           {error && <p className="text-xs text-del" role="alert">{t('gate.needFinding')}</p>}
         </div>
       )}

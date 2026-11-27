@@ -4,7 +4,7 @@
 // Needs you counts those replies under the same conversation.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
 import { inbox } from '@/attention/select'
 import type { Space } from '@/agents/types'
@@ -118,6 +118,20 @@ describe('the conversation with every manager', () => {
     show('ws1', [])
     expect(box().value).toBe('Please check the draft.')
     expect(host.textContent).toContain('private.txt')
+  })
+
+  it('leaves the chat log alone while typing a draft', () => {
+    const readMessage = vi.fn(() => own.text)
+    show('ws1', [{ ...own, get text() { return readMessage() } }])
+    expect(host.textContent).toContain(own.text)
+    readMessage.mockClear()
+
+    const box = host.querySelector('textarea')!
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => { set.call(box, 'Message draft'); box.dispatchEvent(new Event('input', { bubbles: true })) })
+
+    expect(box.value).toBe('Message draft')
+    expect(readMessage).not.toHaveBeenCalled()
   })
 })
 

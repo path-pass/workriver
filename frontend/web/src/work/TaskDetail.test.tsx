@@ -2,8 +2,9 @@
 // user answers it, the way a task's attachments show, and they stay once it is submitted.
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
+import * as translation from '@/i18n'
 import type { Unit } from '@/planning/types'
 import type { Talk } from '@/conversations/types'
 import type { Attachment } from '@/attachments/types'
@@ -33,7 +34,7 @@ const acts: Act = { submitGate: () => {}, decide: () => {}, undo: () => {}, chor
 let root: Root
 let host: HTMLDivElement
 beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
-afterEach(() => { act(() => root.unmount()); host.remove() })
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 function FormProviders({ children }: { children: ReactNode }) {
   const drafts = useTaskDrafts()
@@ -117,6 +118,12 @@ it('keeps the drop reason with its task and discards it on Cancel', () => {
   show(first)
   act(() => button('No longer needed…').click())
   enter(reason()!, 'Superseded by the new check')
+  const value = vi.spyOn(reason()!, 'value', 'get')
+  show(unit({ ...gate, input: { ...gate.input, text: 'Updated gate instructions' } }))
+  expect(host.textContent).toContain('Updated gate instructions')
+  expect(value).not.toHaveBeenCalled()
+  value.mockRestore()
+
   show(second)
   expect(reason()).toBeNull()
   show(first)
@@ -124,6 +131,29 @@ it('keeps the drop reason with its task and discards it on Cancel', () => {
   act(() => button('Cancel').click())
   act(() => button('No longer needed…').click())
   expect(reason()?.value).toBe('')
+})
+
+it('updates the drop controls when the reason becomes nonblank and sends the latest draft', async () => {
+  const send = vi.fn(async (_path: string, _init: RequestInit) => new Response(null, { status: 204 }))
+  vi.stubGlobal('fetch', send)
+  show(unit(gate))
+  act(() => button('No longer needed…').click())
+  const reason = host.querySelector<HTMLInputElement>('input[aria-label="Why it is no longer needed"]')!
+  const submit = button('Mark no longer needed')
+  expect(submit.disabled).toBe(true)
+  enter(reason, '   ')
+  expect(submit.disabled).toBe(true)
+  enter(reason, 'First draft')
+  expect(submit.disabled).toBe(false)
+
+  const translate = vi.spyOn(translation, 'useT')
+  enter(reason, ' Revised reason ')
+  expect(translate).not.toHaveBeenCalled()
+  await act(async () => { submit.click() })
+  expect(send).toHaveBeenCalledOnce()
+  const [path, init] = send.mock.calls[0]!
+  expect(path).toBe('/api/task/drop')
+  expect(JSON.parse(String(init.body))).toEqual({ unit: 'u1', task: 2, reason: 'Revised reason' })
 })
 
 describe('a gate’s attachments', () => {
