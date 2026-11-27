@@ -92,7 +92,10 @@ its sections went.
      or anything else in its repository's git folder that cannot be told, every unit of that
      repository; another branch's ref, none. A work tree is followed from the first read that
      finds it (registered with the watcher then, or tried again a minute later), and what
-     was read of it before it was followed is read again once. Where the watcher cannot
+     was read of it before it was followed, or under an earlier registration of a folder made
+     again at that path, is read again once. The board's ids are taken again when the net
+     change names files it took none for (its base moved), and a code read keeps the ids
+     the board took for files unchanged since. Where the watcher cannot
      run, every read reads it all again. The board reads the names and git entries alone:
      a task's uncommitted files show their count, with +/− where the unit's code (read for
      the same code token) or an earlier read counted them, else without; the unit's code
@@ -100,8 +103,11 @@ its sections went.
      whose code it read (memory only), lets go of them when a unit falls out of those or is
      closed, and of a merged unit's work altogether. A file over the size limit on either
      side (512 KB: the work tree's by its stat, the committed one by its size in git) is
-     never read, cat-filed or hashed: its name only, the same file and token in both reads,
-     and the code shows it as not read, without +/−. The open unit's change reaches the
+     never read, cat-filed or hashed, for the board's ids neither: its name only, the same
+     file and token in both reads, and the code shows it as not read, without +/− (a
+     committed change's very large text file is left out of its commit, as before). A
+     deleted file's token is its entries alone, so it is the same whether its old text was
+     read. The open unit's change reaches the
      page as any change: it is told, its code token changes, and its code is read again. Units on two machines are not compared: their repositories are two copies. A
      folder does not sum the mark; nothing goes to Needs you and no one is told: the user
      sees it and coordinates. A picked piece of

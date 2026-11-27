@@ -316,8 +316,9 @@ fn live_work(at: &scan::Runner, u: &core::Unit, dir: &Path, cache: &mut Cache, e
     let texts = !cache.bare;
     let real = real_dir(dir);
     let followed = cache.follow(&real);
-    if let Some(l) = cache.live.get(&u.id).filter(|l| followed && l.followed && l.dir == dir && !l.stale) {
-        if !texts {
+    if let Some(l) = cache.live.get(&u.id).filter(|l| followed.is_some() && l.followed == followed && l.dir == dir && !l.stale) {
+        // For the board, the ids of the files its net change has now (a moved base adds some).
+        if !texts && ends.is_subset(&l.ends) {
             return l.files.clone();
         }
         if let Some(files) = l.known.with_texts(&l.files) {
@@ -338,11 +339,30 @@ fn live_work(at: &scan::Runner, u: &core::Unit, dir: &Path, cache: &mut Cache, e
     let touched = std::mem::take(&mut l.touched);
     l.known.forget(touched.iter().map(String::as_str));
     cache.read_live.push(u.id.clone());
-    let want = if texts { scan::Want::Texts } else { scan::Want::Names(ends.into_iter().collect()) };
+    let want = if texts { scan::Want::Texts } else { scan::Want::Names(ends.iter().cloned().collect()) };
+    let unhashed = |f: &scan::FileChange| f.after_mode != "000000" && f.after_id.bytes().all(|b| b == b'0');
     match scan::live_with(at, dir, &mut l.known, &want) {
         Ok(files) => {
             (l.followed, l.stale) = (followed, false);
-            l.files = files.iter().map(scan::FileChange::bare).collect();
+            // A read with texts compares texts, not ids: the ids a names-only read took stay
+            // with their files where those are the same; what has none is read again for them.
+            let ids: HashMap<String, (Option<scan::FileStat>, String)> = l.files.iter().filter(|f| !unhashed(f)).map(|f| (f.path.clone(), (f.stamp, f.after_id.clone()))).collect();
+            l.files = files
+                .iter()
+                .map(|f| {
+                    let mut b = f.bare();
+                    if let Some((stamp, id)) = ids.get(&b.path).filter(|(s, _)| unhashed(&b) && *s == b.stamp) {
+                        (b.stamp, b.after_id) = (*stamp, id.clone());
+                    }
+                    b
+                })
+                .collect();
+            if texts {
+                let without: BTreeSet<&str> = l.files.iter().filter(|f| unhashed(f)).map(|f| f.path.as_str()).collect();
+                l.ends.retain(|p| !without.contains(p.as_str()));
+            } else {
+                l.ends = ends;
+            }
             cache.live.insert(u.id.clone(), l);
             if texts {
                 cache.hold_texts(&u.id);
@@ -409,7 +429,8 @@ pub(super) fn code_of(commits: &[scan::Commit], files: &[scan::FileChange], net:
         (&f.path, &f.status, &f.before_mode, &f.before_id, &f.after_mode).hash(&mut h);
         match f.stamp {
             Some(s) => s.hash(&mut h),
-            None => (&f.before, &f.after, &f.after_id).hash(&mut h),
+            // Its committed side is its id; a work-tree side with no stat (over ssh), its text.
+            None => (&f.after, &f.after_id).hash(&mut h),
         }
     }
     format!("{:016x}", h.finish())

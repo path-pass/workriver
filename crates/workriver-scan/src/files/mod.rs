@@ -229,7 +229,8 @@ pub fn live_with(at: &Runner, dir: &Path, known: &mut Known, want: &Want) -> Res
             _ => {
                 let c = named(r, stat);
                 slots[k] = Some(c.clone());
-                if stat.is_some() {
+                // Kept (a deleted file too), so a read with texts knows its texts are not held.
+                if stat.is_some() || r.modes[1] == GONE {
                     fresh.insert(r.path.clone(), (stamp.clone(), false, c));
                 }
             }
@@ -241,6 +242,10 @@ pub fn live_with(at: &Runner, dir: &Path, known: &mut Known, want: &Want) -> Res
         }
         stamps.push(stamp);
     }
+    // Not one over the size limit on its committed side either (sizes from git, in one call).
+    let olds: Vec<String> = to_hash.iter().map(|&k| &listed[k]).filter(|r| r.texted(0)).map(|r| r.ids[0].clone()).collect();
+    let big: std::collections::HashSet<String> = olds.iter().cloned().zip(blob_sizes(at, &dir, &olds)?).filter(|(_, n)| n.is_some_and(|n| n > MAX_TEXT as u64)).map(|(id, _)| id).collect();
+    to_hash.retain(|&k| !(listed[k].texted(0) && big.contains(&listed[k].ids[0])));
     // The ids wanted: a symlink's from where it points (its own text), any other in one call.
     let (links, plain): (Vec<usize>, Vec<usize>) = to_hash.into_iter().partition(|&k| listed[k].modes[1] == LINK);
     let paths: Vec<String> = plain.iter().map(|&k| listed[k].path.clone()).collect();

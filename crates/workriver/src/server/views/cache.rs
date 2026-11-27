@@ -80,7 +80,11 @@ pub(super) struct Live {
     pub(super) branch: String,
     pub(super) files: Vec<scan::FileChange>,
     pub(super) known: scan::Known,
-    pub(super) followed: bool,
+    /// The registration the watcher followed its work tree under when it was read (None:
+    /// not followed): reused only under that same one.
+    pub(super) followed: Option<u64>,
+    /// The paths whose ids its last names-only read took (`code::live_work`'s `ends`).
+    pub(super) ends: BTreeSet<String>,
     pub(super) stale: bool,
     /// Paths (in the work tree) the watcher named since: read again whatever their stat says.
     pub(super) touched: BTreeSet<String>,
@@ -100,6 +104,9 @@ pub(in crate::server) struct Marks {
     /// folder made again (a work tree removed and added back) is registered again.
     pub(in crate::server) watched: std::collections::HashSet<std::path::PathBuf>,
     pub(in crate::server) inodes: HashMap<std::path::PathBuf, u64>,
+    /// Which registration each folder is under (counted from 1; one not registered here, 0):
+    /// what was read under another is not taken as followed.
+    pub(in crate::server) gens: HashMap<std::path::PathBuf, u64>,
     /// When registering a folder last failed: tried again after `RETRY`, not on every read.
     pub(in crate::server) failed: HashMap<std::path::PathBuf, std::time::Instant>,
 }
@@ -118,34 +125,36 @@ fn inode(p: &Path) -> Option<u64> {
 }
 
 impl Marks {
-    /// Whether the watcher follows `real` (a folder as the file system names it): inside a
-    /// folder registered, that folder still the one registered.
-    pub(in crate::server) fn covers(&self, real: &Path) -> bool {
-        self.on && self.watched.iter().any(|w| real.starts_with(w) && self.inodes.get(w).is_none_or(|i| inode(w) == Some(*i)))
+    /// The registration under which the watcher follows `real` (a folder as the file system
+    /// names it): of the deepest folder registered it is in, that folder still the one
+    /// registered. None: not followed.
+    pub(in crate::server) fn cover(&self, real: &Path) -> Option<u64> {
+        let w = self.watched.iter().filter(|w| self.on && real.starts_with(w) && self.inodes.get(*w).is_none_or(|i| inode(w) == Some(*i))).max_by_key(|w| w.as_os_str().len())?;
+        Some(self.gens.get(w).copied().unwrap_or(0))
     }
 }
 
-/// Registers `path` (a folder) with the watcher, unless it already follows it; whether it
-/// does now. The one way a folder is followed: the service's own list (`App::watch`) and the
-/// reads that find a work tree (`code::live_work`) both come here. A failure is tried again
-/// after a while.
-pub(in crate::server) fn register(watcher: &Watcher, marks: &std::sync::Mutex<Marks>, path: &Path) -> bool {
+/// Registers `path` (a folder) with the watcher, unless it already follows it; the
+/// registration it is followed under now (`Marks::cover`), None if not. The one way a folder
+/// is followed: the service's own list (`App::watch`) and the reads that find a work tree
+/// (`code::live_work`) both come here. A failure is tried again after a while.
+pub(in crate::server) fn register(watcher: &Watcher, marks: &std::sync::Mutex<Marks>, path: &Path) -> Option<u64> {
     use notify_debouncer_mini::notify::RecursiveMode;
     let real = real_dir(path);
     {
         let m = marks.lock().unwrap();
         if !m.on {
-            return false;
+            return None;
         }
-        if m.covers(&real) {
-            return true;
+        if let Some(g) = m.cover(&real) {
+            return Some(g);
         }
         if m.failed.get(&real).is_some_and(|at| at.elapsed() < RETRY) {
-            return false;
+            return None;
         }
     }
     let mut w = watcher.lock().unwrap();
-    let Some(w) = w.as_mut() else { return false };
+    let w = w.as_mut()?;
     let done = w.watcher().watch(&real, RecursiveMode::Recursive);
     let mut m = marks.lock().unwrap();
     match done {
@@ -154,13 +163,15 @@ pub(in crate::server) fn register(watcher: &Watcher, marks: &std::sync::Mutex<Ma
             if let Some(i) = inode(&real) {
                 m.inodes.insert(real.clone(), i);
             }
+            let g = m.gens.values().max().copied().unwrap_or(0) + 1;
+            m.gens.insert(real.clone(), g);
             m.watched.insert(real);
-            true
+            Some(g)
         }
         Err(e) => {
             tracing::warn!("cannot watch {}: {e}", real.display());
             m.failed.insert(real, std::time::Instant::now());
-            false
+            None
         }
     }
 }
@@ -325,8 +336,8 @@ impl Cache {
         }
     }
 
-    /// Whether the watcher follows the work tree `real`, registering it there if not.
-    pub(super) fn follow(&self, real: &Path) -> bool {
+    /// The registration the watcher follows the work tree `real` under, registering it if not.
+    pub(super) fn follow(&self, real: &Path) -> Option<u64> {
         register(&self.watcher, &self.marks, real)
     }
 

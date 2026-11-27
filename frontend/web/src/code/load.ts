@@ -48,9 +48,14 @@ export async function loadCode(unit: Unit): Promise<UnitCode> {
   return code
 }
 
-/** The unit with its files' texts, where `code` has them; its net change only when it is the same one. */
+/**
+ * The unit with its files' texts, where `code` has them; its net change only when it is the
+ * same one. Its `code` is the token those texts were read for, which may be newer than the
+ * snapshot's: what is taken from them only for the same snapshot compares the two.
+ */
 export const withCode = (unit: Unit, code: UnitCode): Unit => ({
   ...unit,
+  code: code.code,
   commits: unit.commits.map(c => ({ ...c, files: c.files.map(f => code.files.get(fileKey(c.id, f.path)) ?? f) })),
   net: unit.net && code.net?.id === unit.net.id ? code.net : unit.net,
 })

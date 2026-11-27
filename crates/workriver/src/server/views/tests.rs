@@ -611,7 +611,7 @@ fn a_late_work_tree_is_registered_by_the_read_that_finds_it() {
     .unwrap();
     *cache.watcher.lock().unwrap() = Some(d);
     read_all(&units, &mut cache);
-    assert!(cache.marks.lock().unwrap().covers(&a), "registered by the read");
+    assert!(cache.marks.lock().unwrap().cover(&a).is_some(), "registered by the read");
     std::fs::write(a.join("late.txt"), "late\n").unwrap();
     rx.recv_timeout(Duration::from_secs(10)).expect("the edit is seen");
     let now = read_all(&units, &mut cache);
@@ -639,4 +639,165 @@ fn a_large_committed_side_reads_the_same_either_way() {
     let code = code_read(&units[0], &mut cache);
     assert_eq!(code.iter().map(|f| (f.path.as_str(), f.uncounted)).collect::<Vec<_>>(), [("large-deleted.txt", true), ("large-shrunk.txt", true)]);
     assert_eq!(code_of(&[], &code, None), code_of(&[], &board[0], None));
+}
+
+// Round two review's probes (each a gap it found), kept as the tests of the fixes.
+
+#[test]
+fn a_deleted_file_read_by_name_first_has_its_diff_in_the_code() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    std::fs::remove_file(a.join("two.txt")).unwrap();
+    cache.bare = true;
+    let board = read_all(&units, &mut cache);
+    assert_eq!(board[0].len(), 1);
+    assert_eq!(board[0][0].status, "D");
+    let code = code_read(&units[0], &mut cache);
+    let forced = scan::live_in(&scan::Runner::Local, &a).unwrap();
+    assert_eq!((forced[0].before.as_deref(), forced[0].del), (Some("one\n"), 1));
+    assert_eq!(
+        (code[0].before.as_deref(), code[0].del, code[0].uncounted),
+        (Some("one\n"), 1, false),
+        "only the deleted file is present; board had no text and code refreshed {:?}, token equal: {}",
+        cache.read_live,
+        code_of(&[], &board[0], None) == code_of(&[], &code, None),
+    );
+}
+
+#[test]
+fn a_deleted_files_token_is_the_same_either_way() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    std::fs::remove_file(a.join("two.txt")).unwrap();
+    cache.bare = true;
+    let board = read_all(&units, &mut cache);
+    let code = scan::live_in(&scan::Runner::Local, &a).unwrap();
+    assert!(code.iter().any(|f| f.path == "two.txt" && f.before.as_deref() == Some("one\n")));
+    assert_eq!(code_of(&[], &code, None), code_of(&[], &board[0], None), "only the board/code view mode changed");
+}
+
+#[test]
+fn a_code_read_keeps_the_ids_the_board_found() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    git_in(&a, &["commit", "-qam", "change file"]);
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    let net = scan::diff(&scan::Runner::Local, &a, "main", "HEAD").unwrap();
+    let overlaps = |files: &[scan::FileChange]| changed_paths(&[], files, Some(&net)).contains("one.txt");
+    cache.bare = true;
+    let first = read_all(&units, &mut cache);
+    assert!(!overlaps(&first[0]), "correct before opening");
+    let code = code_read(&units[0], &mut cache);
+    assert!(!overlaps(&code), "correct in full code");
+    let board = read_all(&units, &mut cache);
+    assert!(!overlaps(&board[0]), "false overlap on the next snapshot; prior ID {:?}, current ID {:?}; re-read {:?}",
+        first[0][0].after_id, board[0][0].after_id, cache.read_live);
+}
+
+#[test]
+fn a_moved_base_reads_the_ids_its_net_change_needs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let repo = root.join("repo");
+    let a = root.join("wt-a");
+    std::fs::write(repo.join("one.txt"), "base advance\n").unwrap();
+    git_in(&repo, &["commit", "-qam", "advance base"]);
+    git_in(&a, &["reset", "--hard", "main"]);
+    std::fs::write(a.join("two.txt"), "another change\n").unwrap();
+    git_in(&a, &["commit", "-qam", "feature"]);
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    cache.bare = true;
+    let board = read_all(&units, &mut cache);
+    assert!(board[0][0].after_id.bytes().all(|b| b == b'0'), "one.txt is only a live change before base moves");
+    git_in(&repo, &["update-ref", "refs/heads/main", "HEAD^"]);
+    assert!(saw(&cache, &[repo.join(".git/refs/heads/main")]));
+    cache.refs.clear();
+    cache.worktrees.clear();
+    cache.read_live.clear();
+    cache.take_marks();
+    let (_, board, net) = super::code::read_unit(&scan::Runner::Local, &units[0], &mut cache, false);
+    let (key, _) = net.unwrap();
+    let net = &cache.nets[&key];
+    assert!(net.iter().any(|f| f.path == "one.txt" && f.before.as_deref() == Some("one\n")));
+    let reference = scan::live_in(&scan::Runner::Local, &a).unwrap();
+    assert!(!changed_paths(&[], &reference, Some(net)).contains("one.txt"));
+    assert!(!changed_paths(&[], &board, Some(net)).contains("one.txt"), "board with new merge base used old id {:?}, re-read {:?}", board[0].after_id, cache.read_live);
+}
+
+#[test]
+fn a_large_committed_side_is_not_hashed_for_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    let file = a.join("shrank.txt");
+    std::fs::write(&file, vec![0; 512 * 1024 + 1]).unwrap();
+    git_in(&a, &["add", "shrank.txt"]);
+    git_in(&a, &["commit", "-qm", "large file"]);
+    std::fs::write(&file, "small\n").unwrap();
+    cache.bare = true;
+    let normal = read_all(&units, &mut cache);
+    let file = normal[0].iter().find(|f| f.path == "shrank.txt").unwrap();
+    assert!(file.uncounted);
+    assert!(file.after_id.bytes().all(|b| b == b'0'), "over-limit before blob but hash-object read the after file and produced {:?}", file.after_id);
+}
+
+#[test]
+fn a_work_tree_made_again_is_read_again() {
+    use std::os::unix::fs::MetadataExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    let old = root.join("old-worktree");
+    {
+        let mut marks = cache.marks.lock().unwrap();
+        marks.watched.remove(&a);
+    }
+    // Hold a real watcher, with no callbacks passed into Marks during registration, as
+    // when filesystem edits precede restart of that root's watch.
+    let d = notify_debouncer_mini::new_debouncer(std::time::Duration::from_millis(300), |_: notify_debouncer_mini::DebounceEventResult| {}).unwrap();
+    *cache.watcher.lock().unwrap() = Some(d);
+    cache.bare = true;
+    let first = read_all(&units, &mut cache);
+    assert_eq!(first[0][0].path, "one.txt");
+    assert!(cache.live["u1"].followed.is_some());
+    let before = cache.marks.lock().unwrap().inodes[&a];
+    std::fs::rename(&a, &old).unwrap();
+    std::fs::create_dir(&a).unwrap();
+    for name in [".git", ".gitignore", "two.txt"] {
+        std::fs::copy(old.join(name), a.join(name)).unwrap();
+    }
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    std::fs::write(a.join("replacement.txt"), "new root\n").unwrap();
+    let inode = std::fs::metadata(&a).unwrap().ino();
+    assert_ne!(before, inode);
+    let board = read_all(&units, &mut cache);
+    assert_eq!(cache.marks.lock().unwrap().inodes[&a], inode, "real watcher registration succeeded at the replacement root");
+    assert!(board[0].iter().any(|f| f.path == "replacement.txt"), "root was registered but cached file list reused; re-read {:?}", cache.read_live);
+}
+
+#[test]
+fn a_closed_unit_lets_go_of_its_texts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (mut units, mut cache) = two_units(&root);
+    cache.bare = true;
+    read_all(&units, &mut cache);
+    code_read(&units[0], &mut cache);
+    assert!(cache.live["u1"].known.has_texts());
+    let state = core::State::default();
+    assert!(open_work(&state, &units[0]));
+    units[0].done = Some(core::Closed { at: String::new(), by: "user".into(), reason: String::new() });
+    unit(&state, &[], &units[0], &mut cache, &Names(HashMap::new()), None);
+    assert!(!cache.live["u1"].known.has_texts());
+    assert!(!cache.texted.contains(&"u1".to_string()));
 }
