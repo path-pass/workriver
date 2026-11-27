@@ -1,13 +1,13 @@
 // The picked task in full: what went in, what came out, its checks and findings, and what
 // can be done with it.
-import { useContext, useState, type ReactNode } from 'react'
+import { memo, useContext, useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { untested, finderLabel, findingsOf } from './select'
 import { ms } from '@/planning/select'
 import { commitStats } from '@/code/select'
 import type { Pick, Task, Trace } from './types'
 import { dropTask, record } from '@/api/actions'
-import { Input } from '@/ui/primitives/input'
+import { DraftInput } from '@/ui/DraftField'
 import { contentLang, useT } from '@/i18n'
 import { growth } from './growth'
 import { linkTo, pathOf } from '@/app/link'
@@ -21,7 +21,7 @@ import { GateForm, GateSent } from './GateForm'
 import { Chose } from '@/content/choice/Choice'
 import { Thumbs } from '@/attachments/Thumbs'
 import { gateKey } from './actions'
-import { useTaskDraft } from './drafts'
+import { DraftText, useTaskDraft } from './drafts'
 import { TerminalButton, Who } from '@/agents/Mark'
 import { AgentContext } from '@/agents/context'
 import { refOf, taskSession } from '@/agents/select'
@@ -306,28 +306,33 @@ export function Detail({ unit, n, finding, onPick, talk, workspace, gitPending }
       {/* Talking happens in the side panel; here only the way there, the task as its chip. */}
       <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-2">
         <Button variant="outline" size="xs" className="rounded-sm" onClick={talk.onOpen}><Icon name="talk" className="size-3" />{t('talk.ask')}</Button>
-        {(n.state === 'todo' || n.state === 'running' || n.state === 'waiting') && <DropTask key={`${unit.id}:${n.id}`} unit={unit} n={n} />}
+        {(n.state === 'todo' || n.state === 'running' || n.state === 'waiting') && <DropTask key={`${unit.id}:${n.id}`} unitId={unit.id} taskId={n.id} />}
       </div>
     </div>
   )
 }
 
 /** The user marks work not done yet as no longer needed, saying why; nothing is deleted. */
-function DropTask({ unit, n }: { unit: Unit; n: Task }) {
+const DropTask = memo(function DropTask({ unitId, taskId }: { unitId: string; taskId: string }) {
   const { t } = useT()
-  const [draft, setReason] = useTaskDraft('drops', `${unit.id}:${n.id}`)
-  const reason = draft ?? ''
+  const [draft, setReason, saved] = useTaskDraft('drops', `${unitId}:${taskId}`)
+  const hasReason = !!draft?.trim()
   const [open, setOpen] = useState(!!draft)
   const [error, setError] = useState('')
   if (!open) return <Button variant="ghost" size="xs" className="ml-auto rounded-sm" onClick={() => setOpen(true)}><Icon name="dropped" className="size-3" />{t('task.drop')}</Button>
   const close = () => { setReason(); setOpen(false); setError('') }
-  const submit = () => { dropTask(unit, n, reason.trim()).then(close, (e: Error) => setError(e.message)) }
+  const submit = () => {
+    const reason = saved()?.trim()
+    if (reason) dropTask(unitId, taskId, reason).then(close, (e: Error) => setError(e.message))
+  }
   return (
-    <form className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" onSubmit={e => { e.preventDefault(); if (reason.trim()) submit() }}>
-      <Input autoFocus={!draft} aria-label={t('task.dropReason')} placeholder={t('task.dropReasonHint')} value={reason} onChange={e => setReason(e.target.value || undefined)} className="h-7 min-w-48 flex-1 text-xs" />
-      <Button type="submit" size="xs" className="rounded-sm" disabled={!reason.trim()}>{t('task.dropConfirm')}</Button>
+    <form className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" onSubmit={e => { e.preventDefault(); submit() }}>
+      <DraftText read={() => saved() ?? ''} save={reason => setReason(reason || undefined, !!reason.trim() !== hasReason)}>
+        {(reason, onText) => <DraftInput autoFocus={!reason} aria-label={t('task.dropReason')} placeholder={t('task.dropReasonHint')} value={reason} onChange={e => onText(e.target.value)} className="h-7 min-w-48 flex-1 text-xs" />}
+      </DraftText>
+      <Button type="submit" size="xs" className="rounded-sm" disabled={!hasReason}>{t('task.dropConfirm')}</Button>
       <Button type="button" variant="ghost" size="xs" className="rounded-sm" onClick={close}>{t('task.dropCancel')}</Button>
       {error && <p role="alert" className="w-full text-xs wrap-anywhere text-del">{t('task.dropFailed', { error })}</p>}
     </form>
   )
-}
+})

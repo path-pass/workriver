@@ -1,4 +1,4 @@
-// The page's tunable defaults, in one place: the values are those it always had.
+// The page's tunable defaults, in one place.
 
 /** How many units' file texts are kept (code/load.ts): going back and forth between two stays instant. */
 export const KEEP_CODES = 2
@@ -20,6 +20,9 @@ export const CODE_TREE_WIDTH = { def: 280, min: 220 }
 /** The least height the Activity graph's canvas can be dragged to, in px; the most is the
  *  window's height. With none set, the canvas takes the graph's own height (Activity.tsx). */
 export const FLOW_HEIGHT = { min: 160 }
+
+/** The minimum gap in ms and duration multiplier for ordinary foreground reads. */
+export const VISIBLE_READ_PACING = { minGap: 5000, durationMultiplier: 2 }
 
 /** A hidden tab reads the workspace at most this often, in ms, when the service says it
  *  changed, and only while the sound or notifications is on (workspace/source.ts). */

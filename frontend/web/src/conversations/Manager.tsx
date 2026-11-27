@@ -15,6 +15,8 @@ import type { Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
 import type { Talk, Answer } from './types'
 import { Choice } from '@/ui/Choice'
+import { DraftTextarea } from '@/ui/DraftField'
+import { createTextDrafts, useTextDraft, type TextDrafts } from '@/lib/text-drafts'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { chipKey, chipsOf, entryOf, EVERY, leaveOut, messageOf, placesOf, repliesOf, type Chip, type Places } from './select'
@@ -44,10 +46,11 @@ const hasCmd = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform)
  *  Enter and Shift+Enter break the line; nothing sends while an input method composes.
  *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button.
  *  (A task's discussion uses it too, under its Questions block.) */
-export function Box({ label, placeholder, text, setText, focusAt, above, below, disabled, closed, onSend, onFiles }: {
-  label: string; placeholder: string; text: string; setText: (text: string) => void; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; closed?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
+export function Box({ label, placeholder, drafts, draftKey, focusAt, above, below, disabled, closed, onSend, onFiles }: {
+  label: string; placeholder: string; drafts: TextDrafts; draftKey: string | null; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; closed?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
 }) {
   const { t } = useT()
+  const [text, setText] = useTextDraft(drafts, draftKey)
   const box = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   // Asked for from outside ("Ask the manager", `?`): the cursor comes here, once per request, and only
@@ -77,7 +80,7 @@ export function Box({ label, placeholder, text, setText, focusAt, above, below, 
     <div className="flex-none border-t border-line px-4 pt-3 pb-4 text-sm">
       {above}
       <div className="askbox">
-        <textarea
+        <DraftTextarea
           ref={box}
           rows={1}
           value={text}
@@ -139,12 +142,12 @@ function ManagerStatus({ state }: Seat) {
   )
 }
 
-type ManagerDraft = { text: string; files: Attachment[] }
-const EMPTY_DRAFT: ManagerDraft = { text: '', files: [] }
+const NO_FILES: Attachment[] = []
 const ManagerDraftContext = createContext<{
   places: Places | null
-  draft: ManagerDraft
-  update: (change: (draft: ManagerDraft) => ManagerDraft) => void
+  textDrafts: TextDrafts
+  files: Attachment[]
+  updateFiles: (change: (files: Attachment[]) => Attachment[]) => void
   context: Chip[]
   exclude: (key: string) => void
 } | null>(null)
@@ -154,12 +157,13 @@ export function ManagerDraftProvider({ unit, n, finding, talk, children }: { uni
   const { t } = useT()
   const places = talk && placesOf(talk, unit?.id)
   const target = places?.id ?? null
-  const [drafts, setDrafts] = useState(() => new Map<string | null, ManagerDraft>())
-  const draft = drafts.get(target) ?? EMPTY_DRAFT
-  const update = (change: (draft: ManagerDraft) => ManagerDraft) => setDrafts(old => {
-    const next = change(old.get(target) ?? EMPTY_DRAFT)
+  const [textDrafts] = useState(createTextDrafts)
+  const [fileDrafts, setFileDrafts] = useState(() => new Map<string | null, Attachment[]>())
+  const files = fileDrafts.get(target) ?? NO_FILES
+  const updateFiles = (change: (files: Attachment[]) => Attachment[]) => setFileDrafts(old => {
+    const next = change(old.get(target) ?? NO_FILES)
     const saved = new Map(old)
-    if (next.text || next.files.length) saved.set(target, next)
+    if (next.length) saved.set(target, next)
     else saved.delete(target)
     return saved
   })
@@ -171,7 +175,7 @@ export function ManagerDraftProvider({ unit, n, finding, talk, children }: { uni
   useEffect(() => setOut([]), [selection])
   const context = leaveOut(chips, out)
   const exclude = (key: string) => setOut(previous => [...previous, key])
-  return <ManagerDraftContext.Provider value={{ places, draft, update, context, exclude }}>{children}</ManagerDraftContext.Provider>
+  return <ManagerDraftContext.Provider value={{ places, textDrafts, files, updateFiles, context, exclude }}>{children}</ManagerDraftContext.Provider>
 }
 
 /**
@@ -203,7 +207,7 @@ function ManagerTalk({ talk, takeFiles }: { talk: Talk; takeFiles: { current: ((
   const { t } = useT()
   // Every manager at once: offered with more than one running, or once written to; once
   // picked it stays picked, however many run (none: the draft stays and nothing is sent).
-  const { places, draft: { text, files }, update, context, exclude } = useContext(ManagerDraftContext)!
+  const { places, textDrafts, files, updateFiles, context, exclude } = useContext(ManagerDraftContext)!
   const { intent, own, running, ids, closed, every, id: label } = places!
   const all = label === EVERY
   const space = all ? undefined : talk.spaces.find(w => w.id === label)
@@ -221,9 +225,9 @@ function ManagerTalk({ talk, takeFiles }: { talk: Talk; takeFiles: { current: ((
   const addFiles = (list: File[]) => {
     setRefused(list.filter(f => f.size > MAX_ATTACHMENT).map(f => f.name))
     const added = list.filter(f => f.size <= MAX_ATTACHMENT).map(attach)
-    update(d => ({ ...d, files: [...d.files, ...added] }))
+    updateFiles(files => [...files, ...added])
   }
-  const remove = (a: Attachment) => { detach(a); update(d => ({ ...d, files: d.files.filter(x => x !== a) })); setRefused([]) }
+  const remove = (a: Attachment) => { detach(a); updateFiles(files => files.filter(x => x !== a)); setRefused([]) }
   useEffect(() => { takeFiles.current = addFiles; return () => { takeFiles.current = null } })
 
   // The manager's newest words not read yet: read once the conversation has been on screen a
@@ -253,7 +257,8 @@ function ManagerTalk({ talk, takeFiles }: { talk: Talk; takeFiles: { current: ((
     if (label === null || (all ? !running.length : !manager)) return
     if (all) talk.onTell({ workspace: EVERY, all: true }, text, '', messageOf(context, []), files)
     else talk.onTell(label === own && intent ? { intent: intent.id, workspace: label } : { workspace: label }, text, manager!.name, messageOf(context, []), files)
-    update(() => EMPTY_DRAFT)
+    textDrafts.write(label, '')
+    updateFiles(() => NO_FILES)
     setRefused([])
   }
   return (
@@ -280,8 +285,8 @@ function ManagerTalk({ talk, takeFiles }: { talk: Talk; takeFiles: { current: ((
       <Box
         label={t('talk.label')}
         placeholder={all ? t('talk.everyPlaceholder') : t('talk.placeholder', { agent: manager?.name ?? t('manager.state.none') })}
-        text={text}
-        setText={text => update(d => ({ ...d, text }))}
+        drafts={textDrafts}
+        draftKey={label}
         focusAt={talk.focusAt}
         disabled={all ? !running.length : !manager}
         onSend={send}

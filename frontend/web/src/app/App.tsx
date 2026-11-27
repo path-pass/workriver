@@ -1,6 +1,6 @@
 // The shell and the state of what is on screen: which unit, what is picked inside it, what
 // the user has put in. Everything else is derived.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
 import { Activity } from '@/work/Activity'
 import { releaseGateFiles } from '@/work/GateForm'
@@ -154,7 +154,7 @@ export default function App() {
   const [term, setTerm] = useState<Session | null>(null)
   const liveOf = (s: Session | null) => (s && data && liveSession(data.sessions, refOf(s))) || null
   const sessions = useRef<Session[]>([])
-  sessions.current = data?.sessions ?? []
+  useLayoutEffect(() => { sessions.current = data?.sessions ?? [] }, [data])
   const agentActions = useMemo<AgentActions>(() => {
     const find = (r: AgentRef): Session => liveSession(sessions.current, r) ?? { agent: r.name, session: r.session ?? undefined, machine: r.machine, ended: true }
     return { answer: r => setGate(find(r)), view: r => setTerm(find(r)) }
@@ -294,10 +294,16 @@ export default function App() {
   // Until the address is followed (it may name what is not there yet), each update tries
   // again; then later updates keep what is open.
   useEffect(() => watchWorkspace(w => {
-    setData(w)
-    setDown(false)
+    const first = latest.current === null
     latest.current = w
-    if (!followed.current) followed.current = follow(w)
+    const show = () => {
+      setData(w)
+      setDown(false)
+      if (!followed.current) followed.current = follow(w)
+    }
+    // Show the first board promptly. While it is open, typing can interrupt a refresh.
+    if (first) show()
+    else startTransition(show)
   }, () => setDown(true), () => soundWanted() || notifyWanted()), [follow])
   useLayoutEffect(() => {
     if (data && !dashboard) return reportFirstBoardPaint(data)

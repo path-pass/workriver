@@ -9,8 +9,8 @@ import '@/i18n'
 import { ActContext, type Act } from './actions'
 import { GateForm } from './GateForm'
 import { TaskDraftsContext, useTaskDrafts } from './drafts'
-import { DeliveryLine } from './Findings'
-import type { GateResult, Task } from './types'
+import { Decide, DeliveryLine } from './Findings'
+import type { Finding, GateResult, Task } from './types'
 import type { Unit } from '@/planning/types'
 import type { Sent } from '@/conversations/types'
 import { attach, submitGate } from '@/api/actions'
@@ -43,7 +43,43 @@ const typeText = (field: HTMLInputElement | HTMLTextAreaElement, value: string) 
 const click = (label: string) => act(() => [...el.querySelectorAll('button')].find(b => b.textContent === label)!.click())
 const pick = (value: string) => act(() => el.querySelector<HTMLButtonElement>(`[data-slot=radio-group-item][value="${value}"]`)!.click())
 
+it('updates the decision controls only when the note becomes empty or nonempty', () => {
+  const f: Finding = { get id() { return 'P2-1' }, severity: 'P2', state: 'open', problem: '', impact: '', evidence: [], leadsTo: [] }
+  const decide = vi.fn<Act['decide']>()
+  show(act0({ decide }), <Decide unit={unit} task={gate} f={f} />)
+  const note = el.querySelector('input')!
+  const revise = [...el.querySelectorAll('button')].find(b => b.textContent === en.decide.revise)!
+  expect(revise.disabled).toBe(true)
+  typeText(note, 'First')
+  expect(revise.disabled).toBe(false)
+  const decision = vi.spyOn(f, 'id', 'get')
+
+  typeText(note, 'Latest draft')
+  expect(decision).not.toHaveBeenCalled()
+  click(en.decide.revise)
+  expect(decide).toHaveBeenCalledWith(unit, gate, f, 'revise', 'Latest draft')
+})
+
 describe('an unsent gate draft', () => {
+  it('keeps note and finding typing local and sends the latest text', () => {
+    const sent: GateResult[] = []
+    const editableGate = { ...gate, get input() { return gate.input } }
+    show(act0({ submitGate: (_u, _g, r) => { sent.push(r) } }), <GateForm unit={unit} gate={editableGate} />)
+    click(en.gate.problem)
+    const note = el.querySelector('textarea')!
+    const [problem, impact] = el.querySelectorAll<HTMLInputElement>('fieldset input:not([type=file])')
+    const formRender = vi.spyOn(editableGate, 'input', 'get')
+    const otherField = vi.spyOn(impact, 'value', 'get')
+
+    typeText(note, 'Saw it again')
+    typeText(problem, 'Checkout fails')
+    expect(formRender).not.toHaveBeenCalled()
+    expect(otherField).not.toHaveBeenCalled()
+
+    click(en.gate.submit)
+    expect(sent[0]).toMatchObject({ note: 'Saw it again', findings: [{ problem: 'Checkout fails' }] })
+  })
+
   it('keeps each unit’s note and picked option until the result is sent', () => {
     const otherUnit = { ...unit, id: 'u2' }
     const sent: GateResult[] = []

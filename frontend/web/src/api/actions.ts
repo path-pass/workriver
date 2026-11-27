@@ -232,9 +232,9 @@ export async function closeWork(kind: 'unit' | 'intent', id: string, reason: str
 }
 
 /** Marks a task no longer needed: the user's alone from the page; its agent and the manager are told. */
-export async function dropTask(unit: Unit, task: Task, reason: string) {
+export async function dropTask(unitId: string, taskId: string, reason: string) {
   if (MOCK) return
-  await post('/api/task/drop', { unit: unit.id, task: Number(task.id), reason })
+  await post('/api/task/drop', { unit: unitId, task: Number(taskId), reason })
 }
 
 /**

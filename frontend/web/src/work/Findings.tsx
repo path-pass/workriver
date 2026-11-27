@@ -2,7 +2,7 @@
 // or a gate's result to the agents.
 import { useEffect, useRef } from 'react'
 import { Button } from '@/ui/primitives/button'
-import { Input } from '@/ui/primitives/input'
+import { DraftInput } from '@/ui/DraftField'
 import { findingKey, useAct } from './actions'
 import type { Decision, Finding, Task, Pick } from './types'
 import { contentLang, useT } from '@/i18n'
@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { Thumbs } from '@/attachments/Thumbs'
 import { Content, ExternalChip } from '@/content/Chips'
 import { NodeName } from './Nodes'
-import { useTaskDraft } from './drafts'
+import { DraftText, useTaskDraft } from './drafts'
 
 /**
  * Where a message is: not gone yet (and can be taken back), delivered, picked up. Once the
@@ -90,17 +90,23 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
 export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
   const { t } = useT()
   const act = useAct()
-  const [draft, setNote] = useTaskDraft('decisions', findingKey(unit, task, f))
-  const note = draft ?? ''
-  const decide = (d: Decision) => { setNote(); act.decide(unit, task, f, d, note.trim()) }
+  const [draft, setNote, saved] = useTaskDraft('decisions', findingKey(unit, task, f))
+  const hasNote = !!draft?.trim()
+  const decide = (d: Decision) => {
+    const note = saved()?.trim() ?? ''
+    setNote()
+    act.decide(unit, task, f, d, note)
+  }
   return (
     <div className="mt-2 flex flex-col gap-1.5">
-      <Input value={note} onChange={e => setNote(e.target.value || undefined)} placeholder={t('decide.note')} aria-label={t('decide.note')} className="h-7 text-xs md:text-xs" />
+      <DraftText read={() => saved() ?? ''} save={note => setNote(note || undefined, !!note.trim() !== hasNote)}>
+        {(note, onText) => <DraftInput value={note} onChange={e => onText(e.target.value)} placeholder={t('decide.note')} aria-label={t('decide.note')} className="h-7 text-xs md:text-xs" />}
+      </DraftText>
       <div role="group" aria-label={t('decide.label', { id: f.id })} className="flex flex-wrap gap-1.5">
         {(['accept', 'revise', 'reject', 'defer'] as const).map(d => {
           const suggested = f.recommendation?.decision === d
           // Revise is fixing it the user's way: the note says how, so it needs one.
-          const needsNote = d === 'revise' && !note.trim()
+          const needsNote = d === 'revise' && !hasNote
           return (
             <Button key={d} type="button" size="xs" variant={suggested ? 'default' : 'outline'} className="rounded-sm" disabled={needsNote} aria-describedby={needsNote ? `revise-${f.id}` : undefined} onClick={() => decide(d)}>
               {suggested && <Icon name="agent" className="size-3" />}
@@ -110,7 +116,7 @@ export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }
           )
         })}
       </div>
-      {!note.trim() && <p id={`revise-${f.id}`} className="text-xs text-ink-2">{t('decide.reviseNeedsNote')}</p>}
+      {!hasNote && <p id={`revise-${f.id}`} className="text-xs text-ink-2">{t('decide.reviseNeedsNote')}</p>}
     </div>
   )
 }

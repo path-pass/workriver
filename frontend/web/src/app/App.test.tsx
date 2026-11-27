@@ -1,4 +1,5 @@
 import { act, StrictMode } from 'react'
+import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
@@ -341,6 +342,7 @@ it('keeps the Manager draft through navigation, section switches and the mobile 
   await act(async () => { mainButton('Ask the manager').click() })
   expect(box(sheet()!).value).toBe('Can you check this?')
   type(box(sheet()!), 'Can you rerun this check?')
+  expect(box(panel()).value).toBe('Can you rerun this check?')
   await act(async () => { button(sheet()!, 'Fold the panel').click() })
   expect(sheet()).toBeNull()
   await act(async () => { mainButton('Ask the manager').click() })
@@ -362,6 +364,40 @@ function listen(initial: Workspace) {
   vi.mocked(watchWorkspace).mockImplementation(onData => { emit = onData; onData(initial); return () => {} })
   return (next: Workspace) => act(() => emit(next))
 }
+
+it('commits Manager typing before a pending workspace refresh', () => {
+  localStorage.setItem('workriver.side', 'talk')
+  const manager = { name: 'boss', session: 's1', folder: '/project', since: 1, state: 'idle' as const }
+  const initial = {
+    ...ws,
+    messages: [],
+    intents: [{ ...ws.intents[0], state: 'active' as const }, ws.intents[1]],
+    workspaces: [{ ...ws.workspaces![0], manager }],
+  }
+  const push = listen(initial)
+  render()
+  act(vi.mocked(watchWorkspace).mock.lastCall![1])
+  const status = () => host.querySelector('main > p[role="status"]')?.textContent
+  expect(status()).toContain('Cannot reach the workriver service')
+  const panel = host.querySelector('aside section[aria-labelledby="side-talk"]')!
+  const field = panel.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message to the manager"]')!
+  const send = button(panel, 'Send')
+  expect(send.disabled).toBe(true)
+
+  act(() => {
+    flushSync(() => {
+      push({ ...initial, intents: [{ ...initial.intents[0], title: 'Refreshed intent' }, initial.intents[1]] })
+      type(field, 'Keep typing')
+    })
+    expect(send.disabled).toBe(false)
+    expect(heading()).toContain('First intent')
+    expect(status()).toContain('Cannot reach the workriver service')
+  })
+
+  expect(heading()).toContain('Refreshed intent')
+  expect(status()).toBeUndefined()
+  expect(field.value).toBe('Keep typing')
+})
 
 const visit = (path: string) => act(async () => {
   history.pushState(null, '', path)
@@ -577,4 +613,45 @@ it('closes the command review after following a link to the current intent', asy
 
   expect(location.pathname).toBe('/i1')
   expect(dialog()?.getAttribute('data-state')).toBeUndefined()
+})
+
+it.each([
+  { kind: 'gate', taskId: '2', label: 'Note (paste screenshots here)' },
+  { kind: 'decision', taskId: '4', label: 'Note for the agent (optional)' },
+  { kind: 'discussion', taskId: '5', label: 'Question to researcher' },
+])('keeps the Manager and $kind fields out of an unrelated workspace commit', async ({ taskId, label }) => {
+  localStorage.setItem('workriver.side', 'talk')
+  history.replaceState(null, '', `/u1/${taskId}`)
+  const review: Task = {
+    ...task, id: '4', taskId: null, kind: 'review', state: 'done', title: 'Review', agent: 'reviewer',
+    output: { findings: [{ id: 'P2-1', severity: 'P2', state: 'open', problem: 'Missing check', impact: '', evidence: [], leadsTo: [] }] },
+  }
+  const research: Task = { ...task, id: '5', taskId: '5', kind: 'implement', state: 'done', title: 'Research', agent: 'researcher', research: true, discuss: 'open' }
+  const unit = { ...held.intents[0].units[0], tasks: [gate, stalled, review, research] }
+  const intent = { ...held.intents[0], state: 'active' as const, units: [unit] }
+  const snapshot = {
+    ...held, messages: [], intents: [intent, held.intents[1]],
+    workspaces: [{ ...ws.workspaces![0], manager: { name: 'boss', session: 's1', folder: '/project', since: 1, state: 'idle' as const } }],
+  }
+  const push = listen(snapshot)
+  await act(async () => { render() })
+  if (taskId === '4') act(() => mainButton('Details of P2-1').click())
+  const field = (name: string) => host.querySelector<HTMLInputElement | HTMLTextAreaElement>(`input[aria-label="${name}"], textarea[aria-label="${name}"]`)!
+  const manager = field('Message to the manager')
+  const detail = field(label)
+  type(manager, 'Message draft')
+  type(detail, 'Detail draft')
+  // React reads the live value whenever it commits updates to a controlled field.
+  const managerCommit = vi.spyOn(manager, 'value', 'get')
+  const detailCommit = vi.spyOn(detail, 'value', 'get')
+
+  push(structuredClone({
+    ...snapshot,
+    intents: [{ ...intent, title: 'Refreshed intent', units: [{ ...unit, tasks: [gate, { ...stalled, title: 'Renamed work' }, review, research] }] }, held.intents[1]],
+  }))
+
+  expect(host.textContent).toContain('Refreshed intent')
+  expect([managerCommit.mock.calls.length, detailCommit.mock.calls.length]).toEqual([0, 0])
+  expect(manager.value).toBe('Message draft')
+  expect(detail.value).toBe('Detail draft')
 })
