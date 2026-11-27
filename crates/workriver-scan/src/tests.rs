@@ -901,3 +901,97 @@ fn a_merged_branch_meets_its_base_as_before() {
     sh(repo, &["merge", "-q", "--ff-only", "ff"]);
     assert_eq!(base_before(&at, repo, "main", &rev(repo, "ff")).unwrap(), None);
 }
+
+/// A work tree read again with what was read before: only files whose git entry, size or
+/// modification time changed are read; names only, no file is read, and counts stay where
+/// they were known; texts, the same as a read from nothing.
+#[test]
+fn a_work_tree_read_again_reads_only_what_changed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "a.txt", "one\n");
+    write(repo, "b.txt", "one\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    write(repo, "a.txt", "one\ntwo\n");
+    write(repo, "b.txt", "one\ntwo\n");
+    write(repo, "new.txt", "new\n");
+    let at = Runner::Local;
+    let mut known = Known::default();
+    let first = live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 3);
+    assert_eq!(first, live_in(&at, repo).unwrap(), "a read with nothing known is the plain read");
+    let again = live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 3, "nothing changed: nothing read");
+    assert_eq!(again, first);
+    // One file changed (its size too, so no clock decides): that one is read again.
+    write(repo, "b.txt", "one\ntwo\nthree\n");
+    let after = live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 4);
+    assert_eq!(after, live_in(&at, repo).unwrap());
+    // Names only: nothing read; the files known keep their counts, without their texts.
+    write(repo, "a.txt", "changed\n");
+    let names = live_with(&at, repo, &mut known, &Want::Names(Default::default())).unwrap();
+    assert_eq!(known.reads, 4);
+    let shape: Vec<_> = names.iter().map(|f| (f.path.as_str(), f.status.as_str(), f.add, f.del, f.uncounted, f.before.is_some() || f.after.is_some())).collect();
+    assert_eq!(shape, [("a.txt", "M", 0, 0, true, false), ("b.txt", "M", 2, 0, false, false), ("new.txt", "A", 1, 0, false, false)]);
+    // Names, and an id where it is wanted: hashed by git, nothing read here.
+    let ids = live_with(&at, repo, &mut known, &Want::Names(["b.txt".to_string()].into())).unwrap();
+    let out = Command::new("git").arg("-C").arg(repo).args(["hash-object", "b.txt"]).output().unwrap();
+    assert_eq!(ids[1].after_id, String::from_utf8_lossy(&out.stdout).trim());
+    assert!(is_null(&ids[0].after_id) && is_null(&ids[2].after_id));
+    assert_eq!(known.reads, 4);
+    // Read with texts again: the ones whose texts were dropped are read; all as from nothing.
+    let full = live_with(&at, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 7);
+    assert_eq!(full, live_in(&at, repo).unwrap());
+    // A file committed is no longer changed: forgotten.
+    sh(repo, &["add", "a.txt"]);
+    sh(repo, &["commit", "-q", "-m", "a"]);
+    let paths: Vec<_> = live_with(&at, repo, &mut known, &Want::Texts).unwrap().into_iter().map(|f| f.path).collect();
+    assert_eq!(paths, ["b.txt", "new.txt"]);
+    assert_eq!(known.reads, 7);
+}
+
+/// A work-tree file over the size limit is never read, cat-filed or hashed: listed by its
+/// name, without counts, tracked or not, text or binary.
+#[test]
+fn a_large_work_tree_file_is_not_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "big.txt", "small\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    let big = "line\n".repeat(120_000);
+    write(repo, "big.txt", &big);
+    let mut bin = vec![0u8; 600 * 1024];
+    bin[0] = 1;
+    std::fs::write(repo.join("new.bin"), &bin).unwrap();
+    let mut known = Known::default();
+    let now = live_with(&Runner::Local, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 0);
+    let shape: Vec<_> = now.iter().map(|f| (f.path.as_str(), f.status.as_str(), f.uncounted, f.before.is_some(), f.after.is_some(), is_null(&f.after_id))).collect();
+    assert_eq!(shape, [("big.txt", "M", true, false, false, true), ("new.bin", "A", true, false, false, true)]);
+    live_with(&Runner::Local, repo, &mut known, &Want::Texts).unwrap();
+    assert_eq!(known.reads, 0, "nor read later");
+}
+
+/// Which changed paths git ignores: those `.gitignore` names, not a tracked file in an ignored
+/// folder.
+#[test]
+fn ignored_paths_are_what_gitignore_says() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().canonicalize().unwrap();
+    sh(&repo, &["init", "-q", "-b", "main"]);
+    write(&repo, ".gitignore", "build/\n*.log\n");
+    write(&repo, "build/kept.txt", "tracked\n");
+    sh(&repo, &["add", "-f", "."]);
+    sh(&repo, &["commit", "-q", "-m", "base"]);
+    let paths: Vec<_> = ["build/out.o", "build/kept.txt", "run.log", "src/a.rs"].iter().map(|p| repo.join(p)).collect();
+    let mut got: Vec<_> = ignored(&Runner::Local, &repo, &paths).unwrap().into_iter().map(|p| p.strip_prefix(&repo).unwrap().to_string_lossy().into_owned()).collect();
+    got.sort();
+    assert_eq!(got, ["build/out.o", "run.log"]);
+    assert!(ignored(&Runner::Local, &repo, &[repo.join("src/a.rs")]).unwrap().is_empty());
+}

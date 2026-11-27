@@ -114,6 +114,8 @@ pub(super) struct App {
     pub(super) sessions: views::trace::Sessions,
     pub(super) watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
     pub(super) watched: Mutex<HashSet<PathBuf>>,
+    /// What the watcher saw change, for the snapshots (`views::Marks`); the cache's own.
+    pub(super) marks: Arc<Mutex<views::Marks>>,
     /// The other machines, when the runtime follows any.
     pub(super) machines: Option<Arc<Machines>>,
     /// CPU and memory of this machine and the followed ones, and their alerts.

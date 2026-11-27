@@ -61,6 +61,12 @@ export interface FileChange {
   /** Lines added and removed: from the service, or worked out from the texts. */
   add: number;
   del: number;
+  /**
+   * The service did not read its texts, so `add` and `del` are 0, not counted: uncommitted
+   * work of a unit not open on the page (the board reads its names only), or a work-tree file
+   * over the size limit. Shown without +/−.
+   */
+  uncounted?: boolean;
   /** Unified-diff lines including `@@ -a,b +c,d @@ context` hunk headers; from the texts. */
   lines: string[];
   /**

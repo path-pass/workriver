@@ -121,6 +121,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
     if sample {
         metrics.start();
     }
+    let cache = Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL));
     let app = Arc::new(App {
         metrics,
         auth,
@@ -131,7 +132,8 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         told: Mutex::default(),
         attachments: Mutex::default(),
         store: Mutex::new(store),
-        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL))),
+        marks: cache.marks.clone(),
+        cache: Mutex::new(cache),
         browser_git: Mutex::default(),
         remote_kick: kick,
         machines,
@@ -222,13 +224,25 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         m.on_change(std::sync::Arc::new(move || wake.notify_one()));
     }
     let tx = changed.clone();
+    let marks = app.marks.clone();
     let debouncer = new_debouncer(Duration::from_millis(300), move |res: DebounceEventResult| {
-        if res.is_ok_and(|events| events.iter().any(|e| worth_a_look(&e.path))) {
+        let told = match res {
+            Ok(events) => noticed(&marks, events.iter().map(|e| e.path.as_path())),
+            // What changed is not known: everything is read again.
+            Err(_) => {
+                marks.lock().unwrap().all = true;
+                true
+            }
+        };
+        if told {
             let _ = tx.send(());
         }
     });
     match debouncer {
-        Ok(d) => *app.watcher.lock().unwrap() = Some(d),
+        Ok(d) => {
+            *app.watcher.lock().unwrap() = Some(d);
+            app.marks.lock().unwrap().on = true;
+        }
         Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
     }
     let units: Vec<(String, String)> = got(app.store.lock().unwrap().units()).ok().flatten().unwrap_or_default().iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();

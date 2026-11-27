@@ -137,7 +137,8 @@ workriver/
 │           │   ├── branches.rs       # Branch membership, fork/squash, patch ids.
 │           │   └── commits.rs        # Batched commit/blob reads, commit metadata, where a branch meets its base, diffs.
 │           ├── files/
-│           │   ├── mod.rs            # FileChange/counts, before/after, live/worktree reads.
+│           │   ├── mod.rs            # FileChange/counts, before/after, live/worktree reads (a
+│           │   │                     # per-file cache by stat; names only or texts), ignored paths.
 │           │   └── tree.rs           # Module tree and line counts.
 │           └── tests.rs              # Git fixture tests.
 ```
@@ -269,7 +270,8 @@ crates/workriver/
 │   │   │                             # by the clock (`jobs()`: each domain's constant).
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
-│   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
+│   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown; what the watcher
+│   │   │   │                         # notices (not ignored) goes to the marks.
 │   │   │   ├── record.rs             # App::record/complete, a seating's read and what follows it, noted,
 │   │   │   │                         # post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
@@ -363,7 +365,9 @@ crates/workriver/
 │   │   │   │                         # with the template library (the built-ins added as values).
 │   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads, net change,
 │   │   │   │                         # the files the code tree shows it changing.
-│   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
+│   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format; each
+│   │   │   │                         # local unit's uncommitted work as last read, the watcher's
+│   │   │   │                         # marks (Marks) and the units open on the page.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).
 │   │   │   ├── trace.rs              # A task's trace: harness, model, and where each harness keeps the

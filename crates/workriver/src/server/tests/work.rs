@@ -59,10 +59,18 @@ fn daemon_smoke() {
     let f = &code["commits"][0]["files"][0];
     assert_eq!((f["before"].as_str(), f["after"].as_str(), f["add"].as_u64()), (Some("one\n"), Some("one\ntwo\n"), Some(1)), "{f}");
     assert!(d.get("/api/unit/u9/code").unwrap_err().to_string().contains("no unit u9"));
-    // Uncommitted work: in the snapshot by name and size, its texts with the code, and a new
-    // `code` once it changes.
+    // Uncommitted work: in the snapshot by name and size once the watcher saw it (the page is
+    // told then), its texts with the code, and a new `code` once it changes.
     std::fs::write(repo_dir.join("b.txt"), "new\n").unwrap();
-    let again = d.get("/api/workspace").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let again = loop {
+        let ws = d.get("/api/workspace").unwrap();
+        if ws["intents"][0]["units"][0]["commits"].as_array().unwrap().iter().any(|c| c["live"] == true) {
+            break ws;
+        }
+        assert!(std::time::Instant::now() < deadline, "the watcher sees the change");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
     let unit2 = &again["intents"][0]["units"][0];
     let live = unit2["commits"].as_array().unwrap().iter().find(|c| c["live"] == true).expect("uncommitted work");
     assert_eq!((live["files"][0]["path"].as_str(), live["files"][0]["add"].as_u64(), live["files"][0].get("after")), (Some("b.txt"), Some(1), None));

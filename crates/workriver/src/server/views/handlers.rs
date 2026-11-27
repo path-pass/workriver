@@ -277,7 +277,8 @@ impl App {
         let ms = started.elapsed().as_millis() as u64;
         // Concurrent warmup can change the global counter during a records-only snapshot.
         let git = (!cache.records_only).then(|| scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls);
-        tracing::info!(target: "perf", kind = "snapshot", snapshot_kind = ?kind, trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git, slow = ms >= crate::common::config::defaults::SLOW_MS);
+        // `live`: units whose uncommitted work was read again (the rest as read before).
+        tracing::info!(target: "perf", kind = "snapshot", snapshot_kind = ?kind, trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, live = cache.read_live.len(), git, slow = ms >= crate::common::config::defaults::SLOW_MS);
         ws
     }
 }

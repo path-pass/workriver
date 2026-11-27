@@ -9,10 +9,14 @@ import { ms, unitsOf } from '@/planning/select'
 /** The repository a unit works in. */
 export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path === unit.repo && r.machine === unit.machine)!
 
-/** A commit's files and lines; none for a merge that brought the base in, which did no work of its own. */
+/**
+ * A commit's files and lines; none for a merge that brought the base in, which did no work of
+ * its own. `counted` is false where a file's lines were not counted (`FileChange.uncounted`):
+ * then no line counts are shown.
+ */
 export const commitStats = (c: Commit) => {
   const files = c.merge ? [] : c.files
-  return { files: files.length, add: files.reduce((s, f) => s + f.add, 0), del: files.reduce((s, f) => s + f.del, 0) }
+  return { files: files.length, add: files.reduce((s, f) => s + f.add, 0), del: files.reduce((s, f) => s + f.del, 0), counted: files.every(f => !f.uncounted) }
 }
 
 // ---- the commits of every unit, newest first ----

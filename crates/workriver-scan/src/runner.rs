@@ -61,6 +61,19 @@ impl Runner {
         }
     }
 
+    /// A work-tree file's size and modification time (ns), a symlink's own, and whether it is
+    /// one: what stands for its bytes until either changes. None over ssh (each file would
+    /// cost a process: such a file is read every time) and for one that cannot be read.
+    pub(crate) fn stat(&self, path: &Path) -> Option<(u64, u128, bool)> {
+        match self {
+            Runner::Local => {
+                let m = std::fs::symlink_metadata(path).ok()?;
+                Some((m.len(), m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos(), m.is_symlink()))
+            }
+            Runner::Ssh { .. } => None,
+        }
+    }
+
     /// A file there that git does not track yet, as `git add` would take it: a symlink
     /// (true) with where it points, or the file's bytes. None if it cannot be read.
     pub(crate) fn read_new(&self, path: &Path) -> Option<(bool, Vec<u8>)> {

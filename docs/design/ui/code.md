@@ -80,8 +80,17 @@ its sections went.
      same in a line of its own, each unit a link that opens it. Both units' changes are
      their net change as the tree shows it with nothing picked: the net change against the
      base (`unit.net`) with uncommitted work on top, an uncommitted side compared by its text,
-     as above; so nothing the base brought in, however it came, and nothing changed back
-     (the service compares them, from the same texts). Units on two machines are not compared: their repositories are two copies. A
+     as above, or, for a unit not open on the page (its uncommitted work read for its names
+     only, below), by the id git would give it, hashed for the files its commits changed
+     alone; so nothing the base brought in, however it came, and nothing changed back
+     (the service compares them). The service reads a unit's uncommitted work again only
+     when its watcher saw that unit's work tree (not a path git ignores) or its repository's
+     git folder change, and then only the files whose entry, size or time changed; the
+     board reads the names and git entries alone, texts and +/− only for the units open on
+     the page (the last few whose code it read), so a task's uncommitted files of a unit
+     not open show their count without +/−; one over the size limit is never read, its
+     name only, without +/− anywhere. The open unit's change reaches the page as any
+     change: it is told, its code token changes, and its code is read again. Units on two machines are not compared: their repositories are two copies. A
      folder does not sum the mark; nothing goes to Needs you and no one is told: the user
      sees it and coordinates. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added

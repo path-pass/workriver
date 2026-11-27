@@ -20,6 +20,43 @@ pub(in crate::server) fn worth_a_look(path: &Path) -> bool {
     }
 }
 
+/// Takes what the watcher found changed: the paths that can change what is shown
+/// (`worth_a_look`) and git does not ignore (asked once per work tree they are in, the
+/// deepest; a path in a git folder is never ignored) go to `marks`, for the next build to
+/// read the units they are in again (`Cache::take_marks`). Whether there was any: then the
+/// page is told.
+pub(in crate::server) fn noticed<'a>(marks: &Mutex<views::Marks>, paths: impl Iterator<Item = &'a Path>) -> bool {
+    let paths: Vec<PathBuf> = paths.filter(|p| worth_a_look(p)).map(real).collect();
+    if paths.is_empty() {
+        return false;
+    }
+    let roots = marks.lock().unwrap().watched.clone();
+    let mut by: std::collections::HashMap<PathBuf, Vec<PathBuf>> = Default::default();
+    let mut kept = vec![];
+    for p in paths {
+        let in_git = p.components().any(|c| c.as_os_str() == ".git");
+        match roots.iter().filter(|r| p.starts_with(r)).max_by_key(|r| r.as_os_str().len()) {
+            Some(r) if !in_git => by.entry(r.clone()).or_default().push(p),
+            _ => kept.push(p),
+        }
+    }
+    for (root, paths) in by {
+        // Where git cannot tell (no work tree there), none is taken as ignored.
+        let ignored = scan::ignored(&scan::Runner::Local, &root, &paths).unwrap_or_default();
+        kept.extend(paths.into_iter().filter(|p| !ignored.contains(p)));
+    }
+    if kept.is_empty() {
+        return false;
+    }
+    marks.lock().unwrap().paths.extend(kept);
+    true
+}
+
+/// A path as the file system names it (symlinks resolved): itself, or, gone, its folder's.
+pub(in crate::server) fn real(p: &Path) -> PathBuf {
+    p.canonicalize().ok().or_else(|| Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?))).unwrap_or_else(|| p.to_path_buf())
+}
+
 impl App {
     /// Watches a unit's repository: its work tree, the work tree of its branch, and the
     /// git folder where refs move.
@@ -32,10 +69,14 @@ impl App {
         let Some(w) = watcher.as_mut() else { return };
         let mut seen = self.watched.lock().unwrap();
         for p in paths {
-            if seen.insert(p.clone())
-                && let Err(e) = w.watcher().watch(&p, RecursiveMode::Recursive)
-            {
-                tracing::warn!("cannot watch {}: {e}", p.display());
+            if !seen.insert(p.clone()) {
+                continue;
+            }
+            match w.watcher().watch(&p, RecursiveMode::Recursive) {
+                Ok(()) => {
+                    self.marks.lock().unwrap().watched.insert(real(&p));
+                }
+                Err(e) => tracing::warn!("cannot watch {}: {e}", p.display()),
             }
         }
     }

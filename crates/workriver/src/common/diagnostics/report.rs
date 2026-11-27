@@ -120,7 +120,7 @@ pub fn summary(home: &Path, since: Option<std::time::Duration>, top: usize) -> S
         let mut t: Vec<u64> = of(kind).map(ms).collect();
         t.sort();
         let sum = |f: &str| of(kind).map(|v| v[f].as_u64().unwrap_or(0)).sum::<u64>();
-        let _ = writeln!(out, "\n{title}: {} times, p50 {} ms, p95 {} ms, max {} ms; units worked out again {}, reused {}; git calls {}", t.len(), pct(&t, 0.5), pct(&t, 0.95), t.last().unwrap_or(&0), sum("recomputed"), sum("reused"), sum("git"));
+        let _ = writeln!(out, "\n{title}: {} times, p50 {} ms, p95 {} ms, max {} ms; units worked out again {}, reused {}; uncommitted work read again {}; git calls {}", t.len(), pct(&t, 0.5), pct(&t, 0.95), t.last().unwrap_or(&0), sum("recomputed"), sum("reused"), sum("live"), sum("git"));
     }
     // Units.
     let mut units: BTreeMap<String, Vec<(u64, u64)>> = BTreeMap::new();

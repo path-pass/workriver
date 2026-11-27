@@ -299,7 +299,9 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
     cache.refs.clear();
     cache.worktrees.clear();
     cache.changed.clear();
+    cache.read_live.clear();
     (cache.recomputed, cache.reused) = (0, 0);
+    cache.take_marks();
     let machines = cache.machines.as_ref().map(|m| m.states()).unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
     let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().filter(|u| u.has_code()).map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
