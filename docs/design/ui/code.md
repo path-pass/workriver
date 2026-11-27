@@ -94,7 +94,8 @@ its sections went.
      finds it (registered with the watcher then, or tried again a minute later), and what
      was read of it before it was followed, or under an earlier registration of a folder made
      again at that path, is read again once. The board's ids are taken again when the net
-     change names files it took none for (its base moved), and a code read keeps the ids
+     change names files it took none for (its base moved), texts held or not, and compared
+     by id (as git hashes the file, its line-ending filters applied), never by text, and a code read keeps the ids
      the board took for files unchanged since. Where the watcher cannot
      run, every read reads it all again. The board reads the names and git entries alone:
      a task's uncommitted files show their count, with +/− where the unit's code (read for

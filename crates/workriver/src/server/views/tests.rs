@@ -801,3 +801,71 @@ fn a_closed_unit_lets_go_of_its_texts() {
     assert!(!cache.live["u1"].known.has_texts());
     assert!(!cache.texted.contains(&"u1".to_string()));
 }
+
+// Round three review's probes.
+
+#[test]
+fn a_moved_base_gets_ids_for_a_unit_whose_texts_are_held() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let repo = root.join("repo");
+    let a = root.join("wt-a");
+    std::fs::write(repo.join("one.txt"), "base advance\n").unwrap();
+    git_in(&repo, &["commit", "-qam", "advance base"]);
+    git_in(&a, &["reset", "--hard", "main"]);
+    std::fs::write(a.join("two.txt"), "another change\n").unwrap();
+    git_in(&a, &["commit", "-qam", "feature"]);
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+
+    cache.bare = true;
+    let first = read_all(&units, &mut cache);
+    assert!(first[0][0].after_id.bytes().all(|b| b == b'0'));
+    assert_eq!(code_read(&units[0], &mut cache)[0].after.as_deref(), Some("one\n"));
+    git_in(&repo, &["update-ref", "refs/heads/main", "HEAD^"]);
+    assert!(saw(&cache, &[repo.join(".git/refs/heads/main")]));
+    cache.refs.clear();
+    cache.worktrees.clear();
+    cache.read_live.clear();
+    cache.take_marks();
+
+    let (_, board, net) = super::code::read_unit(&scan::Runner::Local, &units[0], &mut cache, false);
+    let (key, _) = net.unwrap();
+    let base_file = cache.nets[&key].iter().find(|f| f.path == "one.txt").unwrap();
+    assert_eq!(base_file.before.as_deref(), Some("one\n"));
+    let row = board.iter().find(|f| f.path == "one.txt").unwrap();
+    assert_eq!(
+        (row.after_id.as_str(), row.after.as_deref(), cache.read_live.as_slice()),
+        (base_file.before_id.as_str(), None, ["u1".to_string()].as_slice()),
+        "after the base moves, a board read must obtain the added ID without returning held texts",
+    );
+}
+
+#[test]
+fn a_put_back_file_is_compared_by_id_after_a_code_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    git_in(&a, &["config", "core.autocrlf", "true"]);
+    git_in(&a, &["commit", "-qam", "change file"]);
+    std::fs::write(a.join("one.txt"), "one\r\n").unwrap();
+
+    // A fresh names read uses Git's path filters, so this is the original blob.
+    let at = scan::Runner::Local;
+    let net = scan::diff(&at, &a, "main", "HEAD").unwrap();
+    let want = scan::Want::Names(["one.txt".to_string()].into_iter().collect());
+    let cold = scan::live_with(&at, &a, &mut scan::Known::default(), &want).unwrap();
+    assert_eq!(cold[0].after_id, net[0].before_id, "fixture: content converted exactly to Git's base blob");
+    assert!(!changed_paths(&[], &cold, Some(&net)).contains("one.txt"));
+
+    cache.bare = true;
+    let code = code_read(&units[0], &mut cache);
+    assert_eq!(code[0].after.as_deref(), Some("one\r\n"));
+    let board = read_all(&units, &mut cache);
+    assert!(
+        !changed_paths(&[], &board[0], Some(&net)).contains("one.txt"),
+        "code-first read turned an exact Git revert into a false overlap; id {:?}, text {:?}, rescans {:?}",
+        board[0][0].after_id, board[0][0].after, cache.read_live,
+    );
+}

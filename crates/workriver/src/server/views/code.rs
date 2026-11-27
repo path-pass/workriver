@@ -321,7 +321,8 @@ fn live_work(at: &scan::Runner, u: &core::Unit, dir: &Path, cache: &mut Cache, e
         if !texts && ends.is_subset(&l.ends) {
             return l.files.clone();
         }
-        if let Some(files) = l.known.with_texts(&l.files) {
+        // Held texts answer a read with texts only; the board's missing ids are read below.
+        if texts && let Some(files) = l.known.with_texts(&l.files) {
             cache.hold_texts(&u.id);
             return files;
         }
