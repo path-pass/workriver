@@ -36,6 +36,8 @@ fn the_code_token_follows_uncommitted_entries() {
         after_id: "0".repeat(40),
         before_binary: false,
         after_binary: false,
+        uncounted: false,
+        stamp: None,
     };
     let token = |f: scan::FileChange| code_of(&[], &[f], None);
     let was = token(file.clone());
@@ -71,6 +73,8 @@ fn a_units_changed_files_are_its_net_change() {
         before_id: before.1.into(),
         after_mode: after.0.into(),
         after_id: after.1.into(),
+        uncounted: false,
+        stamp: None,
     };
     let commit = |files: Vec<scan::FileChange>| scan::Commit { id: "c".into(), hash: "c".into(), subject: String::new(), date: String::new(), author: String::new(), task: None, merge: false, parents: vec![], base_merge: false, files };
     // A merge of the base brought base.txt in: in the commits, not in the net change.
@@ -295,4 +299,573 @@ fn a_unit_merged_into_the_upstream_only_reads_as_before() {
     let recorded = read_again(repo, &u, &mut Cache::default());
     assert_eq!(seen(&found), seen(&expected), "found merged in git");
     assert_eq!(seen(&recorded), seen(&expected), "recorded merged");
+}
+
+/// A repository with two units' work trees (branches `a` and `b`, beside it), each with an
+/// uncommitted file, a `.gitignore` naming `build/`; the units, and a cache whose watcher
+/// follows what `App::watch` follows: the repository, its git folder and the work trees.
+fn two_units(root: &std::path::Path) -> (Vec<core::Unit>, Cache) {
+    let repo = root.join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_in(&repo, &["init", "-qb", "main"]);
+    std::fs::write(repo.join(".gitignore"), "build/\n").unwrap();
+    for f in ["one.txt", "two.txt"] {
+        std::fs::write(repo.join(f), "one\n").unwrap();
+    }
+    git_in(&repo, &["add", "."]);
+    git_in(&repo, &["commit", "-qm", "base"]);
+    let units = ["a", "b"]
+        .iter()
+        .enumerate()
+        .map(|(k, b)| {
+            git_in(&repo, &["worktree", "add", "-q", "-b", b, root.join(format!("wt-{b}")).to_str().unwrap()]);
+            std::fs::write(root.join(format!("wt-{b}/one.txt")), "one\ntwo\n").unwrap();
+            core::Unit { id: format!("u{}", k + 1), branch: b.to_string(), ..unit_in(&repo) }
+        })
+        .collect();
+    let cache = Cache::default();
+    {
+        let mut m = cache.marks.lock().unwrap();
+        m.on = true;
+        m.watched.extend([root.join("repo"), root.join("repo/.git"), root.join("wt-a"), root.join("wt-b")]);
+    }
+    (units, cache)
+}
+
+/// Every unit read as a build reads them; what each found.
+fn read_all(units: &[core::Unit], cache: &mut Cache) -> Vec<Vec<scan::FileChange>> {
+    cache.refs.clear();
+    cache.worktrees.clear();
+    cache.read_live.clear();
+    cache.take_marks();
+    units.iter().map(|u| super::code::read_unit(&scan::Runner::Local, u, cache, false).1).collect()
+}
+
+/// The watcher saw `paths` change; whether the page is told.
+fn saw(cache: &Cache, paths: &[std::path::PathBuf]) -> bool {
+    crate::server::app::noticed(&cache.marks, paths.iter().map(|p| p.as_path()))
+}
+
+/// A unit's uncommitted work is read again only when the watcher saw its work tree (or its
+/// repository's git folder) change, not for a path git ignores; then only its changed files
+/// are read. A unit whose work tree is not followed, and every unit after a restart, is read.
+#[test]
+fn only_the_unit_whose_work_tree_changed_is_read_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let first = read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u1", "u2"], "never read: read");
+    let reads = |cache: &Cache, id: &str| cache.live[id].known.reads;
+    assert_eq!((reads(&cache, "u1"), reads(&cache, "u2")), (1, 1));
+    assert_eq!(read_all(&units, &mut cache), first);
+    assert!(cache.read_live.is_empty(), "nothing changed: nothing read");
+
+    // A file of u1's changes: u1 alone is read again, that file alone.
+    std::fs::write(root.join("wt-a/two.txt"), "one\nthree\n").unwrap();
+    assert!(saw(&cache, &[root.join("wt-a/two.txt")]));
+    let now = read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u1"]);
+    assert_eq!((reads(&cache, "u1"), reads(&cache, "u2")), (2, 1));
+    assert_eq!(now[0].iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["one.txt", "two.txt"]);
+    assert_eq!(now[1], first[1]);
+
+    // What git ignores marks nothing, and the page is not told.
+    std::fs::create_dir_all(root.join("wt-b/build")).unwrap();
+    std::fs::write(root.join("wt-b/build/out.o"), "x").unwrap();
+    assert!(!saw(&cache, &[root.join("wt-b/build/out.o")]));
+    assert!(cache.marks.lock().unwrap().paths.is_empty());
+    read_all(&units, &mut cache);
+    assert!(cache.read_live.is_empty());
+
+    // A commit in b's work tree: its branch's ref (and its index) moved; u2 alone is read
+    // again. git's logs are no change.
+    git_in(&root.join("wt-b"), &["commit", "-qam", "b"]);
+    assert!(saw(&cache, &[root.join("repo/.git/refs/heads/b"), root.join("repo/.git/worktrees/wt-b/index"), root.join("repo/.git/logs/refs/heads/b")]));
+    let after = read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u2"]);
+    assert!(after[1].is_empty(), "b's work is committed");
+    // A branch no unit is on: none. packed-refs (what moved cannot be told): every unit there.
+    assert!(saw(&cache, &[root.join("repo/.git/refs/heads/main")]));
+    read_all(&units, &mut cache);
+    assert!(cache.read_live.is_empty());
+    assert!(saw(&cache, &[root.join("repo/.git/packed-refs")]));
+    read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u1", "u2"]);
+
+    // Not followed (the watcher does not run): read every time.
+    cache.marks.lock().unwrap().on = false;
+    read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u1", "u2"]);
+    // A restart: nothing known, every unit read.
+    let mut fresh = Cache::default();
+    fresh.marks = cache.marks.clone();
+    fresh.marks.lock().unwrap().on = true;
+    assert_eq!(read_all(&units, &mut fresh), after);
+    assert_eq!(fresh.read_live, ["u1", "u2"]);
+}
+
+/// The board reads uncommitted work for its names only (no file read; counts left out where
+/// not known); a unit's code read reads its texts, and again only the files changed since.
+/// The code token is the same either way, so the page reads the code only when files changed.
+#[test]
+fn the_board_names_files_and_the_code_read_reads_them() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    cache.bare = true;
+    let token = |files: &[scan::FileChange]| code_of(&[], files, None);
+    let board = read_all(&units, &mut cache);
+    assert_eq!((cache.live["u1"].known.reads, cache.live["u2"].known.reads), (0, 0));
+    assert!(board.iter().flatten().all(|f| f.uncounted && f.after.is_none()));
+    // Overlaps need names only: a file changed in the work tree, its text unread, is changed.
+    assert_eq!(changed_paths(&[], &board[0], None).into_iter().collect::<Vec<_>>(), ["one.txt"]);
+
+    let code = code_read(&units[0], &mut cache);
+    assert_eq!(cache.read_live, ["u1"]);
+    assert_eq!((code[0].add, code[0].uncounted, code[0].after.as_deref()), (1, false, Some("one\ntwo\n")));
+    assert_eq!(token(&code), token(&board[0]), "the same files: the page reads no code again");
+    assert_eq!(code_read(&units[0], &mut cache), code, "held: not read again");
+    assert!(cache.read_live.is_empty());
+    let again = read_all(&units, &mut cache);
+    assert!(cache.read_live.is_empty(), "the board reads nothing again");
+    assert!(again.iter().flatten().all(|f| f.after.is_none()), "and gives no texts");
+
+    std::fs::write(root.join("wt-a/one.txt"), "one\ntwo\nthree\n").unwrap();
+    assert!(saw(&cache, &[root.join("wt-a/one.txt")]));
+    let changed = read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u1"]);
+    assert_ne!(token(&changed[0]), token(&board[0]), "its change reaches the page");
+    let reads = cache.live["u1"].known.reads;
+    let code = code_read(&units[0], &mut cache);
+    assert_eq!((code[0].add, cache.live["u1"].known.reads), (2, reads + 1), "the changed file alone is read");
+}
+
+/// Unit `u`'s uncommitted work as its code read reads it (with texts).
+fn code_read(u: &core::Unit, cache: &mut Cache) -> Vec<scan::FileChange> {
+    let bare = std::mem::replace(&mut cache.bare, false);
+    cache.refs.clear();
+    cache.worktrees.clear();
+    cache.read_live.clear();
+    cache.take_marks();
+    let files = super::code::read_unit(&scan::Runner::Local, u, cache, false).1;
+    cache.bare = bare;
+    files
+}
+
+/// Texts are held for the last few units whose code was read: one falling out of them lets
+/// go of its texts (its names and counts stay, the board reads nothing again); a merged
+/// unit's work goes altogether.
+#[test]
+fn texts_are_held_for_the_last_code_reads_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (mut units, mut cache) = two_units(&root);
+    cache.bare = true;
+    read_all(&units, &mut cache);
+    code_read(&units[0], &mut cache);
+    assert!(cache.live["u1"].known.has_texts());
+    for k in 0..crate::common::config::defaults::TEXT_UNITS {
+        cache.hold_texts(&format!("x{k}"));
+    }
+    assert!(!cache.live["u1"].known.has_texts(), "let go of");
+    let board = read_all(&units, &mut cache);
+    assert!(cache.read_live.is_empty());
+    assert_eq!((board[0][0].add, board[0][0].uncounted), (1, false), "its counts stay");
+    let reads = cache.live["u1"].known.reads;
+    code_read(&units[0], &mut cache);
+    assert_eq!(cache.live["u1"].known.reads, reads + 1, "read again with its texts");
+    units[0].merged = Some("2026-11-27T00:00:00Z".into());
+    read_all(&units, &mut cache);
+    assert!(!cache.live.contains_key("u1") && !cache.texted.contains(&"u1".to_string()));
+}
+
+/// What git does in a work tree that changes its uncommitted work without touching a file
+/// there git does not ignore: a `git add -f` of an ignored file (the work tree's own index)
+/// marks that unit; a lock file of the work tree's own (Cargo.lock) is a file like any.
+#[test]
+fn an_index_change_and_a_lock_file_mark_their_unit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    std::fs::create_dir(a.join("build")).unwrap();
+    std::fs::write(a.join("build/new.txt"), "generated\n").unwrap();
+    read_all(&units, &mut cache);
+    git_in(&a, &["add", "-f", "build/new.txt"]);
+    let index = git_in(&a, &["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    assert!(saw(&cache, &[index.trim().into()]));
+    let now = read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u1"]);
+    assert!(now[0].iter().any(|f| f.path == "build/new.txt"));
+    std::fs::write(a.join("Cargo.lock"), "lock\n").unwrap();
+    assert!(saw(&cache, &[a.join("Cargo.lock")]));
+    assert!(read_all(&units, &mut cache)[0].iter().any(|f| f.path == "Cargo.lock"));
+    // git's own lock files are not.
+    assert!(!saw(&cache, &[root.join("repo/.git/worktrees/wt-a/index.lock"), root.join("repo/.git/refs/heads/a.lock")]));
+}
+
+/// A symlink's own change marks its own unit (never the unit, or nothing, where it points),
+/// and its id is its own text in both kinds of read: one put back as the base had it is no
+/// change on the board as in the code.
+#[test]
+fn a_symlink_is_its_own_entry() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (mut units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    read_all(&units, &mut cache);
+    std::fs::write(root.join("external"), "outside\n").unwrap();
+    let link = a.join("linked");
+    std::os::unix::fs::symlink(root.join("external"), &link).unwrap();
+    assert!(saw(&cache, std::slice::from_ref(&link)));
+    assert_eq!(cache.marks.lock().unwrap().paths.iter().collect::<Vec<_>>(), [&link], "the link, not where it points");
+    assert!(read_all(&units, &mut cache)[0].iter().any(|f| f.path == "linked"));
+    assert_eq!(cache.read_live, ["u1"]);
+
+    // Committed pointing at `first`, moved to `second`, put back to `first` in the work tree.
+    std::fs::remove_file(&link).unwrap();
+    std::fs::write(a.join("first"), "file bytes\n").unwrap();
+    std::fs::write(a.join("second"), "file bytes\n").unwrap();
+    std::os::unix::fs::symlink("first", &link).unwrap();
+    git_in(&a, &["add", "first", "second", "linked"]);
+    git_in(&a, &["commit", "-qm", "link base"]);
+    git_in(&a, &["branch", "link-base", "HEAD"]);
+    units[0].base = "link-base".into();
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("second", &link).unwrap();
+    git_in(&a, &["commit", "-qam", "move link"]);
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("first", &link).unwrap();
+    let net = scan::diff(&scan::Runner::Local, &a, "link-base", "HEAD").unwrap();
+    cache.bare = true;
+    cache.marks.lock().unwrap().all = true;
+    let board = read_all(&units, &mut cache);
+    let code = code_read(&units[0], &mut cache);
+    assert!(!changed_paths(&[], &code, Some(&net)).contains("linked"));
+    assert_eq!(changed_paths(&[], &board[0], Some(&net)), changed_paths(&[], &code, Some(&net)));
+}
+
+/// A file written again with its size and modification time kept, or replaced by another
+/// such (a sync that keeps times), is read again and changes the code token.
+#[test]
+fn a_rewrite_that_keeps_size_and_time_reaches_the_page() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let file = root.join("wt-a/one.txt");
+    let first = read_all(&units, &mut cache);
+    let kept = std::fs::metadata(&file).unwrap().modified().unwrap();
+    std::fs::write(&file, "one\nsix\n").unwrap();
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(kept).unwrap();
+    assert!(saw(&cache, std::slice::from_ref(&file)));
+    let now = read_all(&units, &mut cache);
+    assert_eq!(now[0][0].after.as_deref(), Some("one\nsix\n"));
+    assert_ne!(code_of(&[], &now[0], None), code_of(&[], &first[0], None));
+    let next = root.join("wt-a/next");
+    std::fs::write(&next, "one\nten\n").unwrap();
+    std::fs::File::options().write(true).open(&next).unwrap().set_modified(kept).unwrap();
+    std::fs::rename(&next, &file).unwrap();
+    assert!(saw(&cache, &[file]));
+    let replaced = read_all(&units, &mut cache);
+    assert_eq!(replaced[0][0].after.as_deref(), Some("one\nten\n"));
+    assert_ne!(code_of(&[], &replaced[0], None), code_of(&[], &now[0], None));
+}
+
+/// A work tree read before the watcher followed it is read again once it is followed: what
+/// changed in between is not taken as read.
+#[test]
+fn a_work_tree_followed_late_is_read_again_first() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    cache.marks.lock().unwrap().watched.remove(&a);
+    read_all(&units, &mut cache);
+    std::fs::write(a.join("new.txt"), "written before it was followed\n").unwrap();
+    cache.marks.lock().unwrap().watched.insert(a.clone());
+    assert!(read_all(&units, &mut cache)[0].iter().any(|f| f.path == "new.txt"));
+    read_all(&units, &mut cache);
+    assert!(cache.read_live.is_empty(), "followed since its last read: taken as read");
+}
+
+/// A work tree made after the watcher started (a sibling folder, outside what it follows) is
+/// registered by the read that finds it: an edit there is seen and marks its unit.
+#[test]
+fn a_late_work_tree_is_registered_by_the_read_that_finds_it() {
+    use std::time::Duration;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    let marks = cache.marks.clone();
+    marks.lock().unwrap().watched.clear();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let d = notify_debouncer_mini::new_debouncer(Duration::from_millis(100), move |res: notify_debouncer_mini::DebounceEventResult| {
+        if let Ok(events) = res
+            && crate::server::app::noticed(&marks, events.iter().map(|e| e.path.as_path()))
+        {
+            let _ = tx.send(());
+        }
+    })
+    .unwrap();
+    *cache.watcher.lock().unwrap() = Some(d);
+    read_all(&units, &mut cache);
+    assert!(cache.marks.lock().unwrap().cover(&a).is_some(), "registered by the read");
+    std::fs::write(a.join("late.txt"), "late\n").unwrap();
+    rx.recv_timeout(Duration::from_secs(10)).expect("the edit is seen");
+    let now = read_all(&units, &mut cache);
+    assert_eq!(cache.read_live, ["u1"]);
+    assert!(now[0].iter().any(|f| f.path == "late.txt"));
+}
+
+/// A change whose committed side is over the size limit reads the same on the board and in
+/// the code: named, uncounted, the same token; the old side never read.
+#[test]
+fn a_large_committed_side_reads_the_same_either_way() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    for name in ["large-deleted.txt", "large-shrunk.txt"] {
+        std::fs::write(a.join(name), vec![b'a'; 512 * 1024 + 1]).unwrap();
+    }
+    git_in(&a, &["add", "."]);
+    git_in(&a, &["commit", "-qm", "large files"]);
+    std::fs::remove_file(a.join("large-deleted.txt")).unwrap();
+    std::fs::write(a.join("large-shrunk.txt"), "small\n").unwrap();
+    cache.bare = true;
+    let board = read_all(&units, &mut cache);
+    let code = code_read(&units[0], &mut cache);
+    assert_eq!(code.iter().map(|f| (f.path.as_str(), f.uncounted)).collect::<Vec<_>>(), [("large-deleted.txt", true), ("large-shrunk.txt", true)]);
+    assert_eq!(code_of(&[], &code, None), code_of(&[], &board[0], None));
+}
+
+// Round two review's probes (each a gap it found), kept as the tests of the fixes.
+
+#[test]
+fn a_deleted_file_read_by_name_first_has_its_diff_in_the_code() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    std::fs::remove_file(a.join("two.txt")).unwrap();
+    cache.bare = true;
+    let board = read_all(&units, &mut cache);
+    assert_eq!(board[0].len(), 1);
+    assert_eq!(board[0][0].status, "D");
+    let code = code_read(&units[0], &mut cache);
+    let forced = scan::live_in(&scan::Runner::Local, &a).unwrap();
+    assert_eq!((forced[0].before.as_deref(), forced[0].del), (Some("one\n"), 1));
+    assert_eq!(
+        (code[0].before.as_deref(), code[0].del, code[0].uncounted),
+        (Some("one\n"), 1, false),
+        "only the deleted file is present; board had no text and code refreshed {:?}, token equal: {}",
+        cache.read_live,
+        code_of(&[], &board[0], None) == code_of(&[], &code, None),
+    );
+}
+
+#[test]
+fn a_deleted_files_token_is_the_same_either_way() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    std::fs::remove_file(a.join("two.txt")).unwrap();
+    cache.bare = true;
+    let board = read_all(&units, &mut cache);
+    let code = scan::live_in(&scan::Runner::Local, &a).unwrap();
+    assert!(code.iter().any(|f| f.path == "two.txt" && f.before.as_deref() == Some("one\n")));
+    assert_eq!(code_of(&[], &code, None), code_of(&[], &board[0], None), "only the board/code view mode changed");
+}
+
+#[test]
+fn a_code_read_keeps_the_ids_the_board_found() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    git_in(&a, &["commit", "-qam", "change file"]);
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    let net = scan::diff(&scan::Runner::Local, &a, "main", "HEAD").unwrap();
+    let overlaps = |files: &[scan::FileChange]| changed_paths(&[], files, Some(&net)).contains("one.txt");
+    cache.bare = true;
+    let first = read_all(&units, &mut cache);
+    assert!(!overlaps(&first[0]), "correct before opening");
+    let code = code_read(&units[0], &mut cache);
+    assert!(!overlaps(&code), "correct in full code");
+    let board = read_all(&units, &mut cache);
+    assert!(!overlaps(&board[0]), "false overlap on the next snapshot; prior ID {:?}, current ID {:?}; re-read {:?}",
+        first[0][0].after_id, board[0][0].after_id, cache.read_live);
+}
+
+#[test]
+fn a_moved_base_reads_the_ids_its_net_change_needs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let repo = root.join("repo");
+    let a = root.join("wt-a");
+    std::fs::write(repo.join("one.txt"), "base advance\n").unwrap();
+    git_in(&repo, &["commit", "-qam", "advance base"]);
+    git_in(&a, &["reset", "--hard", "main"]);
+    std::fs::write(a.join("two.txt"), "another change\n").unwrap();
+    git_in(&a, &["commit", "-qam", "feature"]);
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    cache.bare = true;
+    let board = read_all(&units, &mut cache);
+    assert!(board[0][0].after_id.bytes().all(|b| b == b'0'), "one.txt is only a live change before base moves");
+    git_in(&repo, &["update-ref", "refs/heads/main", "HEAD^"]);
+    assert!(saw(&cache, &[repo.join(".git/refs/heads/main")]));
+    cache.refs.clear();
+    cache.worktrees.clear();
+    cache.read_live.clear();
+    cache.take_marks();
+    let (_, board, net) = super::code::read_unit(&scan::Runner::Local, &units[0], &mut cache, false);
+    let (key, _) = net.unwrap();
+    let net = &cache.nets[&key];
+    assert!(net.iter().any(|f| f.path == "one.txt" && f.before.as_deref() == Some("one\n")));
+    let reference = scan::live_in(&scan::Runner::Local, &a).unwrap();
+    assert!(!changed_paths(&[], &reference, Some(net)).contains("one.txt"));
+    assert!(!changed_paths(&[], &board, Some(net)).contains("one.txt"), "board with new merge base used old id {:?}, re-read {:?}", board[0].after_id, cache.read_live);
+}
+
+#[test]
+fn a_large_committed_side_is_not_hashed_for_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    let file = a.join("shrank.txt");
+    std::fs::write(&file, vec![0; 512 * 1024 + 1]).unwrap();
+    git_in(&a, &["add", "shrank.txt"]);
+    git_in(&a, &["commit", "-qm", "large file"]);
+    std::fs::write(&file, "small\n").unwrap();
+    cache.bare = true;
+    let normal = read_all(&units, &mut cache);
+    let file = normal[0].iter().find(|f| f.path == "shrank.txt").unwrap();
+    assert!(file.uncounted);
+    assert!(file.after_id.bytes().all(|b| b == b'0'), "over-limit before blob but hash-object read the after file and produced {:?}", file.after_id);
+}
+
+#[test]
+fn a_work_tree_made_again_is_read_again() {
+    use std::os::unix::fs::MetadataExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    let old = root.join("old-worktree");
+    {
+        let mut marks = cache.marks.lock().unwrap();
+        marks.watched.remove(&a);
+    }
+    // Hold a real watcher, with no callbacks passed into Marks during registration, as
+    // when filesystem edits precede restart of that root's watch.
+    let d = notify_debouncer_mini::new_debouncer(std::time::Duration::from_millis(300), |_: notify_debouncer_mini::DebounceEventResult| {}).unwrap();
+    *cache.watcher.lock().unwrap() = Some(d);
+    cache.bare = true;
+    let first = read_all(&units, &mut cache);
+    assert_eq!(first[0][0].path, "one.txt");
+    assert!(cache.live["u1"].followed.is_some());
+    let before = cache.marks.lock().unwrap().inodes[&a];
+    std::fs::rename(&a, &old).unwrap();
+    std::fs::create_dir(&a).unwrap();
+    for name in [".git", ".gitignore", "two.txt"] {
+        std::fs::copy(old.join(name), a.join(name)).unwrap();
+    }
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+    std::fs::write(a.join("replacement.txt"), "new root\n").unwrap();
+    let inode = std::fs::metadata(&a).unwrap().ino();
+    assert_ne!(before, inode);
+    let board = read_all(&units, &mut cache);
+    assert_eq!(cache.marks.lock().unwrap().inodes[&a], inode, "real watcher registration succeeded at the replacement root");
+    assert!(board[0].iter().any(|f| f.path == "replacement.txt"), "root was registered but cached file list reused; re-read {:?}", cache.read_live);
+}
+
+#[test]
+fn a_closed_unit_lets_go_of_its_texts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (mut units, mut cache) = two_units(&root);
+    cache.bare = true;
+    read_all(&units, &mut cache);
+    code_read(&units[0], &mut cache);
+    assert!(cache.live["u1"].known.has_texts());
+    let state = core::State::default();
+    assert!(open_work(&state, &units[0]));
+    units[0].done = Some(core::Closed { at: String::new(), by: "user".into(), reason: String::new() });
+    unit(&state, &[], &units[0], &mut cache, &Names(HashMap::new()), None);
+    assert!(!cache.live["u1"].known.has_texts());
+    assert!(!cache.texted.contains(&"u1".to_string()));
+}
+
+// Round three review's probes.
+
+#[test]
+fn a_moved_base_gets_ids_for_a_unit_whose_texts_are_held() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let repo = root.join("repo");
+    let a = root.join("wt-a");
+    std::fs::write(repo.join("one.txt"), "base advance\n").unwrap();
+    git_in(&repo, &["commit", "-qam", "advance base"]);
+    git_in(&a, &["reset", "--hard", "main"]);
+    std::fs::write(a.join("two.txt"), "another change\n").unwrap();
+    git_in(&a, &["commit", "-qam", "feature"]);
+    std::fs::write(a.join("one.txt"), "one\n").unwrap();
+
+    cache.bare = true;
+    let first = read_all(&units, &mut cache);
+    assert!(first[0][0].after_id.bytes().all(|b| b == b'0'));
+    assert_eq!(code_read(&units[0], &mut cache)[0].after.as_deref(), Some("one\n"));
+    git_in(&repo, &["update-ref", "refs/heads/main", "HEAD^"]);
+    assert!(saw(&cache, &[repo.join(".git/refs/heads/main")]));
+    cache.refs.clear();
+    cache.worktrees.clear();
+    cache.read_live.clear();
+    cache.take_marks();
+
+    let (_, board, net) = super::code::read_unit(&scan::Runner::Local, &units[0], &mut cache, false);
+    let (key, _) = net.unwrap();
+    let base_file = cache.nets[&key].iter().find(|f| f.path == "one.txt").unwrap();
+    assert_eq!(base_file.before.as_deref(), Some("one\n"));
+    let row = board.iter().find(|f| f.path == "one.txt").unwrap();
+    assert_eq!(
+        (row.after_id.as_str(), row.after.as_deref(), cache.read_live.as_slice()),
+        (base_file.before_id.as_str(), None, ["u1".to_string()].as_slice()),
+        "after the base moves, a board read must obtain the added ID without returning held texts",
+    );
+}
+
+#[test]
+fn a_put_back_file_is_compared_by_id_after_a_code_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (units, mut cache) = two_units(&root);
+    let a = root.join("wt-a");
+    git_in(&a, &["config", "core.autocrlf", "true"]);
+    git_in(&a, &["commit", "-qam", "change file"]);
+    std::fs::write(a.join("one.txt"), "one\r\n").unwrap();
+
+    // A fresh names read uses Git's path filters, so this is the original blob.
+    let at = scan::Runner::Local;
+    let net = scan::diff(&at, &a, "main", "HEAD").unwrap();
+    let want = scan::Want::Names(["one.txt".to_string()].into_iter().collect());
+    let cold = scan::live_with(&at, &a, &mut scan::Known::default(), &want).unwrap();
+    assert_eq!(cold[0].after_id, net[0].before_id, "fixture: content converted exactly to Git's base blob");
+    assert!(!changed_paths(&[], &cold, Some(&net)).contains("one.txt"));
+
+    cache.bare = true;
+    let code = code_read(&units[0], &mut cache);
+    assert_eq!(code[0].after.as_deref(), Some("one\r\n"));
+    let board = read_all(&units, &mut cache);
+    assert!(
+        !changed_paths(&[], &board[0], Some(&net)).contains("one.txt"),
+        "code-first read turned an exact Git revert into a false overlap; id {:?}, text {:?}, rescans {:?}",
+        board[0][0].after_id, board[0][0].after, cache.read_live,
+    );
 }

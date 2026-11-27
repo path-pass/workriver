@@ -76,14 +76,16 @@ const ROW_PX = 20.7
  * A file's diff; `keep` keeps it drawn away from the view (it has picked lines). A change with
  * no lines says what it is instead, with no counts: a binary file's as git does, a submodule's
  * by the commits its pointer moved between (one scan could not read, its checkout gone
- * meanwhile, is unknown: git's placeholder is no commit).
+ * meanwhile, is unknown: git's placeholder is no commit), uncommitted work over the size limit
+ * as not read.
  */
 export function FileDiff({ file, whole = false, keep = false }: { file: Change; whole?: boolean; keep?: boolean }) {
   const { t, num } = useT()
   // A commit as a change names it: as short as the unit's commits are named.
   const short = (id: string) => (isNull(id) ? t('change.pointerUnknown') : id.slice(0, 9))
-  const { binary, pointer } = file.binary || file.pointer ? file : kindOf(file, file)
+  const { binary, pointer, uncounted } = file.binary || file.pointer || file.uncounted ? file : kindOf(file, file)
   const note = binary ? t('change.binary')
+    : uncounted ? t('change.uncounted')
     : !pointer ? null
     : pointer.from && pointer.to ? t('change.pointerMoved', { from: short(pointer.from), to: short(pointer.to) })
     : pointer.to ? t('change.pointerAdded', { to: short(pointer.to) })
@@ -333,7 +335,7 @@ function WholeFile({ unit, sel, path, also, onUnit, onPick, onBack, ...picking }
   const changes = useMemo(
     () => (parts ?? []).map(p => ({
       path, status: p.status,
-      ...changeOf(p.before, p.after, folded ? 3 : Number.MAX_SAFE_INTEGER), binary: p.binary, pointer: p.pointer,
+      ...changeOf(p.before, p.after, folded ? 3 : Number.MAX_SAFE_INTEGER), binary: p.binary, pointer: p.pointer, uncounted: p.uncounted,
     }) as Change),
     [path, parts, folded],
   )

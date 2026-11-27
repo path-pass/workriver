@@ -29,6 +29,17 @@ pub fn common_dir(at: &Runner, repo: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(git(at, repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim()))
 }
 
+/// A work tree's own git folder (where its index and HEAD are) and its repository's (where
+/// refs are), in one call; the same folder for a repository's main work tree.
+pub fn git_dirs(at: &Runner, dir: &Path) -> Result<(PathBuf, PathBuf)> {
+    let out = git(at, dir, &["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])?;
+    let mut lines = out.lines().map(|l| PathBuf::from(l.trim()));
+    match (lines.next(), lines.next()) {
+        (Some(own), Some(common)) => Ok((own, common)),
+        _ => Err(Error::Git(format!("git rev-parse in {}: {out}", dir.display()))),
+    }
+}
+
 /// Whether `rev` names a commit in `repo`.
 pub fn has_rev(at: &Runner, repo: &Path, rev: &str) -> bool {
     run(at, repo, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")], &[]).is_ok()

@@ -49,6 +49,16 @@ pub struct FileChange {
     pub before_binary: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub after_binary: bool,
+    /// Its texts were not read, so its lines were not counted (`add` and `del` are 0): uncommitted
+    /// work read for its names only (`live_with`), or uncommitted work over the size limit on
+    /// either side.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub uncounted: bool,
+    /// The work tree's file as last seen (`FileStat`), where it is on this machine: what
+    /// stands for its bytes, read or not (`Known`, the code token). None for a committed side,
+    /// a deleted file, a submodule's pointer and a file over ssh.
+    #[serde(skip)]
+    pub stamp: Option<FileStat>,
 }
 
 impl FileChange {
@@ -103,18 +113,204 @@ pub fn worktrees(at: &Runner, repo: &Path) -> Result<HashMap<String, PathBuf>> {
 
 /// Uncommitted changes in the work tree `dir`, against its last commit.
 pub fn live_in(at: &Runner, dir: &Path) -> Result<Vec<FileChange>> {
+    live_with(at, dir, &mut Known::default(), &Want::Texts)
+}
+
+/// What a work tree's uncommitted files were last read as (`live_with`), by path.
+#[derive(Default, Clone, Debug)]
+pub struct Known {
+    /// Each file's git entry and stat as last seen, whether its texts are held, and what was
+    /// found (with its texts where held).
+    files: HashMap<String, (Stamp, bool, FileChange)>,
+    /// Work-tree files read so far (the timing log's, and what tests count).
+    pub reads: u64,
+}
+
+impl Known {
+    /// Paths a change was seen at (a file, or a folder and all in it): read again at the next
+    /// read, whatever their stat says.
+    pub fn forget<'a>(&mut self, paths: impl IntoIterator<Item = &'a str>) {
+        for p in paths {
+            let inside = format!("{p}/");
+            self.files.retain(|k, _| k != p && !k.starts_with(&inside));
+        }
+    }
+
+    /// Lets go of the texts held; names, entries and counts stay.
+    pub fn drop_texts(&mut self) {
+        for (_, held, c) in self.files.values_mut() {
+            *held = false;
+            (c.before, c.after) = (None, None);
+        }
+    }
+
+    /// Whether any texts are held.
+    pub fn has_texts(&self) -> bool {
+        self.files.values().any(|f| f.1)
+    }
+
+    /// `files`, as a read gave them, with their texts: None when one of them is held without.
+    pub fn with_texts(&self, files: &[FileChange]) -> Option<Vec<FileChange>> {
+        files
+            .iter()
+            .map(|f| match self.files.get(&f.path) {
+                Some((_, true, c)) => Some(c.clone()),
+                Some(_) => None,
+                // Never kept (a submodule's pointer): as given, it has no text.
+                None => Some(f.clone()),
+            })
+            .collect()
+    }
+}
+
+/// A file as `diff --raw` (or `ls-files --others`) names it and as the file system has it.
+#[derive(Clone, PartialEq, Debug)]
+struct Stamp {
+    status: String,
+    modes: [String; 2],
+    ids: [String; 2],
+    file: Option<FileStat>,
+}
+
+/// How much of a work tree's changed files `live_with` reads.
+#[derive(Clone, Debug)]
+pub enum Want {
+    /// Their texts and line counts.
+    Texts,
+    /// Their names and git entries only; for these paths also the id `git add` would give the
+    /// file (`git hash-object`, its text not read here; a symlink's from where it points, as
+    /// git stores one): what tells whether it is back as it was.
+    Names(std::collections::HashSet<String>),
+}
+
+/// Uncommitted changes in the work tree `dir`, against its last commit, reading only what
+/// `known` does not hold: a file whose git entry and stat (size, times, inode) are as they
+/// were is taken from there, not read, cat-filed or hashed again (a file over ssh has no
+/// stat, so it is read every time). `want` says how much of a file that changed is read; for
+/// names only, counts stay where `known` has them for that same file (`FileChange::uncounted`
+/// where not), and no texts are given. A file over the size limit on either side (the work
+/// tree's by its stat, the committed one by its size in git) is never read, cat-filed or
+/// hashed: its name and entries only, uncounted, in both kinds of read. `known` keeps the texts
+/// it holds until `Known::drop_texts`.
+pub fn live_with(at: &Runner, dir: &Path, known: &mut Known, want: &Want) -> Result<Vec<FileChange>> {
     let dir = dir.to_path_buf();
+    let texts = matches!(want, Want::Texts);
+    let id_wanted = |path: &str| matches!(want, Want::Names(ids) if ids.contains(path));
     let out = run(at, &dir, &["diff", "HEAD", "--no-renames", "-z", "--raw", "--no-abbrev"], &[])?;
-    let changed = raw(&String::from_utf8_lossy(&out));
-    // What was committed, for every changed file in one call, by object id (a name may carry
+    let mut listed = raw(&String::from_utf8_lossy(&out));
+    // git names no mode for an untracked file: as `git add` would take it, a symlink (120000,
+    // its text where it points), else a regular file (over ssh, where there is no stat, as the
+    // read finds).
+    // ponytail: an executable one is taken as 100644 too.
+    let untracked = run(at, &dir, &["ls-files", "--others", "--exclude-standard", "-z"], &[])?;
+    let tracked = listed.len();
+    for path in split0(&untracked) {
+        let link = at.stat(&dir.join(&path)).is_some_and(|s| s.link);
+        listed.push(Raw { status: "A".into(), path, modes: [GONE.into(), if link { LINK } else { "100644" }.into()], ids: [NULL.into(), NULL.into()] });
+    }
+    // Each file: taken as known, named only, or to be read (in order, by its place).
+    let mut slots: Vec<Option<FileChange>> = vec![None; listed.len()];
+    let mut stamps = Vec::with_capacity(listed.len());
+    let mut fresh: HashMap<String, (Stamp, bool, FileChange)> = HashMap::new();
+    let (mut to_read, mut to_hash) = (vec![], vec![]);
+    for (k, r) in listed.iter().enumerate() {
+        // A submodule's pointer is worked out every time: it names no file to stat.
+        let pointer = r.modes.iter().any(|m| m == GITLINK);
+        let stat = if r.modes[1] == GONE || pointer { None } else { at.stat(&dir.join(&r.path)) };
+        let stamp = Stamp { status: r.status.clone(), modes: r.modes.clone(), ids: r.ids.clone(), file: stat };
+        // Known as it is: its side there is the same file, or there is none (deleted).
+        let kept = known.files.remove(&r.path).filter(|(s, _, _)| *s == stamp && !pointer && (stamp.file.is_some() || r.modes[1] == GONE));
+        match kept {
+            Some((s, held, c)) if held || !texts => {
+                slots[k] = Some(if texts { c.clone() } else { c.bare() });
+                fresh.insert(r.path.clone(), (s, held, c));
+            }
+            _ if pointer || texts => to_read.push(k),
+            _ => {
+                let c = named(r, stat);
+                slots[k] = Some(c.clone());
+                // Kept (a deleted file too), so a read with texts knows its texts are not held.
+                if stat.is_some() || r.modes[1] == GONE {
+                    fresh.insert(r.path.clone(), (stamp.clone(), false, c));
+                }
+            }
+        }
+        // Named only, and its id wanted: hashed, unless it is over the size limit.
+        let unhashed = slots[k].as_ref().is_some_and(|c| !texts && c.after_mode != GONE && is_null(&c.after_id));
+        if unhashed && !pointer && id_wanted(&r.path) && stat.is_some_and(|s| s.len <= MAX_TEXT as u64) {
+            to_hash.push(k);
+        }
+        stamps.push(stamp);
+    }
+    // Not one over the size limit on its committed side either (sizes from git, in one call).
+    let olds: Vec<String> = to_hash.iter().map(|&k| &listed[k]).filter(|r| r.texted(0)).map(|r| r.ids[0].clone()).collect();
+    let big: std::collections::HashSet<String> = olds.iter().cloned().zip(blob_sizes(at, &dir, &olds)?).filter(|(_, n)| n.is_some_and(|n| n > MAX_TEXT as u64)).map(|(id, _)| id).collect();
+    to_hash.retain(|&k| !(listed[k].texted(0) && big.contains(&listed[k].ids[0])));
+    // The ids wanted: a symlink's from where it points (its own text), any other in one call.
+    let (links, plain): (Vec<usize>, Vec<usize>) = to_hash.into_iter().partition(|&k| listed[k].modes[1] == LINK);
+    let paths: Vec<String> = plain.iter().map(|&k| listed[k].path.clone()).collect();
+    let mut ids: Vec<(usize, Option<String>)> = plain.iter().copied().zip(hashes(at, &dir, &paths)?).collect();
+    for k in links {
+        known.reads += 1;
+        let id = match at.read_link(&dir.join(&listed[k].path)) {
+            Some(text) => hash_text(at, &dir, text)?,
+            None => None,
+        };
+        ids.push((k, id));
+    }
+    for (k, id) in ids {
+        if let (Some(id), Some(c)) = (id, slots[k].as_mut()) {
+            c.after_id = id;
+            // Kept with it, but on a file held with its texts, which a read with texts gives
+            // as from nothing (unhashed: its text stands for it).
+            if let Some(f) = fresh.get_mut(&c.path).filter(|f| !f.1) {
+                f.2.after_id = c.after_id.clone();
+            }
+        }
+    }
+    // Over the size limit on either side: named only, as read as it will be. The committed
+    // side's size from git, for all of them in one call.
+    let olds: Vec<String> = to_read.iter().map(|&k| &listed[k]).filter(|r| r.texted(0)).map(|r| r.ids[0].clone()).collect();
+    let sizes: HashMap<String, u64> = olds.iter().cloned().zip(blob_sizes(at, &dir, &olds)?).filter_map(|(id, n)| Some((id, n?))).collect();
+    to_read.retain(|&k| {
+        let r = &listed[k];
+        let big = stamps[k].file.is_some_and(|s| s.len > MAX_TEXT as u64) || (r.texted(0) && sizes.get(&r.ids[0]).is_some_and(|n| *n > MAX_TEXT as u64));
+        if big {
+            let c = named(r, stamps[k].file);
+            if stamps[k].file.is_some() || r.modes[1] == GONE {
+                fresh.insert(r.path.clone(), (stamps[k].clone(), true, c.clone()));
+            }
+            slots[k] = Some(c);
+        }
+        !big
+    });
+    // What was committed, for every file read in one call, by object id (a name may carry
     // a line break, which ends a line of `cat-file --batch`); what is there now, from disk.
-    let specs: Vec<String> = changed.iter().filter(|r| r.texted(0)).map(|r| r.ids[0].clone()).collect();
+    let specs: Vec<String> = to_read.iter().map(|&k| &listed[k]).filter(|r| r.texted(0)).map(|r| r.ids[0].clone()).collect();
     let mut before = blobs(at, &dir, &specs)?.into_iter();
-    let mut files = vec![];
-    for mut r in changed {
+    let mut read = vec![];
+    for &k in &to_read {
+        let mut r = Raw { status: listed[k].status.clone(), path: listed[k].path.clone(), modes: listed[k].modes.clone(), ids: listed[k].ids.clone() };
+        let path = dir.join(&r.path);
         let before = if r.texted(0) { Some(before.next().flatten().unwrap_or_default()) } else { None };
-        // A symlink's text is where it points (as git stores it), not the file there.
-        let after = if !r.texted(1) { None } else if r.modes[1] == LINK { at.read_link(&dir.join(&r.path)) } else { at.read(&dir.join(&r.path)) };
+        let after = if k >= tracked {
+            // Untracked: whether it is a symlink, from the read itself.
+            known.reads += 1;
+            let got = at.read_new(&path);
+            r.modes[1] = if got.as_ref().is_some_and(|g| g.0) { LINK } else { "100644" }.into();
+            got.map(|g| g.1)
+        } else if !r.texted(1) {
+            None
+        } else {
+            known.reads += 1;
+            // A symlink's text is where it points (as git stores it), not the file there.
+            if r.modes[1] == LINK { at.read_link(&path) } else { at.read(&path) }
+        };
+        // Grown over the limit since its stat, or read over ssh (no stat): named only.
+        if after.as_ref().is_some_and(|a| a.len() > MAX_TEXT) {
+            slots[k] = Some(named(&r, stamps[k].file));
+            continue;
+        }
         // A submodule's pointer, which `--raw` leaves unnamed here: the commit its checkout is
         // at (`git diff` shows that one), when it is checked out (the top of its own work tree).
         // One git cannot read there (gone since git listed it) stays unknown, as an unhashed
@@ -134,31 +330,59 @@ pub fn live_in(at: &Runner, dir: &Path) -> Result<Vec<FileChange>> {
         if r.modes == [GITLINK, GITLINK] && r.ids[0] == r.ids[1] {
             continue;
         }
-        if let Some(c) = change(r, before, after) {
-            files.push(c);
-        }
-    }
-    // git names no mode for an untracked file: as `git add` would take it, a symlink (120000,
-    // its text where it points), else a regular file.
-    // ponytail: an executable one is taken as 100644 too.
-    let untracked = run(at, &dir, &["ls-files", "--others", "--exclude-standard", "-z"], &[])?;
-    for path in split0(&untracked) {
-        let (link, after) = at.read_new(&dir.join(&path)).map_or((false, None), |(l, b)| (l, Some(b)));
-        let r = Raw { status: "A".into(), path, modes: [GONE.into(), if link { LINK } else { "100644" }.into()], ids: [NULL.into(), NULL.into()] };
-        if let Some(c) = change(r, None, after) {
-            files.push(c);
+        if let Some(mut c) = change(r, before, after) {
+            c.stamp = stamps[k].file;
+            read.push((k, c));
         }
     }
     // A binary side git has not hashed has no text to stand for it: the id `git add` would
     // give it.
-    let unhashed: Vec<usize> = (0..files.len()).filter(|&k| files[k].after_binary && is_null(&files[k].after_id)).collect();
-    let paths: Vec<String> = unhashed.iter().map(|&k| files[k].path.clone()).collect();
+    let unhashed: Vec<usize> = (0..read.len()).filter(|&k| read[k].1.after_binary && is_null(&read[k].1.after_id)).collect();
+    let paths: Vec<String> = unhashed.iter().map(|&k| read[k].1.path.clone()).collect();
     for (&k, id) in unhashed.iter().zip(hashes(at, &dir, &paths)?) {
         if let Some(id) = id {
-            files[k].after_id = id;
+            read[k].1.after_id = id;
         }
     }
-    Ok(files)
+    for (k, c) in read {
+        // Kept for next time where there is a stat to tell it is the same file (not over ssh).
+        if !listed[k].modes.iter().any(|m| m == GITLINK) && (stamps[k].file.is_some() || listed[k].modes[1] == GONE) {
+            fresh.insert(c.path.clone(), (stamps[k].clone(), true, c.clone()));
+        }
+        slots[k] = Some(c);
+    }
+    // Files no longer changed are forgotten.
+    known.files = fresh;
+    Ok(slots.into_iter().flatten().collect())
+}
+
+/// A file by its name and git entries only: its texts not read, its lines not counted.
+fn named(r: &Raw, stat: Option<FileStat>) -> FileChange {
+    FileChange { path: r.path.clone(), status: r.status.clone(), add: 0, del: 0, before: None, after: None, before_mode: r.modes[0].clone(), before_id: r.ids[0].clone(), after_mode: r.modes[1].clone(), after_id: r.ids[1].clone(), before_binary: false, after_binary: false, uncounted: true, stamp: stat }
+}
+
+/// The id git gives `bytes` as an object's content (`hash-object --stdin`); None where git
+/// cannot tell.
+fn hash_text(at: &Runner, dir: &Path, bytes: Vec<u8>) -> Result<Option<String>> {
+    match run_with(at, dir, &["hash-object", "--stdin"], &[], Some(bytes)) {
+        Ok(out) => Ok(Some(String::from_utf8_lossy(&out).trim().to_string()).filter(|s| !s.is_empty())),
+        Err(Error::Git(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Which of `paths` (in the work tree `dir`) git ignores, as `.gitignore` and the like say:
+/// one call for all. A tracked file is never ignored.
+pub fn ignored(at: &Runner, dir: &Path, paths: &[PathBuf]) -> Result<std::collections::HashSet<PathBuf>> {
+    let names: Vec<(&PathBuf, String)> = paths.iter().filter_map(|p| Some((p, p.strip_prefix(dir).ok()?.to_string_lossy().into_owned()))).filter(|(_, n)| !n.is_empty()).collect();
+    if names.is_empty() {
+        return Ok(Default::default());
+    }
+    let input: Vec<u8> = names.iter().flat_map(|(_, n)| n.bytes().chain([0])).collect();
+    // 1: none of them is ignored.
+    let out = run_with(at, dir, &["check-ignore", "--stdin", "-z"], &[1], Some(input))?;
+    let hit: std::collections::HashSet<String> = split0(&out).collect();
+    Ok(names.into_iter().filter(|(_, n)| hit.contains(n)).map(|(p, _)| p.clone()).collect())
 }
 
 /// The ids `git add` would give the files at `paths`, all in one call; None for one git
@@ -214,7 +438,7 @@ pub(crate) fn change(r: Raw, before: Option<Vec<u8>>, after: Option<Vec<u8>>) ->
     let (before, after) = (text(before, before_binary)?, text(after, after_binary)?);
     let (add, del) = if lined { counts(before.as_deref().unwrap_or_default(), after.as_deref().unwrap_or_default()) } else { (0, 0) };
     let Raw { status, path, modes: [before_mode, after_mode], ids: [before_id, after_id] } = r;
-    Some(FileChange { add, del, before, after, path, status, before_mode, before_id, after_mode, after_id, before_binary, after_binary })
+    Some(FileChange { add, del, before, after, path, status, before_mode, before_id, after_mode, after_id, before_binary, after_binary, uncounted: false, stamp: None })
 }
 
 pub(crate) fn split0(out: &[u8]) -> impl Iterator<Item = String> + '_ {

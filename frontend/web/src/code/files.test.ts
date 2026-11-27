@@ -350,8 +350,23 @@ describe('a base merged into the branch is not the unit\'s change', () => {
   })
 
   it('the merge adds no lines of its own to the commit list\'s counts', () => {
-    expect(commitStats(across.commits[1])).toEqual({ files: 0, add: 0, del: 0 })
-    expect(commitStats(across.commits[0])).toEqual({ files: 1, add: 1, del: 1 })
+    expect(commitStats(across.commits[1])).toEqual({ files: 0, add: 0, del: 0, counted: true })
+    expect(commitStats(across.commits[0])).toEqual({ files: 1, add: 1, del: 1, counted: true })
+  })
+
+  it('uncommitted work over the size limit is a change with no lines, said so', () => {
+    // Added, its text not read: no text, no id, no counts.
+    const big = { ...change('big.txt', null, null), afterMode: '100644', afterId: NULL, add: 0, del: 0, uncounted: true }
+    const live = { ...commit('live', [big]), live: true }
+    const u = { ...across, commits: [...across.commits, live] } as Unit
+    const d = shownDelta(u, selectionOf(u, null), 'big.txt')!
+    expect(d.parts[0]).toMatchObject({ uncounted: true, add: 0, del: 0 })
+  })
+
+  it('uncommitted work read for its names only has no line counts', () => {
+    const named = { ...change('a.txt', null, null), add: 0, del: 0, uncounted: true }
+    const live = { ...commit('live', [named, change('b.txt', 'one\n', 'one\ntwo\n')]), live: true }
+    expect(commitStats(live)).toMatchObject({ files: 2, counted: false })
   })
 
   it('uncommitted work goes on top of the net change', () => {

@@ -95,6 +95,7 @@ workspace.intents[].units[].commits[].files[].beforeMode: string
 workspace.intents[].units[].commits[].files[].del: number
 workspace.intents[].units[].commits[].files[].path: string
 workspace.intents[].units[].commits[].files[].status: string
+workspace.intents[].units[].commits[].files[].uncounted: bool
 workspace.intents[].units[].commits[].files[]: object
 workspace.intents[].units[].commits[].id: string
 workspace.intents[].units[].commits[].live: bool

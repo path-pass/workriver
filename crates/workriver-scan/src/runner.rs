@@ -61,6 +61,21 @@ impl Runner {
         }
     }
 
+    /// A work-tree file as one stat sees it (a symlink's own, not what it points to); None
+    /// over ssh (each file would cost a process: such a file is read every time) and for one
+    /// that cannot be read.
+    pub(crate) fn stat(&self, path: &Path) -> Option<FileStat> {
+        use std::os::unix::fs::MetadataExt;
+        match self {
+            Runner::Local => {
+                let m = std::fs::symlink_metadata(path).ok()?;
+                let ns = |s: i64, n: i64| s as i128 * 1_000_000_000 + n as i128;
+                Some(FileStat { len: m.len(), mtime: ns(m.mtime(), m.mtime_nsec()), ctime: ns(m.ctime(), m.ctime_nsec()), ino: m.ino(), link: m.is_symlink() })
+            }
+            Runner::Ssh { .. } => None,
+        }
+    }
+
     /// A file there that git does not track yet, as `git add` would take it: a symlink
     /// (true) with where it points, or the file's bytes. None if it cannot be read.
     pub(crate) fn read_new(&self, path: &Path) -> Option<(bool, Vec<u8>)> {
@@ -92,6 +107,19 @@ impl Runner {
             }
         }
     }
+}
+
+/// A work-tree file as one stat sees it: what stands for its bytes until any of it changes.
+/// The change time and the inode catch what size and modification time alone miss (a write
+/// that kept the time, a file replaced by another): neither can be set back by hand.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct FileStat {
+    pub len: u64,
+    /// Modification and change times, in ns since the epoch.
+    pub mtime: i128,
+    pub ctime: i128,
+    pub ino: u64,
+    pub link: bool,
 }
 
 /// How many git processes were run, here and over ssh: for the timing log.

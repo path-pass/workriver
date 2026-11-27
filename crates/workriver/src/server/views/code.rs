@@ -8,7 +8,9 @@ pub(super) fn code(state: &core::State, cache: &mut Cache, live: Option<&[Runtim
     let u = state.units.iter().find(|u| u.id == id && u.has_code())?;
     cache.refs.clear();
     cache.worktrees.clear();
+    cache.read_live.clear();
     (cache.recomputed, cache.reused) = (0, 0);
+    cache.take_marks();
     let mut shown = unit(state, live.unwrap_or_default(), u, cache, &Names(HashMap::new()), None);
     if state.reduced {
         hide_unit(&mut shown);
@@ -264,6 +266,10 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
             cache.dirty = true;
         }
     }
+    // Merged: its work tree's work is no longer the unit's; what was held of it goes.
+    if u.merged.is_some() && cache.live.remove(&u.id).is_some() {
+        cache.release(&u.id);
+    }
     let files = if u.merged.is_some() || cache.light {
         vec![]
     } else {
@@ -273,16 +279,102 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
             cache.worktrees.insert(key.clone(), w);
         }
         match cache.worktrees.get(&key).and_then(|w| w.get(&u.branch)).cloned() {
-            None => vec![],
-            Some(dir) => scan::live_in(at, &dir).unwrap_or_else(|e| {
+            None => {
+                cache.live.remove(&u.id);
+                vec![]
+            }
+            // Another machine's work tree cannot be watched: read every time, as it is.
+            Some(dir) if u.machine.is_some() => scan::live_in(at, &dir).unwrap_or_else(|e| {
                 tracing::warn!("unit {}: {e}", u.id);
                 vec![]
             }),
+            Some(dir) => {
+                // The files its commits changed: whether the work tree put one back is told by
+                // its id where its text is not read (`changed_paths`).
+                let ends: BTreeSet<String> = match &net {
+                    Some((_, files)) => files.iter().map(|f| f.path.clone()).collect(),
+                    None => commits.iter().flat_map(|c| c.files.iter().map(|f| f.path.clone())).collect(),
+                };
+                live_work(at, u, &dir, cache, ends)
+            }
         }
     };
     let ms = started.elapsed().as_millis() as u64;
     tracing::info!(target: "perf", kind = "unit", unit = %u.id, machine = u.machine.as_deref().unwrap_or("local"), ms, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, commits = commits.len(), light = cache.light, slow = ms >= crate::common::config::defaults::SLOW_MS);
     (commits, files, net)
+}
+
+/// A local unit's uncommitted work in its work tree `dir`: as read last while the watcher
+/// followed that work tree (since before that read) and saw nothing change there or in what
+/// it is checked out against (`Cache::take_marks`), if that read had what this one needs;
+/// else read again, without reading the files known by then again (`scan::live_with`), but
+/// those the watcher named. A work tree not followed yet is registered first, so a change
+/// after this read is seen. Texts (and line counts) in a build with texts (`code`), held for
+/// the last few units so read (`Cache::hold_texts`); names only for the board, with the ids of
+/// those among `ends` (the files its commits changed).
+fn live_work(at: &scan::Runner, u: &core::Unit, dir: &Path, cache: &mut Cache, ends: BTreeSet<String>) -> Vec<scan::FileChange> {
+    let texts = !cache.bare;
+    let real = real_dir(dir);
+    let followed = cache.follow(&real);
+    if let Some(l) = cache.live.get(&u.id).filter(|l| followed.is_some() && l.followed == followed && l.dir == dir && !l.stale) {
+        // For the board, the ids of the files its net change has now (a moved base adds some).
+        if !texts && ends.is_subset(&l.ends) {
+            return l.files.clone();
+        }
+        // Held texts answer a read with texts only; the board's missing ids are read below.
+        if texts && let Some(files) = l.known.with_texts(&l.files) {
+            cache.hold_texts(&u.id);
+            return files;
+        }
+    }
+    let mut l = match cache.live.remove(&u.id).filter(|l| l.dir == dir) {
+        Some(l) => l,
+        None => {
+            let Ok((git, common)) = scan::git_dirs(at, dir) else {
+                tracing::warn!("unit {}: cannot tell the git folders of {}", u.id, dir.display());
+                return vec![];
+            };
+            Live { dir: dir.to_path_buf(), real, git: real_dir(&git), common: real_dir(&common), branch: u.branch.clone(), ..Default::default() }
+        }
+    };
+    let touched = std::mem::take(&mut l.touched);
+    l.known.forget(touched.iter().map(String::as_str));
+    cache.read_live.push(u.id.clone());
+    let want = if texts { scan::Want::Texts } else { scan::Want::Names(ends.iter().cloned().collect()) };
+    let unhashed = |f: &scan::FileChange| f.after_mode != "000000" && f.after_id.bytes().all(|b| b == b'0');
+    match scan::live_with(at, dir, &mut l.known, &want) {
+        Ok(files) => {
+            (l.followed, l.stale) = (followed, false);
+            // A read with texts compares texts, not ids: the ids a names-only read took stay
+            // with their files where those are the same; what has none is read again for them.
+            let ids: HashMap<String, (Option<scan::FileStat>, String)> = l.files.iter().filter(|f| !unhashed(f)).map(|f| (f.path.clone(), (f.stamp, f.after_id.clone()))).collect();
+            l.files = files
+                .iter()
+                .map(|f| {
+                    let mut b = f.bare();
+                    if let Some((stamp, id)) = ids.get(&b.path).filter(|(s, _)| unhashed(&b) && *s == b.stamp) {
+                        (b.stamp, b.after_id) = (*stamp, id.clone());
+                    }
+                    b
+                })
+                .collect();
+            if texts {
+                let without: BTreeSet<&str> = l.files.iter().filter(|f| unhashed(f)).map(|f| f.path.as_str()).collect();
+                l.ends.retain(|p| !without.contains(p.as_str()));
+            } else {
+                l.ends = ends;
+            }
+            cache.live.insert(u.id.clone(), l);
+            if texts {
+                cache.hold_texts(&u.id);
+            }
+            files
+        }
+        Err(e) => {
+            tracing::warn!("unit {}: {e}", u.id);
+            vec![]
+        }
+    }
 }
 
 /// Whether a ready unit git does not show merged looks squash-merged (`scan::squashed`):
@@ -322,7 +414,8 @@ pub(super) fn bare_commit(c: &scan::Commit) -> scan::Commit {
 
 /// Which texts a unit's commits, net change and uncommitted files have: its commits' hashes
 /// (a commit never changes), its net change's ends (they change with the base, the commits
-/// the same) and its uncommitted texts and git entries (a mode changed alone changes it).
+/// the same) and its uncommitted files' git entries (a mode changed alone changes it) and
+/// what stands for their bytes.
 pub(super) fn code_of(commits: &[scan::Commit], files: &[scan::FileChange], net: Option<&NetRead>) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -330,8 +423,16 @@ pub(super) fn code_of(commits: &[scan::Commit], files: &[scan::FileChange], net:
         c.hash.hash(&mut h);
     }
     net.map(|n| &n.0).hash(&mut h);
+    // A work-tree file seen here stands for its bytes by its size and time, read or not (names
+    // only, or texts), so the token is the same however much of it was read; one over ssh by
+    // its text and the id `git add` would give it.
     for f in files {
-        (&f.path, &f.status, &f.before, &f.after, &f.before_mode, &f.before_id, &f.after_mode, &f.after_id).hash(&mut h);
+        (&f.path, &f.status, &f.before_mode, &f.before_id, &f.after_mode).hash(&mut h);
+        match f.stamp {
+            Some(s) => s.hash(&mut h),
+            // Its committed side is its id; a work-tree side with no stat (over ssh), its text.
+            None => (&f.after, &f.after_id).hash(&mut h),
+        }
     }
     format!("{:016x}", h.finish())
 }
@@ -369,9 +470,9 @@ pub(super) fn earlier_commits(u: &core::Unit, now: &[scan::Commit], patch: &Hash
 /// a file whose entry where the first of them starts differs from its entry where the last
 /// ends; without a net change (git could not tell), its commits and uncommitted work taken
 /// together (the page's `fileDelta`), a file there at neither end left out. An empty net
-/// change is the unit's: its commits do not stand in for it. Texts must be there: uncommitted
-/// work's side has no object id (git has not hashed it), so its text is compared, as the
-/// page compares it.
+/// change is the unit's: its commits do not stand in for it. Uncommitted work's side has no
+/// object id unless it was hashed (a file of the commits' read for its name, `live_work`), so
+/// its text is compared, as the page compares it; one with neither counts as changed.
 pub(super) fn changed_paths(commits: &[&scan::Commit], live: &[scan::FileChange], net: Option<&[scan::FileChange]>) -> BTreeSet<String> {
     let mut ends: BTreeMap<&str, (&scan::FileChange, &scan::FileChange)> = BTreeMap::new();
     let earlier: Vec<&scan::FileChange> = match net {
@@ -386,10 +487,11 @@ pub(super) fn changed_paths(commits: &[&scan::Commit], live: &[scan::FileChange]
 }
 
 /// Whether a file is the same at two ends (the page's `same`): the same mode and object id;
-/// for a side git has not hashed (uncommitted work), the same text.
+/// for a side git has not hashed (uncommitted work), the same text, when it was read.
 fn same(first: &scan::FileChange, last: &scan::FileChange) -> bool {
     let unhashed = last.after_mode != GONE && last.after_id.bytes().all(|b| b == b'0');
-    first.before_mode == last.after_mode && if unhashed { first.before == last.after } else { first.before_id == last.after_id }
+    // Without its text (read for its names only, or not readable) it is not known to be the same.
+    first.before_mode == last.after_mode && if unhashed { last.after.is_some() && first.before == last.after } else { first.before_id == last.after_id }
 }
 
 /// git's mode for a side that does not exist.

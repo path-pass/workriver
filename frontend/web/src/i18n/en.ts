@@ -1032,6 +1032,7 @@ export const en = {
     M: 'Modified',
     D: 'Deleted',
     binary: 'Binary files differ',
+    uncounted: 'Over 512 KB: not read, lines not counted',
     pointerMoved: 'Submodule commit {{from}} → {{to}}',
     pointerAdded: 'Submodule at commit {{to}}',
     pointerRemoved: 'Submodule was at commit {{from}}',

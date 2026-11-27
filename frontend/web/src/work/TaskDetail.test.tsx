@@ -16,6 +16,7 @@ import { Detail } from './TaskDetail'
 import { AgentContext } from '@/agents/context'
 import type { AgentRef, Session } from '@/agents/types'
 import { TaskDraftsContext, useTaskDrafts } from './drafts'
+import { useCode } from '@/code/useCode'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -295,4 +296,37 @@ describe('a task’s waiting line and terminal button', () => {
     expect(answer()).toBeUndefined()
     expect(terminal()).toBeNull()
   })
+})
+
+it('shows uncommitted line counts from the code read for the same state of the unit', () => {
+  const writer: Task = { ...gate, kind: 'implement', gate: undefined, state: 'running', title: 'Write', output: { commits: ['uncommitted'] } }
+  const file = (counted: boolean) => ({ path: 'a.txt', status: 'M', add: counted ? 3 : 0, del: counted ? 1 : 0, uncounted: !counted, before: null, after: null, lines: [], beforeMode: '100644', beforeId: '1', afterMode: '100644', afterId: '0' })
+  const named = { ...unit(writer), code: 't1', commits: [{ id: 'uncommitted', subject: '', date: '', author: '', live: true, files: [file(false)] }] } as unknown as Unit
+  const coded = (code: string) => ({ ...named, code, commits: [{ ...named.commits[0], files: [file(true)] }] }) as Unit
+  const shown = (c: Unit | null) => {
+    act(() => root.render(<FormProviders><Detail unit={named} coded={c} n={writer} onPick={() => {}} talk={talk} /></FormProviders>))
+    return host.textContent ?? ''
+  }
+  expect(shown(null)).not.toContain('+3')
+  expect(shown(coded('t1'))).toContain('+3 −1')
+  expect(shown(coded('t0')), 'read for another state of the unit').not.toContain('+3')
+})
+
+it('ignores a code response whose token is newer than the snapshot', async () => {
+  const writer: Task = { ...gate, kind: 'implement', gate: undefined, state: 'running', title: 'Write', output: { commits: ['uncommitted'] } }
+  const file = { path: 'a.txt', status: 'M', add: 0, del: 0, uncounted: true, before: null, after: null, lines: [], beforeMode: '100644', beforeId: '1', afterMode: '100644', afterId: '0'.repeat(40) }
+  const commit = { id: 'uncommitted', subject: '', date: '', author: '', live: true, files: [file] }
+  const named = { ...unit(writer), id: 'token-race', code: 'snapshot-A', commits: [commit] } as unknown as Unit
+  const response = { code: 'code-B', commits: [{ id: commit.id, files: [{ ...file, before: 'one\n', after: 'one\na\nb\nc\n', add: 3, uncounted: false }] }] }
+  const fetch = vi.fn(async () => new Response(JSON.stringify(response)))
+  vi.stubGlobal('fetch', fetch)
+  function Current({ snapshot }: { snapshot: Unit }) {
+    const coded = useCode(snapshot)
+    return <FormProviders><Detail unit={snapshot} coded={coded} n={writer} onPick={() => {}} talk={talk} /></FormProviders>
+  }
+  await act(async () => { root.render(<Current snapshot={named} />) })
+  expect(fetch).toHaveBeenCalledOnce()
+  expect(host.textContent).not.toContain('+3 −0')
+  await act(async () => { root.render(<Current snapshot={{ ...named, code: response.code }} />) })
+  expect(host.textContent).toContain('+3 −0')
 })

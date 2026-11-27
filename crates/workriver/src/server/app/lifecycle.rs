@@ -7,36 +7,72 @@ use crate::server::commands::{review, shell};
 /// How often the runtime's agents are read.
 pub(in crate::server) const POLL: Duration = Duration::from_secs(2);
 
-/// The git changes that can change what is shown: work-tree files, refs and HEAD.
+/// The changes that can change what is shown: a work tree's files (its own lock files too),
+/// and in a git folder a ref, HEAD, packed-refs or an index (a `git add` changes what is
+/// uncommitted); not git's own lock files there, its logs or its objects.
 // ponytail: node_modules and target are skipped by name, not by .gitignore; check ignores if a repo tracks such a folder.
 pub(in crate::server) fn worth_a_look(path: &Path) -> bool {
     let parts: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
-    if parts.iter().any(|p| p == "node_modules" || p == "target") || parts.last().is_some_and(|p| p.ends_with(".lock")) {
+    if parts.iter().any(|p| p == "node_modules" || p == "target") {
         return false;
     }
-    match parts.iter().position(|p| p == ".git") {
-        None => true,
-        Some(k) => parts[k..].iter().any(|p| p == "refs" || p == "HEAD" || p == "packed-refs"),
+    let Some(k) = parts.iter().position(|p| p == ".git") else { return true };
+    let inner = &parts[k + 1..];
+    let Some(name) = inner.last() else { return false };
+    if name.ends_with(".lock") || inner.iter().any(|p| p == "logs" || p == "objects") {
+        return false;
     }
+    matches!(name.as_ref(), "HEAD" | "index" | "packed-refs") || inner.iter().any(|p| p == "refs")
+}
+
+/// Takes what the watcher found changed: the paths that can change what is shown
+/// (`worth_a_look`) and git does not ignore (asked once per work tree they are in, the
+/// deepest; a path in a git folder is never ignored) go to `marks`, for the next build to
+/// read the units they are in again (`Cache::take_marks`). Whether there was any: then the
+/// page is told.
+pub(in crate::server) fn noticed<'a>(marks: &Mutex<views::Marks>, paths: impl Iterator<Item = &'a Path>) -> bool {
+    let paths: Vec<PathBuf> = paths.filter(|p| worth_a_look(p)).map(real).collect();
+    if paths.is_empty() {
+        return false;
+    }
+    let roots = marks.lock().unwrap().watched.clone();
+    let mut by: std::collections::HashMap<PathBuf, Vec<PathBuf>> = Default::default();
+    let mut kept = vec![];
+    for p in paths {
+        let in_git = p.components().any(|c| c.as_os_str() == ".git");
+        match roots.iter().filter(|r| p.starts_with(r)).max_by_key(|r| r.as_os_str().len()) {
+            Some(r) if !in_git => by.entry(r.clone()).or_default().push(p),
+            _ => kept.push(p),
+        }
+    }
+    for (root, paths) in by {
+        // Where git cannot tell (no work tree there), none is taken as ignored.
+        let ignored = scan::ignored(&scan::Runner::Local, &root, &paths).unwrap_or_default();
+        kept.extend(paths.into_iter().filter(|p| !ignored.contains(p)));
+    }
+    if kept.is_empty() {
+        return false;
+    }
+    marks.lock().unwrap().paths.extend(kept);
+    true
+}
+
+/// A changed path as the file system names its folder (symlinks resolved there), its last
+/// part as the event named it: a symlink is its own entry, never what it points to.
+pub(in crate::server) fn real(p: &Path) -> PathBuf {
+    (|| Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?)))().unwrap_or_else(|| p.to_path_buf())
 }
 
 impl App {
     /// Watches a unit's repository: its work tree, the work tree of its branch, and the
-    /// git folder where refs move.
+    /// git folder where refs move (`views::register`; one already followed is not again).
     pub(in crate::server) fn watch(&self, repo: &Path, branch: &str) {
         let here = scan::Runner::Local;
         let mut paths = vec![repo.to_path_buf()];
         paths.extend(scan::common_dir(&here, repo).ok());
         paths.extend(scan::worktree_of(&here, repo, branch).ok().flatten());
-        let mut watcher = self.watcher.lock().unwrap();
-        let Some(w) = watcher.as_mut() else { return };
-        let mut seen = self.watched.lock().unwrap();
         for p in paths {
-            if seen.insert(p.clone())
-                && let Err(e) = w.watcher().watch(&p, RecursiveMode::Recursive)
-            {
-                tracing::warn!("cannot watch {}: {e}", p.display());
-            }
+            views::register(&self.watcher, &self.marks, &p);
         }
     }
 

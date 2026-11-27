@@ -7,8 +7,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use notify_debouncer_mini::Debouncer;
-use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use tokio::sync::{broadcast, watch};
 use workriver_core::ports::{DataError, WorkStore};
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
@@ -112,8 +110,10 @@ pub(super) struct App {
     pub(super) home: PathBuf,
     /// Where harnesses keep their sessions on this machine (a task's trace).
     pub(super) sessions: views::trace::Sessions,
-    pub(super) watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
-    pub(super) watched: Mutex<HashSet<PathBuf>>,
+    /// The watcher of this machine's repositories, shared with the cache (`views::Watcher`).
+    pub(super) watcher: views::Watcher,
+    /// What the watcher saw change, for the snapshots (`views::Marks`); the cache's own.
+    pub(super) marks: Arc<Mutex<views::Marks>>,
     /// The other machines, when the runtime follows any.
     pub(super) machines: Option<Arc<Machines>>,
     /// CPU and memory of this machine and the followed ones, and their alerts.

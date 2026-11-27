@@ -299,7 +299,9 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
     cache.refs.clear();
     cache.worktrees.clear();
     cache.changed.clear();
+    cache.read_live.clear();
     (cache.recomputed, cache.reused) = (0, 0);
+    cache.take_marks();
     let machines = cache.machines.as_ref().map(|m| m.states()).unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
     let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().filter(|u| u.has_code()).map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
@@ -607,6 +609,10 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     // What it changes, for the files another open unit changes too: from the texts, which a
     // bare build leaves out of what it shows but has read (`Cache::nets`, `Cache::commits`;
     // another machine's as the background read them, in full).
+    // Closed: nothing of it is held with its texts.
+    if !open_work(state, u) && cache.texted.contains(&u.id) {
+        cache.release(&u.id);
+    }
     if !cache.light && open_work(state, u) {
         let net = net.as_ref().map(|(id, files)| cache.nets.get(id).unwrap_or(files).as_slice());
         let full: Vec<&scan::Commit> = if net.is_some() { vec![] } else { commits.iter().map(|c| cache.commits.get(&c.hash).unwrap_or(c)).collect() };

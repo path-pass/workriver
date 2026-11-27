@@ -61,6 +61,19 @@ pub(crate) fn blobs(at: &Runner, dir: &Path, specs: &[String]) -> Result<Vec<Opt
     Ok(found)
 }
 
+/// The sizes of the objects `specs` names, in one call (`cat-file --batch-check`), in order;
+/// None for one git does not have.
+pub(crate) fn blob_sizes(at: &Runner, dir: &Path, specs: &[String]) -> Result<Vec<Option<u64>>> {
+    if specs.is_empty() {
+        return Ok(vec![]);
+    }
+    let input = specs.iter().map(|s| format!("{s}\n")).collect::<String>().into_bytes();
+    let out = run_with(at, dir, &["cat-file", "--batch-check"], &[], Some(input))?;
+    let mut found: Vec<Option<u64>> = String::from_utf8_lossy(&out).lines().map(|l| l.rsplit(' ').next().and_then(|n| n.parse().ok()).filter(|_| !l.ends_with(" missing"))).collect();
+    found.resize(specs.len(), None);
+    Ok(found)
+}
+
 /// Many commits with their files' texts before and after, in two git calls whatever their
 /// number (`git log --raw` for what changed, `git cat-file --batch` for the texts); a merge
 /// against its first parent. Falls back to one at a time where git is too old for that.

@@ -140,6 +140,104 @@ fn browser_workspace_shows_records_before_git_and_notifies_when_ready() {
     assert!(light["repos"][0]["modules"]["children"].as_array().unwrap().is_empty());
 }
 
+/// The unit open on the page (its code read) is followed: a file changed in its work tree
+/// tells the page, and the next snapshot names the new file with a new code token, which the
+/// code read follows with its texts and counts. Uncommitted work is on the board by name,
+/// without counts but those its code read found.
+#[test]
+fn the_open_unit_is_followed_and_the_others_named() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::time::{Duration, Instant};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let repo = root.join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join(".gitignore"), "build/\n").unwrap();
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "Base"]);
+    for b in ["one", "two"] {
+        git(&repo, &["worktree", "add", "-q", "-b", &format!("feat/{b}"), &root.join(b).to_string_lossy()]);
+        std::fs::write(root.join(b).join("a.txt"), format!("a\n{b}\n")).unwrap();
+    }
+
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", workriver_core::runtime::AgentState::Idle))];
+    let (user, kernel) = daemon_and(fake, &root.join("w.db"), Default::default());
+    let boss = kernel.daemon(user.port, Some("p1".into()), None);
+    let ws = seat_at(&user, &boss);
+    user.append("", "intent.created", json!({ "title": "Follow", "state": "planned" })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
+    for b in ["one", "two"] {
+        boss.append("", "unit.created", json!({ "template": "bare", "intent": "i1", "title": b, "repo": repo, "branch": format!("feat/{b}"), "base": "main" })).unwrap();
+    }
+
+    let port = user.port;
+    let origin = format!("http://127.0.0.1:{port}");
+    let link = user.call("/api/session/code", Some(json!({}))).unwrap();
+    let code = link["url"].as_str().unwrap().split_once("#k=").unwrap().1;
+    let (status, answer) = http(port, "POST", "/api/session", &[("Origin", &origin)], Some(&json!({ "code": code }).to_string()));
+    assert_eq!(status, 200, "{answer}");
+    let cookie = answer.lines().find(|l| l.starts_with("set-cookie:")).unwrap().split_once(':').unwrap().1.split(';').next().unwrap().trim().to_string();
+    let browser = |path: &str| {
+        let (status, answer) = http(port, "GET", path, &[("Cookie", &cookie)], None);
+        assert_eq!(status, 200, "{answer}");
+        serde_json::from_str::<serde_json::Value>(answer.split_once("\r\n\r\n").unwrap().1).unwrap()
+    };
+    let unit = |ws: &serde_json::Value, id: &str| ws["intents"][0]["units"].as_array().unwrap().iter().find(|u| u["id"] == id).unwrap().clone();
+    // The board once Git is read (the first browser read is the records alone).
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let board = loop {
+        let ws = browser("/api/workspace");
+        if ws["gitPending"] != true {
+            break ws;
+        }
+        assert!(Instant::now() < deadline, "git is read");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    for id in ["u1", "u2"] {
+        let file = &unit(&board, id)["commits"][0]["files"][0];
+        assert_eq!((file["path"].as_str(), file["uncounted"].as_bool()), (Some("a.txt"), Some(true)), "{id}: named, not read");
+    }
+
+    // u1 opened: its code, with the texts; the next snapshot has its counts, the same token.
+    let read = browser("/api/unit/u1/code");
+    assert_eq!(read["commits"][0]["files"][0]["after"], "a\none\n");
+    let opened = unit(&browser("/api/workspace"), "u1");
+    assert_eq!(opened["commits"][0]["files"][0]["add"], 1);
+    assert!(opened["commits"][0]["files"][0].get("uncounted").is_none());
+    assert_eq!(opened["code"], unit(&board, "u1")["code"], "the same files: no code read again");
+
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    write!(stream, "GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").unwrap();
+    let mut events = BufReader::new(stream);
+    let mut line = String::new();
+    assert!(events.read_line(&mut line).unwrap() > 0 && line.starts_with("HTTP/1.1 200"), "{line}");
+    while line != "\r\n" {
+        line.clear();
+        assert!(events.read_line(&mut line).unwrap() > 0);
+    }
+    std::fs::write(root.join("one/a.txt"), "a\none\nmore\n").unwrap();
+    let changed = loop {
+        line.clear();
+        assert!(events.read_line(&mut line).expect("the page hears of the open unit's change") > 0);
+        if line.starts_with("event: changed") {
+            let u = unit(&browser("/api/workspace"), "u1");
+            if u["code"] != opened["code"] {
+                break u;
+            }
+        }
+    };
+    assert_eq!(changed["commits"][0]["files"][0]["uncounted"], true, "the board names it; its counts are the code's");
+    let code = browser("/api/unit/u1/code");
+    assert_eq!((code["commits"][0]["files"][0]["after"].as_str(), code["commits"][0]["files"][0]["add"].as_u64()), (Some("a\none\nmore\n"), Some(2)));
+    assert_eq!(code["code"], changed["code"], "the same token");
+    assert_eq!(unit(&browser("/api/workspace"), "u2")["code"], unit(&board, "u2")["code"], "u2 as it was");
+}
+
 /// A commit made without its trailer is linked to its task by hand; and a unit whose work
 /// is rebased onto a new branch stays one unit: its commits are read from the new branch,
 /// the link follows its commit to the new hash, and what only the old branch had is told.

@@ -399,10 +399,15 @@ fn blind_reviews() {
     assert!(unit["commits"][0]["id"].as_str().unwrap().len() >= 7 && unit["commits"][0]["subject"] == "" && unit["commits"][0]["files"].as_array().unwrap().is_empty(), "{}", unit["commits"]);
     assert_eq!(unit["tasks"][0]["blind"], true);
     // Nor the code's texts, uncommitted work included: the code is read from git, by hash.
+    // Once the watcher saw it (the user's read shows it), the blind reviewer's still does not.
     std::fs::write(repo.join("auth.rs"), "fn check() { SECRET-LIVE }\n").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !user.get("/api/unit/u1/code").unwrap().to_string().contains("SECRET-LIVE") {
+        assert!(std::time::Instant::now() < deadline, "the user sees them");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     let code = sec.get("/api/unit/u1/code").unwrap();
     assert!(code["commits"].as_array().unwrap().iter().all(|c| c["files"].as_array().unwrap().is_empty()) && code["code"].is_null(), "{code}");
-    assert!(user.get("/api/unit/u1/code").unwrap().to_string().contains("SECRET-LIVE"), "the user sees them");
     assert!(ws["messages"].as_array().is_none_or(|m| m.is_empty()) && state["messages"].as_array().is_none_or(|m| m.is_empty()), "no messages");
     for hidden in ["SECRET-NOTE", "SECRET-EVIDENCE", "SECRET-SUBJECT", "SECRET-MESSAGE", "Try it", "SECRET-LIVE", "fn check", theirs.as_str()] {
         assert!(!text.contains(hidden) && !ws.to_string().contains(hidden) && !code.to_string().contains(hidden), "{hidden} is hidden");
