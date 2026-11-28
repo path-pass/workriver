@@ -1,8 +1,6 @@
 // The hosts as a runtime: each published host's root is its agent's place (`acp:a7/1`), a
 // host not published yet is a place that is starting, and a message is a prompt with its
 // delivery key. Only this machine has hosts.
-use std::time::Duration;
-
 use workriver_core::runtime::{AgentState, Place, Root, Runtime, RuntimeAgent, RuntimeError};
 
 use super::service::{HostError, Hosts, Published, runs};
@@ -29,10 +27,7 @@ fn quiet(p: &Published) -> RuntimeAgent {
 
 impl Hosts {
     fn agent(&self, id: &str, p: &Published) -> RuntimeAgent {
-        let word = match self.status_for(id, Duration::from_secs(2)) {
-            Ok(s) => s.state,
-            Err(_) => String::new(),
-        };
+        let word = self.snapshot_status(id).map_or_else(String::new, |s| s.state);
         RuntimeAgent { state: if self.alive(id) { state(&word) } else { AgentState::Unknown }, ..quiet(p) }
     }
 

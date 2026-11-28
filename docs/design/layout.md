@@ -431,6 +431,7 @@ crates/workriver/
 │   │   │   ├── mod.rs                # The host command entry point; what the facade re-exports.
 │   │   │   ├── service.rs            # The service's side: spawn, roots as spawned, one kept
 │   │   │   │                         # connection per host, the journal read without its writer.
+│   │   │   ├── service/tests.rs      # Host connection loss, reconnects and connection epochs.
 │   │   │   ├── side.rs               # The hosts as a Runtime: published roots, starting roots,
 │   │   │   │                         # prompts with delivery keys.
 │   │   │   ├── host/                 # Socket protocol, pending approvals and lifecycle.
@@ -444,7 +445,8 @@ crates/workriver/
 │   │   │   │   ├── mod.rs            # Native launch and environment, account checks and ACP projection.
 │   │   │   │   ├── tests.rs          # Translation and native approval replies.
 │   │   │   │   └── VERSION           # Codex version used for protocol testing.
-│   │   │   ├── journal.rs            # Durable receipts, delivery keys and bounded reads.
+│   │   │   ├── journal.rs            # Durable appends and delivery keys.
+│   │   │   ├── journal/reader.rs      # Shared read-only journal reader, receipts, sparse index and page limits.
 │   │   │   ├── journal/tests.rs      # Journal recovery, indexing and read budgets.
 │   │   │   └── wire.rs               # ACP frame builders and bounded JSON-RPC I/O.
 │   │   └── herdr/                    # Private to runtime/.

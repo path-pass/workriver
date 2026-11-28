@@ -324,7 +324,7 @@ pub fn unix_bound(path: &std::path::Path, name: &str) -> Option<bool> {
 }
 
 /// The address's location even after the socket is unlinked, if its directory can be resolved.
-#[cfg(target_os = "macos")]
+#[cfg(any(test, target_os = "macos", target_os = "linux"))]
 fn socket_location(path: &std::path::Path) -> Option<std::path::PathBuf> {
     let path = std::path::absolute(path).ok()?;
     match path.symlink_metadata() {
@@ -344,9 +344,18 @@ pub fn unix_bound(path: &std::path::Path, _name: &str) -> Option<bool> {
 
 #[cfg(any(test, target_os = "linux"))]
 fn unix_table_bound(table: &str, want: &str) -> Option<bool> {
+    use std::path::Path;
+
     if want.contains('\n') {
         return None;
     }
+    let path = Path::new(want);
+    let want_location = socket_location(path);
+    // A missing path still names its leaf. A dangling symlink may name another.
+    let want_name = want_location.as_deref().or_else(|| {
+        path.symlink_metadata().is_err_and(|error| error.kind() == io::ErrorKind::NotFound).then_some(path)
+    }).and_then(Path::file_name);
+    let mut absent = Some(false);
     let mut rows = table.strip_suffix('\n')?.split('\n');
     rows.next()?;
     for mut row in rows {
@@ -356,11 +365,22 @@ fn unix_table_bound(table: &str, want: &str) -> Option<bool> {
         }
         let mut fields = row.trim_start_matches(' ').splitn(2, ' ');
         fields.next()?.parse::<u64>().ok()?;
-        if fields.next() == Some(want) {
+        let Some(address) = fields.next() else { continue };
+        let bound = Path::new(address);
+        if bound.is_absolute() && address == want {
             return Some(true);
         }
+        // The table does not record the working directory of a relative bind.
+        let location = bound.is_absolute().then(|| socket_location(bound)).flatten();
+        let name = location.as_deref().unwrap_or(bound).file_name();
+        match (&want_location, &location) {
+            (Some(want), Some(location)) if want == location => return Some(true),
+            (Some(_), Some(_)) => {}
+            _ if want_name.is_some() && name.is_some() && want_name != name => {}
+            _ => absent = None,
+        }
     }
-    Some(false)
+    absent
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -605,6 +625,39 @@ mod tests {
         assert_eq!(unix_table_bound(table, "/tmp/a socket  "), Some(true));
         assert_eq!(unix_table_bound(table, "/tmp/a"), Some(false));
         assert_eq!(unix_table_bound("header\nincomplete", "/tmp/a"), None);
+    }
+
+    #[test]
+    fn the_linux_socket_table_finds_an_unlinked_address_by_its_directory_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let alias = dir.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let bound = alias.join("s.sock");
+        let want = real.join("s.sock");
+        let other = real.join("other.sock");
+        let table = format!("Num RefCount Protocol Flags Type St Inode Path\n00000000: 00000002 00000000 00010000 0001 01 1234 {}\n", bound.display());
+
+        assert_eq!(unix_table_bound(&table, want.to_str().unwrap()), Some(true));
+        assert_eq!(unix_table_bound(&table, other.to_str().unwrap()), Some(false));
+        std::fs::remove_file(&alias).unwrap();
+        assert_eq!(unix_table_bound(&table, want.to_str().unwrap()), None);
+        assert_eq!(unix_table_bound(&table, bound.to_str().unwrap()), Some(true));
+    }
+
+    #[test]
+    fn the_linux_socket_table_rules_out_other_names_when_the_requested_directory_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let bound = dir.path().join("other.sock");
+        let missing = dir.path().join("missing");
+        let dangling = dir.path().join("target.sock");
+        let table = format!("Num RefCount Protocol Flags Type St Inode Path\n00000000: 00000002 00000000 00010000 0001 01 1234 {}\n", bound.display());
+        std::os::unix::fs::symlink(&bound, &dangling).unwrap();
+
+        assert_eq!(unix_table_bound(&table, missing.join("target.sock").to_str().unwrap()), Some(false));
+        assert_eq!(unix_table_bound(&table, missing.join("other.sock").to_str().unwrap()), None);
+        assert_eq!(unix_table_bound(&table, dangling.to_str().unwrap()), None);
     }
 
     #[cfg(target_os = "macos")]

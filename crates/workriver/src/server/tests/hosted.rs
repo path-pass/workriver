@@ -211,7 +211,7 @@ fn a_manager_who_becomes_blind_cannot_read_the_next_hosted_page() {
     assert!(as_user(&user, "GET", "/api/hosted/a1/read?after=1&limit=1", None).1.contains("second"));
 }
 
-fn connected_host(composite: bool, handle: impl Fn(&Value) -> Option<Value> + Send + Sync + 'static) -> (tempfile::TempDir, Daemon) {
+fn connected_host(handle: impl Fn(&Value) -> Option<Value> + Send + Sync + 'static) -> (tempfile::TempDir, Daemon) {
     use std::sync::Arc;
     let tmp = tempfile::Builder::new().prefix("wr-hc-").tempdir_in("/tmp").unwrap();
     let db = tmp.path().join("w.db");
@@ -229,12 +229,7 @@ fn connected_host(composite: bool, handle: impl Fn(&Value) -> Option<Value> + Se
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let user = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
-    let runtime: Arc<dyn workriver_core::runtime::Runtime> = if composite {
-        Arc::new(crate::runtime::Composite::new(fake, hosts.clone()))
-    } else {
-        fake.agents.lock().unwrap().push(("acp:a1/1".into(), live("s-h", "w", "w0", Idle)));
-        fake
-    };
+    let runtime = Arc::new(crate::runtime::Composite::new(fake, hosts.clone()));
     let options = crate::server::Options { allow_as: true, hosts: Some(hosts), ..kernel.options() };
     let store = opened(&db);
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
@@ -244,13 +239,12 @@ fn connected_host(composite: bool, handle: impl Fn(&Value) -> Option<Value> + Se
 }
 
 #[test]
-fn cancel_and_reseating_are_ordered() {
+fn reseating_does_not_wait_for_the_cancel_reply() {
     use std::sync::{Mutex, mpsc};
-    use std::time::Duration;
     let (entered, cancelling) = mpsc::channel();
     let (finish, release) = mpsc::channel();
     let release = Mutex::new(release);
-    let (_tmp, user) = connected_host(false, move |req| {
+    let (_tmp, user) = connected_host(move |req| {
         if req["method"] == "cancel" {
             entered.send(()).unwrap();
             release.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();
@@ -263,28 +257,30 @@ fn cancel_and_reseating_are_ordered() {
     let cancel = std::thread::spawn(move || from_place(&old, "w1:p1", "POST", "/api/hosted/a1/cancel", Some(&json!({}))));
     cancelling.recv_timeout(Duration::from_secs(5)).unwrap();
 
-    let seating = user.clone();
-    let (started, setting) = mpsc::channel();
-    let reseat = std::thread::spawn(move || {
-        let replacement = seat_of(&seating, "ws2");
-        started.send(()).unwrap();
-        seating.call("/api/workspaces", Some(json!({"action": "manager", "workspace": "ws2", "manager": "s-h", "replaces": replacement})))
+    let prompting = user.clone();
+    let (prompted, prompt_result) = mpsc::channel();
+    let prompt = std::thread::spawn(move || {
+        let _ = prompted.send(from_place(&prompting, "w1:p1", "POST", "/api/hosted/a1/prompt", Some(&json!({"text":"next"}))));
     });
-    setting.recv_timeout(Duration::from_secs(5)).unwrap();
-    let until = std::time::Instant::now() + Duration::from_millis(500);
-    let mut seated_while_cancelling = false;
-    while std::time::Instant::now() < until {
-        if !seat_of(&user, "ws2").is_null() {
-            seated_while_cancelling = true;
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let prompted_while_cancelling = prompt_result.recv_timeout(Duration::from_secs(2));
+
+    let seating = user.clone();
+    let (seated, done) = mpsc::channel();
+    let reseat = std::thread::spawn(move || {
+        let _ = seated.send(seating.call("/api/workspaces", Some(json!({
+            "action": "manager", "workspace": "ws2", "manager": "s-h", "replaces": null,
+        }))));
+    });
+    let seated_while_cancelling = done.recv_timeout(Duration::from_secs(2));
     finish.send(()).unwrap();
     let (code, out) = cancel.join().unwrap();
     assert_eq!(code, 200, "{out}");
-    reseat.join().unwrap().unwrap();
-    assert!(!seated_while_cancelling);
+    assert_eq!(serde_json::from_str::<Value>(&out).unwrap()["state"], "cancelled");
+    prompt.join().unwrap();
+    reseat.join().unwrap();
+    let (code, out) = prompted_while_cancelling.expect("prompting the cancelling worker waited for the cancel reply");
+    assert_eq!(code, 409, "{out}");
+    seated_while_cancelling.expect("reseating waited for the cancel reply").unwrap();
     assert_eq!(from_place(&user, "w1:p1", "POST", "/api/hosted/a1/cancel", Some(&json!({}))).0, 403);
 }
 
@@ -293,7 +289,7 @@ fn a_held_delivery_reuses_its_key_after_the_host_loses_the_reply() {
     use std::sync::{Arc, Mutex};
     let prompts = Arc::new(Mutex::new(Vec::new()));
     let received = prompts.clone();
-    let (tmp, user) = connected_host(true, move |req| {
+    let (tmp, user) = connected_host(move |req| {
         if req["method"] != "prompt" || !req["params"]["text"].as_str().unwrap().contains("Include the evidence") {
             return Some(json!({"seq": 1}));
         }
@@ -329,9 +325,13 @@ fn stand_in(dir: &std::path::Path, protocol: u64) {
 }
 
 fn scripted_host(dir: &Path, respond: impl Fn(&Value) -> Result<Value, &'static str> + Sync + Send + 'static) {
-    use std::io::{BufRead, Write};
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join("host.key"), [7u8; 32]).unwrap();
+    script_host_socket(dir, respond);
+}
+
+fn script_host_socket(dir: &Path, respond: impl Fn(&Value) -> Result<Value, &'static str> + Sync + Send + 'static) {
+    use std::io::{BufRead, Write};
     let listener = std::os::unix::net::UnixListener::bind(dir.join("host.sock")).unwrap();
     let respond = Arc::new(respond);
     std::thread::spawn(move || {
@@ -597,6 +597,68 @@ fn a_live_host_reconciles_the_answer_whose_acknowledgement_was_lost() {
         assert!(answers.contains(&json!({"agent":"a1","request":request,"decision":decision,"by":"user"})), "{answers:?}");
     }
     assert!(hosts.alive("a1"));
+}
+
+#[test]
+fn a_new_start_requests_close_at_its_deadline_and_ends_after_the_host_exits() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
+    use workriver_core::runtime::Runtime;
+
+    let dir = tempfile::Builder::new().prefix("wr-deadline-").tempdir_in("/tmp").unwrap();
+    let db = dir.path().join("w.db");
+    recorded(&db);
+    let hold = dir.path().join("hold-host");
+    std::fs::write(&hold, "").unwrap();
+    let program = dir.path().join("fake-host");
+    std::fs::write(&program, r#"#!/bin/sh
+n=0
+while [ "$n" -lt 200 ] && [ -f ../../hold-host ]; do
+    n=$((n + 1))
+    /bin/sleep 0.05
+done
+"#).unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (tx, close) = std::sync::mpsc::channel();
+    let hosts = crate::runtime::Hosts::with_host_program(dir.path(), move |path| {
+        let tx = tx.clone();
+        script_host_socket(path, move |req| match req["method"].as_str() {
+            Some("hello") => Ok(json!({"protocolVersion":1,"generation":2,"state":"starting","session":null})),
+            Some("close") => {
+                let _ = tx.send((Instant::now(), req["params"]["generation"].clone()));
+                Ok(json!({"accepted":true}))
+            }
+            _ => Err("no"),
+        });
+        program.clone()
+    });
+    let ready = Duration::from_secs(1);
+    let tick = Duration::from_millis(50);
+    let waits = crate::server::Waits { hosted_start: ready, tick, ..Default::default() };
+    let user = service_with(Arc::new(Fake::default()), &db, hosts.clone(), waits);
+    assert_eq!(as_user(&user, "POST", "/api/settings/hosted", Some(&json!({"on": true}))).0, 200);
+
+    let requested = Instant::now();
+    let (status, receipt) = as_user(&user, "POST", "/api/hosted/start", Some(&json!({
+        "workspace":"ws1", "name":"new", "cwd":dir.path(), "auth":"chatgpt",
+    })));
+    assert_eq!(status, 200, "{receipt}");
+    assert_eq!(serde_json::from_str::<Value>(&receipt).unwrap(), json!({"agent":"a2","state":"starting"}));
+    wait_until("the new host is tracked", || hosts.alive("a2"));
+    let pid = hosts.roots(None, Some("acp:a2/1")).unwrap()[0].shell.unwrap();
+    let (asked, generation) = close.recv_timeout(Duration::from_secs(3)).expect("the start asks the host to close");
+    assert!(asked.duration_since(requested) >= ready);
+    // Only the in-flight start uses the generation reported by hello. Recovery uses 1.
+    assert_eq!(generation, 2);
+    std::thread::sleep(tick * 4);
+    assert!(crate::common::process::one(pid).is_some());
+    assert!(bodies(&db, "agent.start_ended").is_empty(), "the reservation ended while the host was running");
+
+    std::fs::remove_file(hold).unwrap();
+    wait_until("the reservation ends after the host exits", || !bodies(&db, "agent.start_ended").is_empty());
+    assert!(crate::common::process::one(pid).is_none());
+    assert_eq!(bodies(&db, "agent.start_ended"), [json!({"agent":"a2","why":"did not start in time"})]);
+    assert_eq!(bodies(&db, "agent.started").len(), 1);
 }
 
 #[test]

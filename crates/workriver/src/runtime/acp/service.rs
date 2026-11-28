@@ -9,7 +9,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -78,7 +78,13 @@ struct Known {
     agent: Option<Published>,
     /// The session the host reported before its start is recorded: no other place's.
     pending: Option<String>,
-    conn: Arc<Mutex<Option<Conn>>>,
+    conn: Arc<Connection>,
+}
+
+#[derive(Default)]
+struct Connection {
+    conn: Mutex<Option<Conn>>,
+    cancelling: AtomicBool,
 }
 
 struct Conn {
@@ -86,6 +92,9 @@ struct Conn {
     next: u64,
     epoch: u64,
 }
+
+#[cfg(test)]
+type TestHostProgram = Box<dyn Fn(&Path) -> PathBuf + Send + Sync>;
 
 /// The hosts of this machine's service.
 pub struct Hosts {
@@ -95,6 +104,8 @@ pub struct Hosts {
     journals: Mutex<BTreeMap<String, Arc<Mutex<JournalReader>>>>,
     /// The hosts this run of the service spawned, reaped when they exit.
     children: Mutex<Vec<Child>>,
+    #[cfg(test)]
+    host_program: Option<TestHostProgram>,
 }
 
 impl Hosts {
@@ -103,7 +114,16 @@ impl Hosts {
             dir: home.join("agents"), known: Mutex::default(),
             connection_count: AtomicU64::default(), journals: Mutex::default(),
             children: Mutex::default(),
+            #[cfg(test)]
+            host_program: None,
         })
+    }
+
+    #[cfg(test)]
+    pub fn with_host_program(home: &Path, program: impl Fn(&Path) -> PathBuf + Send + Sync + 'static) -> Arc<Hosts> {
+        let mut hosts = Self::new(home);
+        Arc::get_mut(&mut hosts).unwrap().host_program = Some(Box::new(program));
+        hosts
     }
 
     /// An instance's directory.
@@ -133,7 +153,10 @@ impl Hosts {
         let instance = json!({"id": id, "harness": harness, "cwd": cwd, "model": model, "auth": auth, "generation": 1, "state": "starting"});
         OpenOptions::new().write(true).create_new(true).mode(0o600).open(dir.join("instance.json"))?.write_all(instance.to_string().as_bytes())?;
         let log = OpenOptions::new().create(true).append(true).mode(0o600).open(dir.join("host.log"))?;
-        let mut command = Command::new(std::env::current_exe()?);
+        let program = std::env::current_exe()?;
+        #[cfg(test)]
+        let program = self.host_program.as_ref().map_or(program, |program| program(&dir));
+        let mut command = Command::new(program);
         command.arg("host").arg(&dir).current_dir(&dir).stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
         // SAFETY: setsid is async-signal-safe and touches no memory of the parent.
         unsafe {
@@ -205,11 +228,19 @@ impl Hosts {
         self.known.lock().unwrap().iter().map(|(id, k)| (id.clone(), k.pid, k.start, k.agent.clone())).collect()
     }
 
+    fn connection(&self, id: &str) -> Result<Arc<Connection>, HostError> {
+        self.known.lock().unwrap().get(id).map(|k| k.conn.clone()).ok_or_else(|| HostError::Unreachable(format!("{id} is not known")))
+    }
+
     /// One request on the kept connection, with its epoch. If it fails on the wire, the
     /// connection is dropped; the next handshake gets a new epoch.
     fn call_on(&self, id: &str, method: &str, params: Value, wait: Duration) -> Result<(u64, Value), HostError> {
-        let conn = self.known.lock().unwrap().get(id).map(|k| k.conn.clone()).ok_or_else(|| HostError::Unreachable(format!("{id} is not known")))?;
-        let mut conn = conn.lock().unwrap();
+        let connection = self.connection(id)?;
+        let mut conn = connection.conn.lock().unwrap();
+        self.call_locked(id, method, params, wait, &mut conn)
+    }
+
+    fn call_locked(&self, id: &str, method: &str, params: Value, wait: Duration, conn: &mut Option<Conn>) -> Result<(u64, Value), HostError> {
         let until = Instant::now() + wait;
         if conn.is_none() {
             let (connected, hello) = self.connect(id, until)?;
@@ -233,7 +264,7 @@ impl Hosts {
 
     pub fn connection_epoch(&self, id: &str) -> Option<u64> {
         let conn = self.known.lock().unwrap().get(id)?.conn.clone();
-        let epoch = conn.lock().unwrap().as_ref().map(|conn| conn.epoch);
+        let epoch = conn.conn.lock().unwrap().as_ref().map(|conn| conn.epoch);
         epoch
     }
 
@@ -248,16 +279,27 @@ impl Hosts {
     }
 
     pub fn status(&self, id: &str) -> Result<HostStatus, HostError> {
-        self.status_for(id, Duration::from_secs(5))
+        parsed("status", self.call(id, "status", json!({}), Duration::from_secs(5))?)
     }
 
-    pub(super) fn status_for(&self, id: &str, wait: Duration) -> Result<HostStatus, HostError> {
-        parsed("status", self.call(id, "status", json!({}), wait)?)
+    /// A runtime snapshot still lists the agent if its connection is busy, including during
+    /// a cancel. Waiting here would hold up snapshots and seating for every other agent.
+    pub(super) fn snapshot_status(&self, id: &str) -> Option<HostStatus> {
+        let connection = self.connection(id).ok()?;
+        let mut conn = connection.conn.try_lock().ok()?;
+        let (_, reply) = self.call_locked(id, "status", json!({}), Duration::from_secs(2), &mut conn).ok()?;
+        parsed("status", reply).ok()
     }
 
     pub(super) fn prompt(&self, id: &str, generation: u64, session: &str, key: &str, text: &str) -> Result<(), HostError> {
+        let connection = self.connection(id)?;
+        // A prompt holds the caller's ordering lock. Never queue it behind a cancel reply.
+        if connection.cancelling.load(Ordering::Acquire) {
+            return Err(HostError::Refused("busy".into()));
+        }
+        let mut conn = connection.conn.lock().unwrap();
         let params = json!({"generation": generation, "session": session, "key": key, "text": text});
-        let reply = self.call(id, "prompt", params, Duration::from_secs(5))?;
+        let (_, reply) = self.call_locked(id, "prompt", params, Duration::from_secs(5), &mut conn)?;
         reply["seq"].as_u64().map(|_| ()).ok_or_else(|| bad_reply("prompt"))
     }
 
@@ -266,9 +308,35 @@ impl Hosts {
         parsed("read", self.call(id, "read", params, Duration::from_secs(10))?)
     }
 
-    pub fn cancel(&self, id: &str, generation: u64) -> Result<String, HostError> {
-        let reply = self.call(id, "cancel", json!({"generation": generation}), Duration::from_secs(15))?;
-        reply["state"].as_str().map(str::to_owned).ok_or_else(|| bad_reply("cancel"))
+    /// Prepare the connection before taking the caller's ordering lock and release that lock
+    /// as soon as the checked request is written. The reply still belongs to this connection.
+    pub fn cancel<E>(&self, id: &str, order: &Mutex<()>, check: impl FnOnce() -> Result<u64, E>, failed: impl Fn(HostError) -> E) -> Result<String, E> {
+        let connection = self.connection(id).map_err(&failed)?;
+        let (mut conn, ordered, until) = loop {
+            let mut conn = connection.conn.lock().unwrap();
+            let until = Instant::now() + Duration::from_secs(15);
+            if conn.is_none() {
+                *conn = Some(self.connect(id, until).map_err(&failed)?.0);
+            }
+            if let Ok(ordered) = order.try_lock() {
+                break (conn, ordered, until);
+            }
+            // Ordered sends can take the connection. Never wait for order with it held.
+            drop(conn);
+            drop(order.lock().unwrap());
+        };
+        let generation = check()?;
+        let connected = conn.as_mut().unwrap();
+        let sent = send_request(connected, "cancel", json!({"generation": generation}), until);
+        connection.cancelling.store(sent.is_ok(), Ordering::Release);
+        drop(ordered);
+        let reply = sent.and_then(|id| receive_reply(connected, "cancel", id, until));
+        connection.cancelling.store(false, Ordering::Release);
+        if matches!(reply, Err(HostError::Unreachable(_))) {
+            *conn = None;
+        }
+        let reply = reply.map_err(&failed)?;
+        reply["state"].as_str().map(str::to_owned).ok_or_else(|| failed(bad_reply("cancel")))
     }
 
     pub fn close(&self, id: &str, generation: u64) -> Result<(), HostError> {
@@ -384,20 +452,31 @@ fn accepted(reply: Value) -> Result<(), HostError> {
 }
 
 fn ask(conn: &mut Conn, method: &str, params: Value, until: Instant) -> Result<Value, HostError> {
-    let remaining = || {
-        let duration = until.saturating_duration_since(Instant::now());
-        if duration.is_zero() { Err(io::Error::from(io::ErrorKind::TimedOut)) } else { Ok(duration) }
-    };
+    let id = send_request(conn, method, params, until)?;
+    receive_reply(conn, method, id, until)
+}
+
+fn remaining(until: Instant) -> io::Result<Duration> {
+    let duration = until.saturating_duration_since(Instant::now());
+    if duration.is_zero() { Err(io::ErrorKind::TimedOut.into()) } else { Ok(duration) }
+}
+
+fn send_request(conn: &mut Conn, method: &str, params: Value, until: Instant) -> Result<u64, HostError> {
     let down = |e: std::io::Error| HostError::Unreachable(format!("{method}: {e}"));
     conn.next += 1;
     let id = conn.next;
     let stream = conn.stream.get_mut();
-    stream.set_write_timeout(Some(remaining().map_err(down)?.min(Duration::from_secs(5)))).map_err(down)?;
+    stream.set_write_timeout(Some(remaining(until).map_err(down)?.min(Duration::from_secs(5)))).map_err(down)?;
     let mut line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
     line.push('\n');
     stream.write_all(line.as_bytes()).map_err(down)?;
+    Ok(id)
+}
+
+fn receive_reply(conn: &mut Conn, method: &str, id: u64, until: Instant) -> Result<Value, HostError> {
+    let down = |e: std::io::Error| HostError::Unreachable(format!("{method}: {e}"));
     loop {
-        conn.stream.get_ref().set_read_timeout(Some(remaining().map_err(down)?)).map_err(down)?;
+        conn.stream.get_ref().set_read_timeout(Some(remaining(until).map_err(down)?)).map_err(down)?;
         let mut answer = String::new();
         if (&mut conn.stream).take((HOST_FRAME_BYTES + 1) as u64).read_line(&mut answer).map_err(down)? == 0 {
             return Err(HostError::Unreachable(format!("{method}: the host closed the connection")));

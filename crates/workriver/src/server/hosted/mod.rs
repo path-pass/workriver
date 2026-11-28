@@ -167,7 +167,7 @@ impl App {
 
 fn driven<'a>(view: &'a core::State, who: &Principal, agent: &str) -> Result<&'a core::HostedAgent, ApiError> {
     match view.hosted_named(agent) {
-        Ok(a) if !view.reduced && view.drives(who, a) => Ok(a),
+        Ok(a) if view.drives(who, a) => Ok(a),
         _ => Err(ApiError(StatusCode::FORBIDDEN, format!("no hosted agent {agent} that you may drive: the user drives every one, a workspace's manager its own workers"))),
     }
 }
@@ -206,7 +206,7 @@ pub(in crate::server) async fn start(State(app): State<Shared>, Extension(caller
 pub(in crate::server) async fn list(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
         let (who, view) = app.view(&caller, &Reader::default())?;
-        let agents: Vec<Value> = view.hosted.iter().filter(|a| !view.reduced && view.drives(&who, a)).map(|a| app.shown(a)).collect();
+        let agents: Vec<Value> = view.hosted.iter().filter(|a| view.drives(&who, a)).map(|a| app.shown(a)).collect();
         Ok(Json(json!({"on": Settings::hosted(&app.home), "agents": agents})))
     })
     .await
@@ -249,13 +249,14 @@ pub(in crate::server) async fn status(State(app): State<Shared>, Extension(calle
 pub(in crate::server) async fn cancel(State(app): State<Shared>, Extension(caller): Extension<Caller>, Path(agent): Path<String>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
         let who = app.who(&caller, None)?;
-        let _order = app.appointing.lock().unwrap();
         let a = app.driven(&who, &agent)?;
-        let s = a.started.as_ref().filter(|_| a.running()).ok_or_else(|| bad(format!("{} is not running", a.id)))?;
-        match app.hosts.cancel(&a.id, s.generation) {
-            Ok(state) => Ok(Json(json!({"agent": a.id, "state": state}))),
-            Err(e) => Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("{} was not cancelled: {e}", a.id))),
-        }
+        let generation = |a: &core::HostedAgent| a.started.as_ref().filter(|_| a.running()).map(|s| s.generation)
+            .ok_or_else(|| bad(format!("{} is not running", a.id)));
+        generation(&a)?;
+        let state = app.hosts.cancel(&a.id, &app.appointing,
+            || generation(&app.driven(&who, &a.id)?),
+            |e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("{} was not cancelled: {e}", a.id)))?;
+        Ok(Json(json!({"agent": a.id, "state": state})))
     })
     .await
 }
