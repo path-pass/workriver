@@ -185,13 +185,16 @@ impl App {
     /// seat's machine and folder: it then has the seat back by itself, `back`); anywhere
     /// else it is refused until the user confirms the manager's new terminal.
     ///
-    /// A session recorded as a hosted agent's is that agent only at its own host's place,
-    /// whatever else shows it, before any pin or seat rule (`hosted_elsewhere`).
+    /// A session recorded as a hosted agent's, or reported by a host whose start is not
+    /// recorded yet, is that agent only at its own host's place, whatever else shows it,
+    /// before any pin or seat rule (`hosted_elsewhere`).
     fn one_place(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
-        if let Some(h) = self.store.lock().unwrap().hosted_by_session(&a.session)?
-            && !root.place.starts_with(&format!("acp:{}/", h.id))
-        {
-            return Err(ApiError(StatusCode::FORBIDDEN, hosted_elsewhere(&a.session, &h.id, &root.place)));
+        let hosted = match self.store.lock().unwrap().hosted_by_session(&a.session)? {
+            Some(h) => Some(h.id),
+            None => self.hosts.pending_for(&a.session),
+        };
+        if let Some(id) = hosted.filter(|id| !root.place.starts_with(&format!("acp:{id}/"))) {
+            return Err(ApiError(StatusCode::FORBIDDEN, hosted_elsewhere(&a.session, &id, &root.place)));
         }
         // A place where the runtime knows no shell has no root that stays: it is not pinned.
         let mine = root.shell.and_then(|pid| chain.iter().find(|p| p.pid == pid).cloned().or_else(|| {
@@ -309,7 +312,10 @@ impl App {
         let mut changes: Vec<(String, Option<Pin>)> = gone.iter().filter(|s| machine.is_none() && seat(s).is_none()).map(|s| ((*s).clone(), None)).collect();
         let mut back = vec![];
         // A hosted session is at its own host's place only: shown anywhere else, it is nobody's.
-        let elsewhere = |r: &Root, a: &RuntimeAgent| all.hosted_by_session(&a.session).is_some_and(|h| !r.place.starts_with(&format!("acp:{}/", h.id)));
+        let elsewhere = |r: &Root, a: &RuntimeAgent| {
+            let id = all.hosted_by_session(&a.session).map(|h| h.id.clone()).or_else(|| self.hosts.pending_for(&a.session));
+            id.is_some_and(|id| !r.place.starts_with(&format!("acp:{id}/")))
+        };
         let shown: Vec<(&Root, &RuntimeAgent)> = roots.iter().filter_map(|r| Some((r, r.at.agent.as_ref()?))).filter(|(r, a)| !elsewhere(r, a)).collect();
         for (root, a) in &shown {
             let session = a.session.as_str();

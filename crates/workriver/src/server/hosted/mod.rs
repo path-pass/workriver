@@ -22,8 +22,7 @@ use crate::server::http::*;
 mod leftovers;
 mod lifecycle;
 
-pub(in crate::server) use lifecycle::Hosting;
-use lifecycle::CLOSE_WAIT;
+pub(in crate::server) use lifecycle::{CLOSE_WAIT, Hosting, START_WAIT};
 
 /// What a page of a conversation holds at most.
 const PAGE: usize = 1000;

@@ -53,6 +53,8 @@ struct Known {
     pid: u32,
     start: u64,
     agent: Option<Published>,
+    /// The session the host reported before its start is recorded: no other place's.
+    pending: Option<String>,
     conn: Arc<Mutex<Option<Conn>>>,
 }
 
@@ -121,7 +123,7 @@ impl Hosts {
         match known.get_mut(id) {
             Some(k) if (k.pid, k.start) == (pid, start) => {}
             _ => {
-                known.insert(id.into(), Known { pid, start, agent: None, conn: Arc::default() });
+                known.insert(id.into(), Known { pid, start, agent: None, pending: None, conn: Arc::default() });
             }
         }
     }
@@ -130,7 +132,21 @@ impl Hosts {
     pub fn publish(&self, id: &str, agent: Published) {
         if let Some(k) = self.known.lock().unwrap().get_mut(id) {
             k.agent = Some(agent);
+            k.pending = None;
         }
+    }
+
+    /// The session a starting host reported, before its start is recorded: from now on no
+    /// other place that shows it is that agent (nor anyone).
+    pub fn pending(&self, id: &str, session: &str) {
+        if let Some(k) = self.known.lock().unwrap().get_mut(id) {
+            k.pending = Some(session.into());
+        }
+    }
+
+    /// The instance whose starting host reported `session`, if any.
+    pub fn pending_for(&self, session: &str) -> Option<String> {
+        self.known.lock().unwrap().iter().find(|(_, k)| k.pending.as_deref() == Some(session)).map(|(id, _)| id.clone())
     }
 
     /// Not known any more (closed, or its start ended).

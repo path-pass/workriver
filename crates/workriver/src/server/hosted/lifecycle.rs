@@ -12,10 +12,10 @@ use crate::server::app::*;
 use crate::server::http::*;
 
 /// How long a start may take, from its reservation, before it is closed and ended.
-pub(super) const START_WAIT: Duration = Duration::from_secs(60);
+pub(in crate::server) const START_WAIT: Duration = Duration::from_secs(60);
 /// How long after a close is asked for its outcome is waited for before it is unconfirmed:
 /// the host's own deadline and some.
-pub(super) const CLOSE_WAIT: Duration = Duration::from_secs(40);
+pub(in crate::server) const CLOSE_WAIT: Duration = Duration::from_secs(40);
 
 /// What the service keeps of its hosts while it runs (in memory; the records and the
 /// journals hold what lasts).
@@ -67,6 +67,7 @@ impl App {
             }
             match self.hosts.hello(&a.id) {
                 Ok(h) if h["session"].is_string() && h["state"] != "starting" => {
+                    self.hosts.pending(&a.id, h["session"].as_str().unwrap_or_default());
                     let body = started(&a.id, &h, pid, start);
                     match self.record(&Principal::Service, body) {
                         Ok(_) => return self.publish(&a.id),
@@ -95,7 +96,7 @@ impl App {
     /// host is gone (waited for within the close's own deadline).
     fn stop_start(&self, id: &str, why: &str) {
         let _ = self.hosts.call(id, "close", json!({"generation": 1}), Duration::from_secs(5));
-        let until = Instant::now() + CLOSE_WAIT;
+        let until = Instant::now() + self.waits.hosted_close;
         while self.hosts.alive(id) && Instant::now() < until {
             self.hosts.reap();
             std::thread::sleep(Duration::from_millis(200));
@@ -162,7 +163,7 @@ impl App {
     /// the child it spawned), and the start ends once it is gone.
     fn reconcile_reserved(&self, a: &core::HostedAgent) {
         let age = humantime::parse_rfc3339_weak(&a.at).ok().and_then(|t| t.elapsed().ok());
-        if age.is_none_or(|age| age < START_WAIT + CLOSE_WAIT) {
+        if age.is_none_or(|age| age < self.waits.hosted_young) {
             return;
         }
         if self.hosts.root(&a.id).is_none() {

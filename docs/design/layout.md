@@ -412,6 +412,8 @@ crates/workriver/
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
 │   │       ├── terminals.rs          # Reading, answering and watching an agent's terminal.
+│   │       ├── hosted.rs             # Hosted agents: who drives one, hosted identity and a pending
+│   │       │                         # session, the reconciliation's rows (stand-in host sockets).
 │   │       ├── schedule.rs           # Jobs by the clock in a running service (test jobs, short waits).
 │   │       ├── lifecycle.rs          # The attachment rule as the service runs it (an aged store).
 │   │       ├── templates.rs          # The template library through the service; a unit's steps filled,
@@ -424,7 +426,7 @@ crates/workriver/
 │   │   │                             # machine's change stream (watch) beside its reads.
 │   │   ├── ssh.rs                    # Tunnel supervision, publication, reconnect timing.
 │   │   ├── composite.rs              # Terminals and hosts as one Runtime: by place; identity
-│   │   │                             # reads the union, failing as a whole.
+│   │   │                             # reads the union, failing as a whole (tests beside it).
 │   │   ├── acp/                      # Per-agent host and the ACP v1 journal projections.
 │   │   │   ├── mod.rs                # The host command entry point; what the facade re-exports.
 │   │   │   ├── service.rs            # The service's side: spawn, roots as spawned, one kept

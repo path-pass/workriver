@@ -94,11 +94,17 @@ pub(super) struct Waits {
     start: Duration,
     /// How often a scheduled job's timer looks at the wall clock (`schedule::LOOK`; less in tests).
     look: Duration,
+    /// How long a hosted agent's host is waited for to close (`hosted::CLOSE_WAIT`; less in
+    /// tests).
+    hosted_close: Duration,
+    /// How old a hosted start's reservation is before the reconciliation takes it from its
+    /// start (the start's wait and a close's; none in tests).
+    hosted_young: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), look: schedule::LOOK }
+        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), look: schedule::LOOK, hosted_close: hosted::CLOSE_WAIT, hosted_young: hosted::START_WAIT + hosted::CLOSE_WAIT }
     }
 }
 
