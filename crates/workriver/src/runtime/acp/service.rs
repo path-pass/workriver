@@ -469,6 +469,8 @@ fn send_request(conn: &mut Conn, method: &str, params: Value, until: Instant) ->
     stream.set_write_timeout(Some(remaining(until).map_err(down)?.min(Duration::from_secs(5)))).map_err(down)?;
     let mut line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
     line.push('\n');
+    #[cfg(test)]
+    tests::before_cancel_write(method);
     stream.write_all(line.as_bytes()).map_err(down)?;
     Ok(id)
 }

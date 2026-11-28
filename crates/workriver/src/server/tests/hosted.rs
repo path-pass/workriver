@@ -239,6 +239,60 @@ fn connected_host(handle: impl Fn(&Value) -> Option<Value> + Send + Sync + 'stat
 }
 
 #[test]
+fn reseating_before_the_cancel_send_refuses_the_old_manager() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Mutex, mpsc};
+
+    let tmp = tempfile::Builder::new().prefix("wr-hc-").tempdir_in("/tmp").unwrap();
+    let db = tmp.path().join("w.db");
+    let me = crate::common::process::one(std::process::id()).unwrap();
+    recorded_with_root(&db, Some(workriver_core::Shell { pid: me.pid, start: me.start }));
+    let fake = Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![
+        ("acp:a1/1".into(), live("s-h", "w", "w0", Idle)),
+        ("w1:p1".into(), live("s-boss", "boss", "w1", Idle)),
+    ];
+    let hosts = crate::runtime::Hosts::new(tmp.path());
+    let (hello_started, reconnecting) = mpsc::channel();
+    let (finish_hello, release) = mpsc::channel();
+    let release = Mutex::new(release);
+    let (cancel_sent, cancel_received) = mpsc::channel();
+    let first_hello = AtomicBool::new(true);
+    scripted_host(&hosts.dir("a1"), move |req| match req["method"].as_str() {
+        Some("hello") => {
+            if !first_hello.swap(false, Ordering::Relaxed) {
+                hello_started.send(()).unwrap();
+                release.lock().unwrap().recv_timeout(Duration::from_secs(5)).map_err(|_| "hello not released")?;
+            }
+            Ok(json!({"protocolVersion": 1, "id": "a1", "generation": 1, "state": "running", "session": "s-h"}))
+        }
+        Some("read") => Err("disconnect"),
+        Some("cancel") => {
+            cancel_sent.send(()).unwrap();
+            Ok(json!({"state": "cancelled"}))
+        }
+        _ => Err("unexpected request"),
+    });
+    // After the initial attachment, only the cancel should try to reconnect.
+    let waits = crate::server::Waits { tick: Duration::from_secs(3600), ..Default::default() };
+    let user = service_with(fake, &db, hosts.clone(), waits);
+    seat(&user, "ws1", Some("s-boss")).unwrap();
+    wait_until("the initial host connection", || hosts.connection_epoch("a1").is_some());
+    assert!(matches!(hosts.read("a1", 0, None), Err(crate::runtime::HostError::Unreachable(_))));
+
+    let old = user.clone();
+    let cancel = std::thread::spawn(move || from_place(&old, "w1:p1", "POST", "/api/hosted/a1/cancel", Some(&json!({}))));
+    // Cancel reaches the host handshake only after checking the worker rule the first time.
+    reconnecting.recv_timeout(Duration::from_secs(5)).expect("cancel did not start reconnecting");
+    seat(&user, "ws2", Some("s-h")).unwrap();
+    finish_hello.send(()).unwrap();
+
+    let (code, out) = cancel.join().unwrap();
+    let received_cancel = cancel_received.try_recv().is_ok();
+    assert_eq!((code, received_cancel), (403, false), "{out}");
+}
+
+#[test]
 fn reseating_does_not_wait_for_the_cancel_reply() {
     use std::sync::{Mutex, mpsc};
     let (entered, cancelling) = mpsc::channel();
