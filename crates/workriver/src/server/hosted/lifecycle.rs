@@ -156,10 +156,15 @@ impl App {
         }
     }
 
-    /// A reservation with no start: one this run spawns is the start's; any other is one a
-    /// stopped service left. Its host, if it runs, is closed (never adopted: the service takes
-    /// a host's root only from the child it spawned), and the start ends once it is gone.
+    /// A reservation with no start: a young one is its start's (which ends it either way);
+    /// an older one a stopped service, or a start that could not close its host, left. Its
+    /// host, if it runs, is closed (never adopted: the service takes a host's root only from
+    /// the child it spawned), and the start ends once it is gone.
     fn reconcile_reserved(&self, a: &core::HostedAgent) {
+        let age = humantime::parse_rfc3339_weak(&a.at).ok().and_then(|t| t.elapsed().ok());
+        if age.is_none_or(|age| age < START_WAIT + CLOSE_WAIT) {
+            return;
+        }
         if self.hosts.root(&a.id).is_none() {
             if let Some((pid, start)) = instance_host(&self.hosts.dir(&a.id)) {
                 self.hosts.track(&a.id, pid, start);

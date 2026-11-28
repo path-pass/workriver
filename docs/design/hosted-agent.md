@@ -217,9 +217,9 @@ host's writer (`journal_page`).
 
 | Records | Host | Done |
 |---|---|---|
-| Reserved | this run's start under way | left to the start |
-| Reserved | another run's host, live by its own `instance.json` | asked to close; the start ends once it is gone (never adopted) |
-| Reserved | none | `agent.start_ended` |
+| Reserved less than 100 s ago | any | left to its start, which records its start or its end |
+| Reserved earlier | a host live by its own `instance.json` | asked to close; the start ends once it is gone (never adopted) |
+| Reserved earlier | none | `agent.start_ended` |
 | Started | live, not attached yet | `hello`; an incompatible protocol is not attached (`incompatible`, the user ends that process); else missing answers recorded, published |
 | Started | gone or closing, journal has `closed` | missing answers recorded, then `agent.closed` with its outcome |
 | Started | gone, no `closed` line | missing answers recorded; `stopped` |
