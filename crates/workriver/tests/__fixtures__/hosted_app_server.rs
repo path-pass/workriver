@@ -270,6 +270,25 @@ impl Fake {
             self.notify("item/agentMessage/delta", json!({
                 "threadId":self.fixture["session"], "delta":"diffs sent",
             }));
+        } else if text == "sub-thread-diffs" {
+            self.notify("turn/diff/updated", json!({
+                "threadId":"finished-child", "turnId":"finished-turn", "diff":"finished diff",
+            }));
+            self.notify("turn/completed", json!({
+                "threadId":"finished-child", "turn":{"id":"finished-turn","status":"completed","items":[]},
+            }));
+            for diff in ["older diff", "latest diff"] {
+                self.notify("turn/diff/updated", json!({
+                    "threadId":"unfinished-child", "turnId":"child-turn", "diff":diff,
+                }));
+            }
+            self.notify("item/agentMessage/delta", json!({
+                "threadId":self.fixture["session"], "delta":"sub-thread diffs sent",
+            }));
+            let outcome = self.options["sub_thread_diff_outcome"].as_str().unwrap().to_owned();
+            if outcome != "interrupted" {
+                self.complete(&outcome);
+            }
         } else {
             assert_eq!(text, "quiet");
         }

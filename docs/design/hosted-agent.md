@@ -31,13 +31,20 @@ under the same account can reach host sockets and keys permitted by that account
 Access to that account's Herdr socket also permits reading or typing into its terminals.
 [Security under Herdr](../runtimes/herdr.md#security-under-herdr)
 
+Codex's default sandbox denies Unix socket access from sandboxed tool commands.
+Workriver grants hosted agents no Unix socket access under `<data>/agents`. Any future
+grant for caller identity covers only `caller.sock`.
+
 ## Socket protocol
 
 The host speaks newline-delimited JSON-RPC 2.0 over the socket. Before admitting a
-connection to the handshake, it checks the peer PID from the kernel and refuses peers
-with a workriver host in their process ancestry or session, or whose identity cannot be
-checked. The process check recognizes the installed `workriver` executable and processes
-whose executable name matches the receiving host, then checks the invoked subcommand.
+connection to the handshake, it checks the peer PID from the kernel and refuses connections
+from descendants of a workriver host, from peers still in a workriver host's session, and
+when the peer's identity cannot be checked. The process check recognizes the installed
+`workriver` executable and processes whose executable name matches the receiving host,
+then checks the invoked subcommand. Detached processes outside both the ancestry and
+the session are outside this check's scope. The check is subject to the same-account
+limit described above.
 Up to four unauthenticated connections can await hello, each for up to two
 seconds. New arrivals neither evict pending handshakes nor replace the current client.
 
@@ -127,19 +134,22 @@ into ACP. The journal also retains native token data with its source. When the a
 identifies a sub-thread, its thread identity is attached to tool and approval projections
 under `_meta.workriver.source`. A tool shell normally descends from the same host.
 
-For each active turn, the adapter retains the most recent valid aggregate
-`turn/diff/updated` frame. The host writes it as one native entry when that turn ends.
-For the root turn, this precedes the ACP prompt response.
+The adapter retains the latest valid aggregate `turn/diff/updated` frame for the active
+main turn and for each sub-thread turn. It writes one native entry at a sub-thread's turn
+completion. When the main turn completes, is cancelled, or fails, it writes the remaining
+frames as native entries before the ACP prompt response. A frame keeps its original
+thread and turn ids.
 
 A native frame whose projection fails is recorded with a reason and skipped.
 Malformed JSON or oversized lines produce a cut entry with a reason and byte count.
 If a malformed frame is identifiable as necessary to finish the active turn, the host
 records an ACP prompt error and clears the active turn before accepting another prompt.
 
-The child starts with an environment allow-list, the service's `WORKRIVER_HOME` and
-`WORKRIVER_PORT`, and `WORKRIVER_PLACE=acp:<id>/<generation>`. The OpenAI API key is
-passed only when explicitly selecting API-key auth. Before starting a thread the adapter
-checks Codex's effective config and its raw layers for provider and endpoint overrides.
+The app-server launch arguments are exactly `app-server --listen stdio://`, with no
+socket or sandbox permission overrides. The child starts with an environment allow-list,
+the service's `WORKRIVER_HOME` and `WORKRIVER_PORT`, and `WORKRIVER_PLACE=acp:<id>/<generation>`.
+The OpenAI API key is passed only when explicitly selecting API-key auth. Before starting
+a thread the adapter checks Codex's effective config and its raw layers for provider and endpoint overrides.
 It requires the built-in OpenAI provider and the selected account kind, and repeats the
 account check after `account/updated`. During that check, prompts are refused. Account
 receipts record the kind and optional plan, with no email, account id or credentials.

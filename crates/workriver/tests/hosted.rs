@@ -49,7 +49,8 @@ impl Host {
         let executable = executable.to_str().unwrap().replace('\'', "'\\''");
         let shim = format!(
             "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'codex-cli 0.172.0'; exit; fi\n\
-             [ \"$*\" = 'app-server --listen stdio://' ] || exit 3\n\
+             printf '%s\\0' \"$@\" > launch-args\n\
+             [ \"$#\" -eq 3 ] && [ \"$1\" = app-server ] && [ \"$2\" = --listen ] && [ \"$3\" = stdio:// ] || exit 3\n\
              export HOSTED_TEST_PIPE=1\n\
              exec '{executable}' --exact fake::fake_codex_app_server --ignored --nocapture 3>&1 1>&2\n"
         );
@@ -224,6 +225,16 @@ impl Wire {
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("__fixtures__/acp/conversation.json")).unwrap()
+}
+
+#[test]
+fn codex_launch_passes_only_the_stdio_app_server_arguments() {
+    let mut host = Host::spawn(json!({}));
+    let (mut wire, _) = host.ready();
+    let args = fs::read(host.root().join("cwd/launch-args")).unwrap();
+    assert_eq!(args, b"app-server\0--listen\0stdio://\0");
+    wire.result("close", json!({"generation":GENERATION}));
+    host.ended();
 }
 
 #[test]
@@ -756,6 +767,58 @@ fn only_the_latest_aggregate_diff_is_journaled_when_the_turn_ends() {
         entry["msg"]["id"] == 3 && entry["msg"]["result"]["stopReason"] == "cancelled"));
     wire.result("close", json!({"generation":GENERATION}));
     host.ended();
+}
+
+#[test]
+fn completed_turn_journals_the_latest_unfinished_sub_thread_diff() {
+    assert_unfinished_diff_journaled("completed");
+}
+
+#[test]
+fn cancelled_turn_journals_the_latest_unfinished_sub_thread_diff() {
+    assert_unfinished_diff_journaled("interrupted");
+}
+
+#[test]
+fn failed_turn_journals_the_latest_unfinished_sub_thread_diff() {
+    assert_unfinished_diff_journaled("failed");
+}
+
+fn assert_unfinished_diff_journaled(outcome: &str) {
+    let mut host = Host::spawn(json!({"sub_thread_diff_outcome":outcome}));
+    let (mut wire, _) = host.ready();
+    wire.result("prompt", prompt(GENERATION, "sub-thread-diffs", "sub-thread-diffs"));
+    until("host reads past the sub-thread diffs", || host.journal().iter().any(|entry| {
+        entry["msg"]["params"]["update"]["content"]["text"] == "sub-thread diffs sent"
+    }).then_some(()));
+    if outcome == "interrupted" {
+        assert_eq!(wire.result("cancel", json!({"generation":GENERATION}))["state"], "cancelled");
+    }
+    let terminal = |entry: &Value| {
+        entry["kind"] == "acp" && entry["dir"] == "in" && entry["msg"]["id"] == 3 &&
+            match outcome {
+                "completed" => entry["msg"]["result"]["stopReason"] == "end_turn",
+                "interrupted" => entry["msg"]["result"]["stopReason"] == "cancelled",
+                _ => entry["msg"]["error"]["code"] == -32603,
+            }
+    };
+    until("main prompt ends", || host.journal().iter().any(terminal).then_some(()));
+    wire.result("close", json!({"generation":GENERATION}));
+    host.ended();
+    let journal = host.journal();
+    let terminal_seq = &journal.iter().find(|entry| terminal(entry)).unwrap()["seq"];
+    let diffs = journal.iter()
+        .filter(|entry| entry["msg"]["method"] == "turn/diff/updated")
+        .map(|entry| {
+            assert_eq!(entry["kind"], "native");
+            assert!(entry["seq"].as_u64().unwrap() < terminal_seq.as_u64().unwrap());
+            entry["msg"]["params"].clone()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(diffs, [
+        json!({"threadId":"finished-child","turnId":"finished-turn","diff":"finished diff"}),
+        json!({"threadId":"unfinished-child","turnId":"child-turn","diff":"latest diff"}),
+    ], "{outcome}");
 }
 
 fn process_state(pid: libc::pid_t) -> Option<String> {

@@ -211,7 +211,14 @@ impl Host {
             "read" => {
                 let after = params["after"].as_u64().unwrap_or_default();
                 let limit = params["limit"].as_u64().unwrap_or(200).clamp(1, 1000) as usize;
-                self.journal.read(after, limit).map_err(|_| "cannot read the journal")
+                let mut bytes = format!(r#"{{"jsonrpc":"2.0","id":{id},"result":"#).into_bytes();
+                if self.journal.read(after, limit, &mut bytes).is_err() {
+                    self.respond(error(id, -32000, "cannot read the journal"));
+                } else {
+                    bytes.extend_from_slice(b"}\n");
+                    self.respond_with(|stream, until| wire::write_encoded(stream, &bytes, until));
+                }
+                return Ok(true);
             }
             "prompt" => self.prompt(params)?,
             "answer" => self.answer(params)?,
@@ -247,9 +254,13 @@ impl Host {
     }
 
     fn respond(&mut self, frame: Value) {
+        self.respond_with(|stream, until| wire::write(stream, &frame, until));
+    }
+
+    fn respond_with(&mut self, send: impl FnOnce(&mut UnixStream, Instant) -> io::Result<()>) {
         let until = self.client_write_until();
         if let Some(client) = &mut self.client {
-            if wire::write(&mut client.stream.io, &frame, until).is_err() {
+            if send(&mut client.stream.io, until).is_err() {
                 self.client = None;
             }
         }

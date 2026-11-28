@@ -583,16 +583,9 @@ impl Adapter {
     fn end_turn(&mut self, result: Value, events: &mut Vec<Event>) {
         let turn = self.turn.take();
         let id = turn.as_ref().and_then(|turn| turn.id.as_deref());
-        let interrupted = result.get("error").is_some() || result["result"]["stopReason"] == "cancelled";
-        self.diffs.retain(|(thread, turn), diff| {
-            if thread != &self.session {
-                return !interrupted;
-            }
-            if id.is_none_or(|id| id == turn) {
-                events.push(Event::Unmapped(std::mem::take(diff)));
-            }
-            false
-        });
+        events.extend(self.diffs.drain().filter_map(|((thread, turn), diff)| {
+            (thread != self.session || id.is_none_or(|id| id == turn)).then_some(Event::Unmapped(diff))
+        }));
         self.files.retain(|(thread, _, _), _| thread != &self.session);
         self.calls.retain(|_, call| *call != Call::Prompt);
         events.push(Event::TurnEnded(result));

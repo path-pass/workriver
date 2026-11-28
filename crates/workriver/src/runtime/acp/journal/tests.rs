@@ -5,6 +5,12 @@ use tempfile::tempdir;
 
 use super::*;
 
+fn read_page(journal: &Journal, after: u64, limit: usize) -> Result<Value> {
+    let mut bytes = Vec::new();
+    journal.read(after, limit, &mut bytes)?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
 fn prompt(key: &str, text: &str) -> Value {
     json!({
         "kind": "acp", "dir": "out", "key": key,
@@ -46,7 +52,7 @@ fn replay_recovers_durable_keys_before_a_torn_tail() {
     assert_eq!(journal.deliveries().get("delivery"), Some(&1));
     assert!(journal.append(prompt("delivery", "changed"), true).is_err());
     assert_eq!(journal.append(prompt("another", "next"), true).unwrap(), 2);
-    let all = journal.read(0, 200).unwrap();
+    let all = read_page(&journal, 0, 200).unwrap();
     assert_eq!(all["head"], 2);
     assert_eq!(all["entries"][0]["gen"], 1);
     assert_eq!(all["entries"][1]["gen"], 2);
@@ -88,17 +94,29 @@ fn pages_stop_at_encoded_byte_budget_and_resume_from_last_entry() {
     for seq in 1..=3 {
         assert_eq!(journal.append(approval(command.clone()), false).unwrap(), seq);
     }
-    let first = journal.read(0, 1000).unwrap();
+    let first = read_page(&journal, 0, 1000).unwrap();
     assert!(serde_json::to_vec(&first).unwrap().len() <= 2 * 1024 * 1024);
     assert_eq!(first["head"], 3);
     assert_eq!(first["entries"].as_array().unwrap().len(), 1);
     assert_eq!(first["entries"][0]["seq"], 1);
     assert_eq!(first["entries"][0]["msg"]["params"]["toolCall"]["rawInput"]["command"], command);
     assert!(first["entries"][0].get("cut").is_none());
-    let second = journal.read(1, 1000).unwrap();
+    let second = read_page(&journal, 1, 1000).unwrap();
     assert_eq!(second["entries"][0]["seq"], 2);
-    assert_eq!(journal.read(2, 1).unwrap()["entries"][0]["seq"], 3);
-    assert_eq!(journal.read(3, 1000).unwrap(), json!({"entries": [], "head": 3}));
+    assert_eq!(read_page(&journal, 2, 1).unwrap()["entries"][0]["seq"], 3);
+    assert_eq!(read_page(&journal, 3, 1000).unwrap(), json!({"entries": [], "head": 3}));
+}
+
+#[test]
+fn an_oversized_first_row_is_a_read_error_instead_of_an_empty_page() {
+    let dir = tempdir().unwrap();
+    let mut journal = Journal::open(dir.path(), 1).unwrap();
+    journal.append(json!({"kind":"native","msg":"original"}), false).unwrap();
+    let mut invalid = vec![b' '; 3 * 1024 * 1024];
+    invalid.push(b'\n');
+    std::fs::write(&journal.path, invalid).unwrap();
+
+    assert!(read_page(&journal, 0, 1000).is_err());
 }
 
 #[test]
@@ -109,7 +127,7 @@ fn oversized_text_and_approval_are_marked_and_bounded_on_disk() {
     journal.append(prompt("durable", &text), true).unwrap();
     journal.append(approval(text.clone() + &text), false).unwrap();
 
-    let page = journal.read(0, 2).unwrap();
+    let page = read_page(&journal, 0, 2).unwrap();
     let bounded_prompt = &page["entries"][0];
     let kept = bounded_prompt["msg"]["params"]["prompt"][0]["text"].as_str().unwrap();
     assert!(!kept.is_empty() && text.starts_with(kept) && kept.len() < text.len());
@@ -124,7 +142,7 @@ fn oversized_text_and_approval_are_marked_and_bounded_on_disk() {
     drop(journal);
     let journal = Journal::open(dir.path(), 2).unwrap();
     assert_eq!(journal.deliveries().get("durable"), Some(&1));
-    assert_eq!(journal.read(0, 2).unwrap(), page);
+    assert_eq!(read_page(&journal, 0, 2).unwrap(), page);
 }
 
 #[test]
@@ -135,7 +153,7 @@ fn sparse_offsets_seek_across_blocks_after_reopening() {
         journal.append(json!({"kind": "acp", "msg": "山".repeat(seq % 31)}), false).unwrap();
     }
     assert_eq!(journal.offsets.len(), 2);
-    assert_eq!(journal.read(255, 2).unwrap()["entries"][1]["seq"], 257);
+    assert_eq!(read_page(&journal, 255, 2).unwrap()["entries"][1]["seq"], 257);
     drop(journal);
 
     let mut journal = Journal::open(dir.path(), 2).unwrap();
@@ -143,9 +161,9 @@ fn sparse_offsets_seek_across_blocks_after_reopening() {
     assert_eq!(journal.head(), 512);
     assert_eq!(journal.append(prompt("delivery", "next block"), true).unwrap(), 513);
     for (after, want) in [(0, 1), (255, 256), (256, 257), (257, 258), (511, 512), (512, 513)] {
-        let page = journal.read(after, 1).unwrap();
+        let page = read_page(&journal, after, 1).unwrap();
         assert_eq!(page["head"], 513);
         assert_eq!(page["entries"][0]["seq"], want);
     }
-    assert_eq!(journal.read(u64::MAX, 1).unwrap(), json!({"entries": [], "head": 513}));
+    assert_eq!(read_page(&journal, u64::MAX, 1).unwrap(), json!({"entries": [], "head": 513}));
 }

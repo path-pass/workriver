@@ -133,7 +133,10 @@ pub(super) fn poll(fds: &mut [libc::pollfd], timeout: Option<Duration>) -> io::R
 pub(super) fn write(io: &mut (impl AsRawFd + Write), frame: &Value, until: Instant) -> io::Result<()> {
     let mut bytes = serde_json::to_vec(frame)?;
     bytes.push(b'\n');
-    let mut tail = &bytes[..];
+    write_encoded(io, &bytes, until)
+}
+
+pub(super) fn write_encoded(io: &mut (impl AsRawFd + Write), mut tail: &[u8], until: Instant) -> io::Result<()> {
     while !tail.is_empty() {
         match io.write(tail) {
             Ok(0) => return Err(io::ErrorKind::WriteZero.into()),

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -98,11 +98,18 @@ impl Journal {
         &self.deliveries
     }
 
-    pub(super) fn read(&self, after: u64, limit: usize) -> Result<Value> {
-        let mut page = json!({"entries": [], "head": self.head()});
-        if after >= self.head || limit == 0 {
-            return Ok(page);
+    pub(super) fn read(&self, after: u64, limit: usize, page: &mut Vec<u8>) -> Result<()> {
+        // Leave room for the host's JSON-RPC envelope and the page's closing delimiters.
+        let end = page.len() + 2 * 1024 * 1024 - 128 - 2;
+        write!(page, "{{\"head\":{},\"entries\":[", self.head())?;
+        if after < self.head && limit != 0 {
+            self.read_entries(after, limit, page, end)?;
         }
+        page.extend_from_slice(b"]}");
+        Ok(())
+    }
+
+    fn read_entries(&self, after: u64, limit: usize, page: &mut Vec<u8>, end: usize) -> Result<()> {
         let offset = self.offsets[(after / INDEX_STRIDE) as usize];
         let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&self.path)?;
         file.seek(SeekFrom::Start(offset))?;
@@ -110,22 +117,30 @@ impl Journal {
         for _ in 0..after % INDEX_STRIDE {
             reader.skip_until(b'\n')?;
         }
-        let mut line = Vec::new();
-        let mut size = serde_json::to_vec(&page)?.len();
-        let entries = page["entries"].as_array_mut().unwrap();
-        // Reserve room for the host protocol's JSON-RPC envelope.
-        let budget = 2 * 1024 * 1024 - 128;
-        for _ in 0..(self.head - after).min(limit.min(1000) as u64) {
-            reader.read_until(b'\n', &mut line)?;
-            let bytes = line.strip_suffix(b"\n").context("incomplete journal entry")?;
-            size += bytes.len() + usize::from(!entries.is_empty());
-            if size > budget {
+        // Include the page and reply closers so a full page needs no reallocation.
+        page.reserve_exact(end + 4 - page.len());
+        for index in 0..(self.head - after).min(limit.min(1000) as u64) {
+            let before = page.len();
+            let row = before + usize::from(index != 0);
+            if row >= end {
                 break;
             }
-            entries.push(serde_json::from_slice(bytes).context("cannot read journal entry")?);
-            line.clear();
+            if index != 0 {
+                page.push(b',');
+            }
+            // Read into the response itself, with one extra byte for the line ending.
+            (&mut reader).take((end - row + 1) as u64).read_until(b'\n', page)?;
+            if !page.ends_with(b"\n") {
+                ensure!(page.len() > end, "incomplete journal entry");
+                ensure!(index != 0, "journal entry exceeds the page budget");
+                page.truncate(before);
+                break;
+            }
+            page.pop();
+            // A row is checked and dropped before reading the next one.
+            serde_json::from_slice::<Value>(&page[row..]).context("cannot read journal entry")?;
         }
-        Ok(page)
+        Ok(())
     }
 }
 

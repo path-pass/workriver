@@ -43,7 +43,9 @@ fn host_records_stuck_after_the_deadline_if_members_remain_or_listing_fails() {
             assert!(!host.progress_close(deadline, listing).unwrap());
         }
         assert!(host.progress_close(deadline, listing).unwrap());
-        let page = host.journal.read(0, 10).unwrap();
+        let mut bytes = Vec::new();
+        host.journal.read(0, 10, &mut bytes).unwrap();
+        let page: Value = serde_json::from_slice(&bytes).unwrap();
         let entries = page["entries"].as_array().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["event"], "closed");
