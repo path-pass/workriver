@@ -30,6 +30,7 @@ mod commands;
 mod conversations;
 mod delivery;
 mod files;
+mod hosted;
 mod http;
 mod machines;
 mod planning;
@@ -61,6 +62,9 @@ pub(super) struct Options {
     pub(super) user_home: Option<std::path::PathBuf>,
     /// The jobs it runs by the clock (`jobs()`; a test's own, or none: no timer runs).
     pub(super) jobs: Vec<schedule::Job>,
+    /// The hosts of the agents workriver holds, as `runtime` sees them too; none: a set of
+    /// its own in the data directory (tests that hold no hosted agent).
+    pub(super) hosts: Option<Arc<crate::runtime::Hosts>>,
 }
 
 /// The service's jobs by the clock: each domain's constant, listed here where the service
@@ -90,11 +94,16 @@ pub(super) struct Waits {
     start: Duration,
     /// How often a scheduled job's timer looks at the wall clock (`schedule::LOOK`; less in tests).
     look: Duration,
+    /// How long a hosted agent's host is waited for to close (`hosted::CLOSE_WAIT`; less in
+    /// tests).
+    hosted_close: Duration,
+    /// A hosted start's readiness window, including on restart (60 seconds; less in tests).
+    hosted_start: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), look: schedule::LOOK }
+        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), look: schedule::LOOK, hosted_close: hosted::CLOSE_WAIT, hosted_start: hosted::START_WAIT }
     }
 }
 
@@ -107,7 +116,8 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
 /// The service over whatever keeps the work, as the data port, with its data directory
 /// (`store_home`: the token, the caller socket, the attachments, the settings).
 pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn WorkStore>, store_home: std::path::PathBuf, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as, sample, procs, callers, user_home, jobs } = options;
+    let Options { warning, waits, machines, allow_as, sample, procs, callers, user_home, jobs, hosts } = options;
+    let hosts = hosts.unwrap_or_else(|| crate::runtime::Hosts::new(&store_home));
     let port = listener.local_addr()?.port();
     let (changed, _) = broadcast::channel(16);
     let shared = Arc::new(Mutex::new(views::Shared::default()));
@@ -141,6 +151,8 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         seats: Mutex::default(),
         tunnels: Mutex::default(),
         runtime,
+        hosts,
+        hosting: Mutex::default(),
         warning,
         live: Mutex::new(None),
         pending: Mutex::default(),
@@ -193,6 +205,16 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
             }
             let app = poller.clone();
             let _ = tokio::task::spawn_blocking(move || app.poll()).await;
+        }
+    });
+    // Start a reconciliation round beside the poll; host requests run independently.
+    let reconciler = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(reconciler.waits.tick);
+        loop {
+            tick.tick().await;
+            let app = reconciler.clone();
+            let _ = tokio::task::spawn_blocking(move || app.reconcile_hosted()).await;
         }
     });
     // This machine's changes as they happen (another machine's are followed in follow.rs,

@@ -152,7 +152,7 @@ pub(super) async fn attachment(State(app): State<Shared>, Extension(caller): Ext
     let id = id.split('.').next().unwrap_or_default().to_string();
     // Of what the caller may see: an agent on a blind task, only what it attached itself.
     let viewer = app.clone();
-    let state = blocking(move || viewer.view(&caller, &r)).await?;
+    let (_, state) = blocking(move || viewer.view(&caller, &r)).await?;
     let found = state.attachments.iter().find(|a| a.id == id).cloned();
     let a = found.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
     let file = store::path(&app.home, &a.id, &a.name).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;

@@ -82,8 +82,9 @@ impl App {
     /// place is found before the agent's writer is taken; under the writer, the read and the
     /// message, so a press never comes between them. A message's send holds
     /// `App::appointing` (or `App::discussing`) around this (`App::hand`): the order is always
-    /// that, then the writer, never the other way.
-    pub(in crate::server) fn type_at(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
+    /// that, then the writer, never the other way. `key`: the message's own (`Held.key`), the
+    /// same at every try, so a runtime that keeps keys takes it once.
+    pub(in crate::server) fn type_at(&self, session: &str, machine: Option<&str>, key: &str, text: &str) -> Result<(), RuntimeError> {
         let place = self.place_of(session, machine).map_err(untyped)?;
         let writer = self.terminals.writer(session, machine);
         let _one = writer.lock().unwrap();
@@ -95,7 +96,7 @@ impl App {
             Ok(_) | Err(RuntimeError::Unsupported) => {}
             Err(e) => return Err(untyped(e)),
         }
-        self.runtime.send_at(machine, &place, session, &self.readable_on(machine, text))
+        self.runtime.send_at(machine, &place, session, key, &self.readable_on(machine, text))
     }
 
     /// At each poll, before anything is worked out from the agents: reads the screens of the

@@ -49,11 +49,14 @@ pub struct Herdr {
     panes: Mutex<HashMap<String, String>>,
     /// Set for another machine's Herdr: its name, carried by every id read from it.
     machine: Option<String>,
+    /// Whether a Herdr may serve at the socket's path although its file is not there: then a
+    /// missing file is not proof that no terminal of it runs (`call_within`).
+    may_run: fn(&std::path::Path) -> bool,
 }
 
 impl Herdr {
     pub fn new(socket: PathBuf, terminal_app: String) -> Herdr {
-        Herdr { socket, terminal_app, ids: AtomicU64::new(1), panes: Mutex::default(), machine: None }
+        Herdr { socket, terminal_app, ids: AtomicU64::new(1), panes: Mutex::default(), machine: None, may_run: protocol::serves_there }
     }
 }
 
@@ -65,7 +68,7 @@ impl Runtime for Herdr {
     fn locate(&self, _: Option<&str>, place: &str) -> Result<Place, RuntimeError> {
         let (_, list) = self.read()?;
         let agent = list.into_iter().find(|(p, _)| p == place).map(|(_, a)| a);
-        Ok(Place { agent })
+        Ok(Place { agent, starting: false })
     }
 
     fn focus(&self, session: &str) -> Result<(), RuntimeError> {
@@ -80,7 +83,7 @@ impl Runtime for Herdr {
     /// Into this pane only, while it holds this session, read fresh. A read that fails asked
     /// for no prompt: nothing was typed, so Herdr cannot be reached now (`Unreachable`); only
     /// what fails once the prompt is asked for may have typed it.
-    fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
+    fn send_at(&self, _: Option<&str>, place: &str, session: &str, _key: &str, text: &str) -> Result<(), RuntimeError> {
         let (_, list) = self.read().map_err(|e| match e {
             RuntimeError::Failed(words) => RuntimeError::Unreachable(words),
             e => e,

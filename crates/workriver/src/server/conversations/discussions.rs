@@ -45,7 +45,7 @@ impl App {
             return self.drop_question(id, ReasonCode::AgentGone, &format!("{}#{} has no agent", q.unit, q.task));
         };
         let text = prompts::discussion(&all, &q, &self.home);
-        let h = Held::new(&all, For::Discussion, id, &session, text, None);
+        let h = Held { key: format!("question:{id}"), ..Held::new(&all, For::Discussion, id, &session, text, None) };
         drop(all);
         self.hand(h);
     }

@@ -13,6 +13,17 @@
 /api/focus
 /api/gate
 /api/here
+/api/hosted
+/api/hosted/processes
+/api/hosted/processes/close
+/api/hosted/start
+/api/hosted/{id}
+/api/hosted/{id}/answer
+/api/hosted/{id}/cancel
+/api/hosted/{id}/close
+/api/hosted/{id}/prompt
+/api/hosted/{id}/read
+/api/hosted/{id}/status
 /api/intent/start
 /api/intent/{id}/history
 /api/machines
@@ -32,6 +43,7 @@
 /api/session/code
 /api/settings/attachments
 /api/settings/attachments/run
+/api/settings/hosted
 /api/settings/stall
 /api/settings/start
 /api/state

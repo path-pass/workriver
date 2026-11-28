@@ -21,8 +21,18 @@ pub fn socket_path() -> PathBuf {
     }
 }
 
+/// Whether a Herdr process may be serving at `socket` although its file is not there: one
+/// holds a listener bound at that path, or that cannot be told.
+pub fn serves_there(socket: &std::path::Path) -> bool {
+    crate::common::process::unix_bound(socket, "herdr") != Some(false)
+}
+
 impl Herdr {
-    /// One request on its own connection. A missing socket means Herdr is not running.
+    /// One request on its own connection. Herdr is not running (`None`, so it has no place)
+    /// only when its socket is not there and no Herdr process holds a listener bound at its
+    /// path; a socket that is there but does not answer, or one whose file is gone while its
+    /// listener lives (its terminals may still run), is `Unreachable`: nothing can be said of
+    /// its places.
     pub(super) fn call(&self, method: &str, params: Value) -> Result<Value, RuntimeError> {
         self.call_within(method, params, Duration::from_secs(10))
     }
@@ -30,7 +40,10 @@ impl Herdr {
     /// The same, for a request that answers only after `wait` at most (starting an agent).
     pub(super) fn call_within(&self, method: &str, params: Value, wait: Duration) -> Result<Value, RuntimeError> {
         let fail = |e: std::io::Error| RuntimeError::Failed(format!("herdr {method}: {e}"));
-        let stream = UnixStream::connect(&self.socket).map_err(|_| RuntimeError::None)?;
+        let stream = UnixStream::connect(&self.socket).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound if !(self.may_run)(&self.socket) => RuntimeError::None,
+            _ => RuntimeError::Unreachable(format!("Herdr does not answer at {}: {e}", self.socket.display())),
+        })?;
         stream.set_read_timeout(Some(wait)).map_err(fail)?;
         stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(fail)?;
         let id = format!("workriver:{}", self.ids.fetch_add(1, Ordering::Relaxed));

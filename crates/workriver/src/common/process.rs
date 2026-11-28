@@ -1,7 +1,8 @@
 // Processes as the operating system describes them: one process, its chain of parents, the
 // same read on another machine over ssh, and running a command with a time limit.
-use std::time::Duration;
+use std::{io, time::Duration};
 
+use workriver_core::hosted::ProcessOutcome;
 use workriver_scan as scan;
 
 /// One process as its operating system describes it.
@@ -62,6 +63,328 @@ pub(crate) fn one(pid: u32) -> Option<Proc> {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub(crate) fn one(_: u32) -> Option<Proc> {
+    None
+}
+
+/// The variable that marks every process a hosted agent starts (its agent's id, the launch's
+/// generation and its instance's tag, `a7/2/3f09c1d2aa04`): set by its host, inherited by
+/// whatever does not clear its environment.
+pub const MARKER: &str = "WORKRIVER_AGENT";
+
+/// A process of this account as a sweep reads it: when it started, and whether it has
+/// already exited (a zombie, waiting to be reaped).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Owned {
+    pub start: u64,
+    pub zombie: bool,
+}
+
+/// Process `pid`, if it runs and is this account's.
+#[cfg(target_os = "macos")]
+pub fn owned(pid: u32) -> Option<Owned> {
+    let k = libproc::libproc::proc_pid::kproc_info_raw(pid as i32).ok()?;
+    // SAFETY: getuid has no arguments or failure mode.
+    if k.kp_proc.p_pid as u32 != pid || k.kp_eproc.e_ucred.cr_uid != unsafe { libc::getuid() } {
+        return None;
+    }
+    let start = (k.kp_proc.p_un.tv_sec.max(0) as u64) * 1_000_000 + k.kp_proc.p_un.tv_usec.max(0) as u64;
+    Some(Owned { start, zombie: k.kp_proc.p_stat as i32 == 5 })
+}
+
+#[cfg(target_os = "linux")]
+pub fn owned(pid: u32) -> Option<Owned> {
+    let p = procfs::process::Process::new(pid as i32).ok()?;
+    // SAFETY: getuid has no arguments or failure mode.
+    if p.uid().ok()? != unsafe { libc::getuid() } {
+        return None;
+    }
+    let s = p.stat().ok()?;
+    Some(Owned { start: s.starttime * 1_000_000 / procfs::ticks_per_second(), zombie: s.state == 'Z' })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn owned(_: u32) -> Option<Owned> {
+    None
+}
+
+/// Every process id on this machine; none: they cannot be listed.
+#[cfg(target_os = "macos")]
+pub fn all() -> Option<Vec<u32>> {
+    libproc::processes::pids_by_type(libproc::processes::ProcFilter::All).ok()
+}
+
+#[cfg(target_os = "linux")]
+pub fn all() -> Option<Vec<u32>> {
+    Some(procfs::process::all_processes().ok()?.filter_map(|p| p.ok()).map(|p| p.pid as u32).collect())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn all() -> Option<Vec<u32>> {
+    None
+}
+
+/// The value of the hosted agent's marker in a process's environment, and nothing else of
+/// it (the rest of an environment is never kept, logged or shown). `Ok(None)`: it has none;
+/// `Err`: its environment cannot be read (gone, another account's, or one the system keeps
+/// to itself: macOS shows no environment at all of its own platform binaries, `/bin/sh`
+/// and `/bin/sleep` among them, to `ps -E` neither).
+pub fn marker(pid: u32) -> Result<Option<String>, ()> {
+    let want = format!("{MARKER}=");
+    let found = environment(pid, &mut |var| var.strip_prefix(want.as_bytes()).map(|v| String::from_utf8_lossy(v).into_owned()))?;
+    Ok(found)
+}
+
+/// Each variable of `pid`'s environment, as `NAME=value` bytes, until `pick` takes one.
+#[cfg(target_os = "macos")]
+fn environment(pid: u32, pick: &mut dyn FnMut(&[u8]) -> Option<String>) -> Result<Option<String>, ()> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    let mut len = 0;
+    // SAFETY: the first call sizes the buffer and the second fills at most `len` bytes of it.
+    let bytes = unsafe {
+        if libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut len, std::ptr::null_mut(), 0) != 0 {
+            return Err(());
+        }
+        let mut bytes = vec![0u8; len];
+        if libc::sysctl(mib.as_mut_ptr(), 3, bytes.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0) != 0 {
+            return Err(());
+        }
+        bytes.truncate(len);
+        bytes
+    };
+    // argc, the executable's path, padding, argv, then the environment, each NUL-ended.
+    let (argc, rest) = bytes.split_first_chunk::<4>().ok_or(())?;
+    let argc = i32::from_ne_bytes(*argc).max(0) as usize;
+    let mut strings = rest.split(|&b| b == 0);
+    strings.next().ok_or(())?;
+    let mut vars = strings.skip_while(|s| s.is_empty()).skip(argc).take_while(|s| !s.is_empty()).peekable();
+    // No variable at all is an environment withheld, not an empty one.
+    if vars.peek().is_none() {
+        return Err(());
+    }
+    Ok(vars.find_map(|s| pick(s)))
+}
+
+#[cfg(target_os = "linux")]
+fn environment(pid: u32, pick: &mut dyn FnMut(&[u8]) -> Option<String>) -> Result<Option<String>, ()> {
+    let bytes = std::fs::read(format!("/proc/{pid}/environ")).map_err(|_| ())?;
+    Ok(bytes.split(|&b| b == 0).find_map(|s| pick(s)))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn environment(_: u32, _: &mut dyn FnMut(&[u8]) -> Option<String>) -> Result<Option<String>, ()> {
+    Err(())
+}
+
+/// When a process started, from its `Owned::start`, as the time it was on the clock.
+#[cfg(target_os = "macos")]
+pub fn started_at(start: u64) -> Option<String> {
+    Some(humantime::format_rfc3339_seconds(std::time::UNIX_EPOCH + std::time::Duration::from_micros(start)).to_string())
+}
+
+#[cfg(target_os = "linux")]
+pub fn started_at(start: u64) -> Option<String> {
+    let stat = std::fs::read_to_string("/proc/stat").ok()?;
+    let boot: u64 = stat.lines().find_map(|l| l.strip_prefix("btime "))?.trim().parse().ok()?;
+    Some(humantime::format_rfc3339_seconds(std::time::UNIX_EPOCH + std::time::Duration::from_secs(boot) + std::time::Duration::from_micros(start)).to_string())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn started_at(_: u64) -> Option<String> {
+    None
+}
+
+/// Every process of this account whose environment carries the marker, with what it says:
+/// `None` when the processes cannot be listed (a failed scan, never an empty one).
+/// A process whose environment cannot be read is not in it.
+pub fn marked() -> Option<Vec<(u32, Owned, String)>> {
+    let mine = std::process::id();
+    Some(all()?.into_iter().filter(|&pid| pid != mine).filter_map(|pid| {
+        let o = owned(pid).filter(|o| !o.zombie)?;
+        let m = marker(pid).ok()??;
+        Some((pid, o, m))
+    }).collect())
+}
+
+/// Whether the same process of this account still runs. None if it cannot be verified.
+pub fn owned_running(pid: u32, start: u64) -> Option<bool> {
+    if let Some(found) = owned(pid) {
+        return Some(found.start == start && !found.zombie);
+    }
+    let pid = libc::pid_t::try_from(pid).ok().filter(|&pid| pid > 0)?;
+    // SAFETY: signal zero queries one PID without delivering a signal.
+    if unsafe { libc::kill(pid, 0) } != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        return Some(false);
+    }
+    None
+}
+
+/// The outcome for the process the scan found, not for a different user of that PID.
+pub fn marked_state(pid: u32, start: u64, expected: &str) -> ProcessOutcome {
+    match owned_running(pid, start) {
+        Some(false) => ProcessOutcome::Exited,
+        Some(true) if matches!(marker(pid), Ok(Some(m)) if m == expected) => ProcessOutcome::Alive,
+        _ => ProcessOutcome::Unverifiable,
+    }
+}
+
+/// Verifies the process's id, account, start and marker before each signal. A Linux pidfd
+/// pins the target across the check and the signal; the other path has a PID reuse window.
+pub fn signal_marked(pid: u32, start: u64, expected: &str, sig: libc::c_int) -> io::Result<()> {
+    let system_pid = libc::pid_t::try_from(pid).ok().filter(|&pid| pid > 0).ok_or(io::ErrorKind::InvalidInput)?;
+    #[cfg(target_os = "linux")]
+    let pidfd = {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        // SAFETY: pidfd_open takes one positive PID and zero flags.
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, system_pid, 0u32) };
+        if fd >= 0 {
+            // SAFETY: the successful syscall returns a newly owned file descriptor.
+            Some(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) })
+        } else {
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::ENOSYS) => None,
+                Some(libc::ESRCH) => return Ok(()),
+                _ => return Err(error),
+            }
+        }
+    };
+
+    if marked_state(pid, start, expected) != ProcessOutcome::Alive || owned_running(pid, start) != Some(true) {
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(fd) = pidfd {
+        use std::os::fd::AsRawFd;
+        // SAFETY: the owned pidfd is open; null siginfo requests the default sender info.
+        let result = unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), sig, std::ptr::null::<libc::siginfo_t>(), 0u32) };
+        return sent(result == 0);
+    }
+    // SAFETY: a positive PID addresses one process, whose identity was just read again.
+    sent(unsafe { libc::kill(system_pid, sig) } == 0)
+}
+
+fn sent(success: bool) -> io::Result<()> {
+    if success {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) }
+}
+
+/// Whether a process named `name` holds a Unix socket bound at `path`, even one whose file
+/// is gone: the kernel keeps the address a listener was bound with. None: it cannot be told
+/// (the processes, or the sockets of one of them, cannot be read).
+#[cfg(target_os = "macos")]
+pub fn unix_bound(path: &std::path::Path, name: &str) -> Option<bool> {
+    use libproc::libproc::bsd_info::BSDInfo;
+    use libproc::libproc::file_info::{ListFDs, ProcFDType, pidfdinfo};
+    use libproc::libproc::net_info::{SocketFDInfo, SocketInfoKind};
+    use libproc::libproc::proc_pid::{listpidinfo, pidinfo};
+    use std::os::unix::ffi::OsStrExt;
+
+    let want = socket_location(path);
+    let mut absent = Some(false);
+    for pid in libproc::processes::pids_by_type(libproc::processes::ProcFilter::All).ok()? {
+        if one(pid).is_none_or(|p| p.name != name) {
+            continue;
+        }
+        let info = pidinfo::<BSDInfo>(pid as i32, 0).ok()?;
+        for fd in listpidinfo::<ListFDs>(pid as i32, info.pbi_nfiles as usize).ok()? {
+            if !matches!(fd.proc_fdtype.into(), ProcFDType::Socket) {
+                continue;
+            }
+            let Ok(s) = pidfdinfo::<SocketFDInfo>(pid as i32, fd.proc_fd) else {
+                absent = None;
+                continue;
+            };
+            if matches!(s.psi.soi_kind.into(), SocketInfoKind::Un) {
+                // SAFETY: a socket of kind Un carries the Unix member of the union.
+                let sun = unsafe { s.psi.soi_proto.pri_un.unsi_addr.ua_sun };
+                let bound: Vec<u8> = sun.sun_path.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
+                if bound.is_empty() {
+                    continue;
+                }
+                let bound = std::path::Path::new(std::ffi::OsStr::from_bytes(&bound));
+                if bound == path && bound.is_absolute() {
+                    return Some(true);
+                }
+                // A relative bound address used the listener's working directory at bind.
+                let location = bound.is_absolute().then(|| socket_location(bound)).flatten();
+                match (&want, location) {
+                    (Some(want), Some(location)) if *want == location => return Some(true),
+                    (Some(_), Some(_)) => {}
+                    // The address still names its original socket file, whichever directory it was bound in.
+                    (Some(want), None) if bound.file_name().is_some() && bound.file_name() != want.file_name() => {}
+                    _ => absent = None,
+                }
+            }
+        }
+    }
+    absent
+}
+
+/// The address's location even after the socket is unlinked, if its directory can be resolved.
+#[cfg(any(test, target_os = "macos", target_os = "linux"))]
+fn socket_location(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let path = std::path::absolute(path).ok()?;
+    match path.symlink_metadata() {
+        Ok(m) if m.is_symlink() => return path.canonicalize().ok(),
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return None,
+        _ => {}
+    }
+    Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?))
+}
+
+/// The same from the kernel's table of Unix sockets, whoever holds one.
+#[cfg(target_os = "linux")]
+pub fn unix_bound(path: &std::path::Path, _name: &str) -> Option<bool> {
+    let table = std::fs::read_to_string("/proc/net/unix").ok()?;
+    unix_table_bound(&table, path.to_str()?)
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn unix_table_bound(table: &str, want: &str) -> Option<bool> {
+    use std::path::Path;
+
+    if want.contains('\n') {
+        return None;
+    }
+    let path = Path::new(want);
+    let want_location = socket_location(path);
+    // A missing path still names its leaf. A dangling symlink may name another.
+    let want_name = want_location.as_deref().or_else(|| {
+        path.symlink_metadata().is_err_and(|error| error.kind() == io::ErrorKind::NotFound).then_some(path)
+    }).and_then(Path::file_name);
+    let mut absent = Some(false);
+    let mut rows = table.strip_suffix('\n')?.split('\n');
+    rows.next()?;
+    for mut row in rows {
+        // The inode is the seventh field. The kernel appends one space and the address.
+        for _ in 0..6 {
+            row = row.trim_start_matches(' ').split_once(' ')?.1;
+        }
+        let mut fields = row.trim_start_matches(' ').splitn(2, ' ');
+        fields.next()?.parse::<u64>().ok()?;
+        let Some(address) = fields.next() else { continue };
+        let bound = Path::new(address);
+        if bound.is_absolute() && address == want {
+            return Some(true);
+        }
+        // The table does not record the working directory of a relative bind.
+        let location = bound.is_absolute().then(|| socket_location(bound)).flatten();
+        let name = location.as_deref().unwrap_or(bound).file_name();
+        match (&want_location, &location) {
+            (Some(want), Some(location)) if want == location => return Some(true),
+            (Some(_), Some(_)) => {}
+            _ if want_name.is_some() && name.is_some() && want_name != name => {}
+            _ => absent = None,
+        }
+    }
+    absent
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn unix_bound(_: &std::path::Path, _: &str) -> Option<bool> {
     None
 }
 
@@ -238,6 +561,121 @@ mod tests {
         assert_eq!(ids(&ours), ids(&theirs));
         assert_eq!(theirs[0].name, "sleep");
         assert!(gone.unwrap().is_empty() && chain(0x3fff_fff0).is_empty(), "a process that is gone");
+    }
+
+    /// A child given the marker carries it, and this process's own environment is read
+    /// back with no other variable kept.
+    #[test]
+    fn a_marked_child_is_found_by_its_marker() {
+        // This test binary, not a system one: macOS withholds a platform binary's environment.
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "common::process::tests::a_marked_sleeper", "--ignored", "--nocapture"]).env(MARKER, "a9/3").env("MARKED_SLEEP", "1")
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        let pid = child.id();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while marker(pid) != Ok(Some("a9/3".into())) {
+            assert!(std::time::Instant::now() < until, "{:?}", marker(pid));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(marked().unwrap().iter().any(|(p, o, m)| *p == pid && m == "a9/3" && !o.zombie));
+        assert_eq!(marker(std::process::id()).map(|m| m.is_some()), Ok(std::env::var_os(MARKER).is_some()));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(owned(pid).is_none() || marker(pid).is_err() || marker(pid) == Ok(None));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_withheld_environment_is_unreadable_not_empty() {
+        let mut child = std::process::Command::new("/bin/sleep").arg("5").env(MARKER, "a9/3").spawn().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(marker(child.id()), Err(()));
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    #[ignore = "a marked child of a_marked_child_is_found_by_its_marker"]
+    fn a_marked_sleeper() {
+        if std::env::var_os("MARKED_SLEEP").is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
+    }
+
+    /// A listener whose file was removed is still found at its path; a path nobody is bound
+    /// at is not.
+    #[test]
+    fn a_bound_socket_is_found_after_its_file_is_gone() {
+        let dir = tempfile::Builder::new().prefix("wr-bound-").tempdir_in("/tmp").unwrap();
+        let path = dir.path().join("with  spaces.sock");
+        let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let me = one(std::process::id()).unwrap().name;
+        assert_eq!(unix_bound(&path, &me), Some(true));
+        // Other tests may close an fd while macOS is inspecting this process.
+        assert_ne!(unix_bound(&dir.path().join("with"), &me), Some(true));
+        assert_ne!(unix_bound(&dir.path().join("other.sock"), &me), Some(true));
+    }
+
+    #[test]
+    fn the_linux_socket_table_keeps_the_complete_address() {
+        let table = concat!("Num RefCount Protocol Flags Type St Inode Path\n",
+            "00000000: 00000002 00000000 00010000 0001 01 1234 /tmp/a socket  \n",
+            "00000000: 00000002 00000000 00000000 0001 03 999\n");
+        assert_eq!(unix_table_bound(table, "/tmp/a socket  "), Some(true));
+        assert_eq!(unix_table_bound(table, "/tmp/a"), Some(false));
+        assert_eq!(unix_table_bound("header\nincomplete", "/tmp/a"), None);
+    }
+
+    #[test]
+    fn the_linux_socket_table_finds_an_unlinked_address_by_its_directory_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let alias = dir.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let bound = alias.join("s.sock");
+        let want = real.join("s.sock");
+        let other = real.join("other.sock");
+        let table = format!("Num RefCount Protocol Flags Type St Inode Path\n00000000: 00000002 00000000 00010000 0001 01 1234 {}\n", bound.display());
+
+        assert_eq!(unix_table_bound(&table, want.to_str().unwrap()), Some(true));
+        assert_eq!(unix_table_bound(&table, other.to_str().unwrap()), Some(false));
+        std::fs::remove_file(&alias).unwrap();
+        assert_eq!(unix_table_bound(&table, want.to_str().unwrap()), None);
+        assert_eq!(unix_table_bound(&table, bound.to_str().unwrap()), Some(true));
+    }
+
+    #[test]
+    fn the_linux_socket_table_rules_out_other_names_when_the_requested_directory_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let bound = dir.path().join("other.sock");
+        let missing = dir.path().join("missing");
+        let dangling = dir.path().join("target.sock");
+        let table = format!("Num RefCount Protocol Flags Type St Inode Path\n00000000: 00000002 00000000 00010000 0001 01 1234 {}\n", bound.display());
+        std::os::unix::fs::symlink(&bound, &dangling).unwrap();
+
+        assert_eq!(unix_table_bound(&table, missing.join("target.sock").to_str().unwrap()), Some(false));
+        assert_eq!(unix_table_bound(&table, missing.join("other.sock").to_str().unwrap()), None);
+        assert_eq!(unix_table_bound(&table, dangling.to_str().unwrap()), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_bound_socket_is_found_under_either_directory_spelling() {
+        let dir = tempfile::Builder::new().prefix("wr-bound-").tempdir_in("/tmp").unwrap();
+        let real = dir.path().join("real");
+        let alias = dir.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let path = alias.join("s.sock");
+        let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let me = one(std::process::id()).unwrap().name;
+        assert_eq!(unix_bound(&real.join("s.sock"), &me), Some(true));
+        assert_ne!(unix_bound(&alias.join("other.sock"), &me), Some(true));
+        std::fs::remove_file(alias).unwrap();
+        assert_ne!(unix_bound(&real.join("s.sock"), &me), Some(false));
     }
 
     #[test]

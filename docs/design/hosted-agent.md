@@ -158,3 +158,123 @@ The process-boundary tests in `crates/workriver/tests/hosted.rs` drive the real 
 its Unix socket with `tests/__fixtures__/hosted_app_server.rs`. They validate the journal
 and native approval replies against the pinned ACP v1 and Codex 0.172.0 schemas in
 `tests/__fixtures__/`.
+
+## The service's side
+
+The service holds its hosts through `runtime::Hosts` (`runtime/acp/service.rs`) and sees them
+as a runtime beside the terminals' (`runtime/composite.rs`). The hosted runtime is an
+experiment behind a user-only switch (`settings.json` `hosted`, `workriver agent hosted
+on|off`, `/api/settings/hosted`); off refuses new starts only, and agents already running are
+attached, read, answered and closed as usual.
+
+**Records.** `agent.start_reserved` is the user's (`Body::user_only`, refused on
+`/api/append`) and gives the id `a<N>`. One open agent has a name. `start` and `processes`
+are reserved for collection routes. `agent.started`,
+`agent.start_ended`, `agent.answered` and `agent.closed` are workriver's
+(`Body::service_only`): a start only for an open reservation and a session the records did not
+know; an answer once per request key while the agent runs; a close once. An answer receipt
+carries `by: "user"`. `agent.started`
+carries the host's pid and start as the service spawned it, the generation, the harness
+version, the account kind and plan, and the approval policy; never an account id or address.
+
+**Start.** The user's request records the reservation and answers `{agent, state: starting}`.
+In the background the service makes the instance directory, writes `host.key` and
+`instance.json`, spawns `workriver host <dir>` with `setsid`, and polls `hello` until the host
+reports `running` with a session (at most 60 s after the reservation). Then it records `agent.started` and
+publishes the instance. A start that fails asks the host to close and records
+`agent.start_ended` only once the host process is gone; a host that does not go keeps the
+reservation open: its name stays taken and it is never published.
+
+**Places.** A published instance's root is `acp:<id>/<generation>` with the host's pid as its
+shell; `App::who` finds a caller by its chain of parents as for a terminal. A host tracked but
+not published is a root with `Place.starting`: every caller under it is refused, the user
+included. A session recorded as hosted is that agent only at a root of its own instance
+(`App::one_place`, `see_roots_on`). `App::place_of` binds deliveries to the recorded
+instance and generation. A stopped host's session cannot receive a delivery. The CLI sends
+`WORKRIVER_PLACE` as its place when `HERDR_PANE_ID` is not set, cross-checked only.
+
+**Composite.** A method that takes a place goes to the side that owns it (`acp:` is the
+hosts'). `roots`, `agent_roots` and `processes` are the union of both sides and fail as a whole
+when either fails; the terminal side's `None` contributes nothing. With no host known the
+terminal side's answer passes unchanged. `agents` degrades: a terminal side that fails shows
+its last agents as `unknown`. `resolve` and `focus` check both sides. Two matches are
+`Ambiguous`, and either side being unreachable fails the lookup. The terminal runtime is
+`None` only when its socket file is missing and the service can establish that no listener
+is bound at that path (`process::unix_bound`). The macOS check compares canonical paths.
+The Linux check reads the complete path from `/proc/net/unix`.
+
+**Deliveries.** `send_at` carries the held message's key (`Held.key`; a discussion's question
+keys on its id). On a hosted place it is `prompt {generation, session, key, text}`: `busy` is
+`RuntimeError::Busy`, `blocked` and `billing` are `Blocked`, `moved` is `Moved`, `gone` is
+`NoAgent`, a lost connection is `Unreachable`; `give` holds all but `NoAgent` and retries with
+the same key. A manager's prompt is `quote::said` (`From "<name>" (your manager): …`); the
+user's is sent as written.
+
+**Routes.** `/api/hosted` (list), `/start`, `/{id}` (show), `/{id}/prompt`, `/read`
+(`after`, `limit`), `/status`, `/cancel`, `/answer`, `/close`. Start, answer and close ask for
+the user; the others for whoever drives the agent (`State::drives`: the user, or the seated
+manager of its workspace while the agent holds no seat), read anew per request. A blind
+task's agent drives nothing. Prompt and cancel are ordered with seat changes. None of these
+routes is on a machine's listener. Each read passes through `App::view`. A running instance
+serves the page through its host. The service can open the journal read-only when the
+host is unavailable. The same reader, sparse index and page limits apply to both paths.
+
+**Reconciliation** runs at service start and every poll tick. Each instance has a lifecycle
+turn and its own bounded calls, so a slow host cannot delay other instances.
+
+| Records | Host | Done |
+|---|---|---|
+| Reserved in this service run, start in progress | any | The in-flight start owns the turn |
+| Reserved, no start in progress | none | Record `agent.start_ended` immediately |
+| Reserved, no start in progress | live and still starting, under 60 s since reservation | Wait for readiness or the start deadline |
+| Reserved, no start in progress | live and ready or closing, or the 60 s window has expired | Ask it to close and record `agent.start_ended` once gone |
+| Started | live, transport not reconciled yet | Record missing answers and attach. A host that speaks another protocol shows `incompatible` |
+| Started | gone or closing, journal has `closed` | missing answers recorded, then `agent.closed` with its outcome |
+| Started | gone, no `closed` line | missing answers recorded; `stopped` |
+| None | a live host in `agents/` | asked to close and logged |
+
+The runtime reads `instance.json` to find an unpublished host for cleanup. A published
+root comes from the service's own spawned child, saved in `agent.started` for re-attachment.
+Missing answers are the set difference of the journal's `decided` lines and recorded
+answers. An unsuccessful receipt write is retried before publication, stop or close.
+Re-opening a transport triggers reconciliation even if the host process stays alive.
+A live host whose close has not been recorded after 40 s shows `unconfirmed`.
+
+## Leftover processes
+
+**The marker.** The host gives the agent's process `WORKRIVER_AGENT=<id>/<generation>/<tag>`,
+where the tag is the start of the SHA-256 of the instance's key and its directory (as the
+host was given it): no two instances share a marker, two data directories or two tests
+included, and nothing of the key shows. The Codex adapter also passes the thread one setting,
+`shell_environment_policy.set.WORKRIVER_AGENT`, so the tools' processes keep the marker
+whatever the user's policy (checked with Codex 0.172.0: with `inherit = "core"` the marker is
+dropped without it and kept with it, through `thread/shellCommand`, `setsid` and a double
+fork). Only the marker is ever read of an environment; nothing else of it is kept, logged or
+shown.
+
+**The close sweep.** At the close's SIGTERM step the host lists this account's processes
+carrying its own launch's marker, excluding the group leader. The host checks the start,
+account and marker before each signal. It sends TERM then KILL alongside the group signals.
+It scans again after KILL to find descendants created during cleanup and handles them
+within the same deadline. The `closed` line lists `processes: [{pid, outcome}]`.
+Each outcome is `exited` (including zombies), `alive` or `unverifiable`. A failed scan
+sets `markedError` and makes the close `unverifiable`. The service keeps these fields
+in its close receipt, which `agent show` and `agent close --wait` print.
+
+**The service's list.** After initial reconciliation, `/api/hosted/processes` (the user's;
+`workriver agent processes`)
+scans this account's processes for markers whose tag is one of this service's instances.
+`running`: those of a launch that runs under its live host. `leftover`: its agent closed, its
+start ended, no start reserved it, an older generation, or its host gone; each with pid,
+command name (never its arguments), start time, agent and generation. A marker of another
+data directory is not listed. The user may close all leftovers with `--all` or close one
+with the exact `--close PID --start START --marker MARKER` printed in the list. The service
+checks that the launch is still a leftover and re-reads the process identity before TERM
+and KILL, within a single seven-second deadline.
+
+**The limit.** A process that clears or replaces its environment carries no marker. macOS
+shows no environment at all of its own platform binaries (`/bin/sh`, `/bin/sleep`, and the
+like) to another process of the same account, `ps -E` included: their marker cannot be read,
+so they are not found once they leave the agent's group (inside it the group's signals still
+reach them). Linux uses `/proc/<pid>/environ` and a pidfd where available. On macOS
+a small PID reuse window remains between the final identity check and the signal.

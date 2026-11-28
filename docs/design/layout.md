@@ -103,6 +103,11 @@ workriver/
 │   │       │   │                     # a rule's Conditions; attachment.removed/restored (Gone, Target).
 │   │       │   ├── tests.rs
 │   │       │   └── tests/attachments.rs  # Holders, due, removal and restore; the guard for texts.
+│   │       ├── hosted/               # Hosted agents' receipts: agent.start_reserved (the user's, the
+│   │       │   │                     # id a<N>), started/start_ended/answered/closed (workriver's);
+│   │       │   │                     # one open agent per name; who drives a worker (`drives`).
+│   │       │   ├── mod.rs
+│   │       │   └── tests.rs
 │   │       ├── access/               # Authority and visibility.
 │   │       │   ├── mod.rs            # Principal/Rejected, reserved actors, Body::user_only, Body::service_only,
 │   │       │   │                     # message_for (who reads one message whole: as conversations_of cuts it).
@@ -260,6 +265,7 @@ crates/workriver/
 │   │   │                             # delivery staging, task show.
 │   │   ├── conversations.rs          # Ask/answer/reply/say/manager-tell and waits; message show.
 │   │   ├── machines.rs               # Machine/load commands.
+│   │   ├── hosted.rs                 # `workriver agent …`: hosted agents and the experimental switch.
 │   │   ├── display.rs                # Board, an intent's history, a machine's history and load text,
 │   │   │                             # and a task or finding in full.
 │   │   ├── guide.rs                  # Embedded guides, topic lookup, install stubs.
@@ -317,6 +323,15 @@ crates/workriver/
 │   │   │                             # its text by revision) and /api/template/remove; all App::user but
 │   │   │                             # the read (App::view); none on machine_router.
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
+│   │   ├── hosted/                   # Hosted agents (/api/hosted…, /api/settings/hosted).
+│   │   │   ├── mod.rs                # Routes: start, answer, close and the switch App::user; list,
+│   │   │   │                         # show, prompt, read, status, cancel for whoever drives it
+│   │   │   │                         # (`State::drives`, read anew per request).
+│   │   │   ├── leftovers.rs          # The hosted agents' processes by their marker: running and
+│   │   │   │                         # left over; the user's end of one or all.
+│   │   │   └── lifecycle.rs          # Start (reserve, spawn, wait, record, publish), close,
+│   │   │                             # the reconciliation each tick (lost receipts, re-attach
+│   │   │                             # with the protocol check, stopped, unreserved hosts).
 │   │   ├── terminals/                # An agent's terminal from the page; all three routes App::user.
 │   │   │   ├── mod.rs                # Terminals (digest key, presses, writers, marks, views),
 │   │   │   │                         # /api/agent/screen and /keys handlers, Refusal, ScreenView.
@@ -397,6 +412,8 @@ crates/workriver/
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
 │   │       ├── terminals.rs          # Reading, answering and watching an agent's terminal.
+│   │       ├── hosted.rs             # Hosted agents: who drives one, hosted identity and a pending
+│   │       │                         # session, the reconciliation's rows (stand-in host sockets).
 │   │       ├── schedule.rs           # Jobs by the clock in a running service (test jobs, short waits).
 │   │       ├── lifecycle.rs          # The attachment rule as the service runs it (an aged store).
 │   │       ├── templates.rs          # The template library through the service; a unit's steps filled,
@@ -408,11 +425,19 @@ crates/workriver/
 │   │   ├── follow.rs                 # Several machines as one Runtime; routing by machine; each
 │   │   │                             # machine's change stream (watch) beside its reads.
 │   │   ├── ssh.rs                    # Tunnel supervision, publication, reconnect timing.
+│   │   ├── composite.rs              # Terminals and hosts as one Runtime: by place; identity
+│   │   │                             # reads the union, failing as a whole (tests beside it).
 │   │   ├── acp/                      # Per-agent host and the ACP v1 journal projections.
-│   │   │   ├── mod.rs                # The host command entry point.
+│   │   │   ├── mod.rs                # The host command entry point; what the facade re-exports.
+│   │   │   ├── service.rs            # The service's side: spawn, roots as spawned, one kept
+│   │   │   │                         # connection per host, the journal read without its writer.
+│   │   │   ├── service/tests.rs      # Host connection loss, reconnects and connection epochs.
+│   │   │   ├── side.rs               # The hosts as a Runtime: published roots, starting roots,
+│   │   │   │                         # prompts with delivery keys.
 │   │   │   ├── host/                 # Socket protocol, pending approvals and lifecycle.
 │   │   │   │   ├── mod.rs            # The host's polling loop and effects.
-│   │   │   │   ├── close.rs          # Group ownership, signals, waits and close outcomes.
+│   │   │   │   ├── close.rs          # Group ownership, signals, waits and close outcomes; the
+│   │   │   │   │                     # sweep of the launch's marked processes.
 │   │   │   │   ├── instance.rs       # Instance files, lock and socket.
 │   │   │   │   ├── peer.rs           # Kernel peer identity and host ancestry checks.
 │   │   │   │   └── tests.rs          # Close deadline, approval durability and truncation.
@@ -420,7 +445,8 @@ crates/workriver/
 │   │   │   │   ├── mod.rs            # Native launch and environment, account checks and ACP projection.
 │   │   │   │   ├── tests.rs          # Translation and native approval replies.
 │   │   │   │   └── VERSION           # Codex version used for protocol testing.
-│   │   │   ├── journal.rs            # Durable receipts, delivery keys and bounded reads.
+│   │   │   ├── journal.rs            # Durable appends and delivery keys.
+│   │   │   ├── journal/reader.rs      # Shared read-only journal reader, receipts, sparse index and page limits.
 │   │   │   ├── journal/tests.rs      # Journal recovery, indexing and read budgets.
 │   │   │   └── wire.rs               # ACP frame builders and bounded JSON-RPC I/O.
 │   │   └── herdr/                    # Private to runtime/.
@@ -468,11 +494,13 @@ crates/workriver/
     ├── boundaries.rs                 # The runtime-name ratchet over the repository (guards.md).
     ├── cli.rs                        # The CLI's text and the user's machine changes (guards.md).
     ├── hosted.rs                     # Real host, Unix socket, journal and protocol schema checks.
+    ├── hosted_service.rs             # Real service, CLI and hosts: start, attribution, approvals,
+    │                                 # restart and close of a hosted worker.
     ├── output.rs                     # serve prints nothing that signs anyone in.
     └── __fixtures__/
         ├── acp/                      # Pinned ACP v1 schema, license and shared conversation.
         ├── codex/                    # Pinned Codex approval response schemas and source.
-        └── hosted_app_server.rs      # Scripted Codex app-server used by hosted.rs.
+        └── hosted_app_server.rs      # Scripted Codex app-server used by hosted.rs and hosted_service.rs.
 ```
 
 **Visibility in `server/`.** Nothing under `server/` is bare `pub`. A folder's `mod.rs`

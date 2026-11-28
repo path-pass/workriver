@@ -188,7 +188,7 @@ impl App {
             return self.ended(h, code, why);
         }
         drop(all);
-        match self.type_at(&row.session, row.machine.as_deref(), &h.text) {
+        match self.type_at(&row.session, row.machine.as_deref(), &h.key, &h.text) {
             Ok(()) => self.given(h),
             Err(e) => self.failed(h, e),
         }
@@ -230,7 +230,10 @@ impl App {
         match e {
             RuntimeError::Blocked(why) => self.hold(h, why),
             RuntimeError::NotReady(why) => self.not_ready(h, why),
-            RuntimeError::None | RuntimeError::Unreachable(_) => self.hold(h, e.to_string()),
+            // Nothing given; one that did reach a host is answered as a repeat of its key.
+            RuntimeError::None | RuntimeError::Unreachable(_) | RuntimeError::Busy(_) => self.hold(h, e.to_string()),
+            // An older generation of a hosted agent: held, and its place is resolved again.
+            RuntimeError::Moved(why) => self.hold(h, why),
             RuntimeError::NoAgent(_) if ends => {
                 let seated = self.seat_machine(&h.to).is_ok_and(|s| s.is_some());
                 let why = match seated {

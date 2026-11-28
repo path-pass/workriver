@@ -31,6 +31,22 @@ fn fake_codex_app_server() {
             .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
         fs::write("probe-result", if probe.success() { "refused" } else { "open" }).unwrap();
     }
+    if fake.options["escape"] == true {
+        // Two of the agent's processes leave its group the way a daemon does (their own
+        // session, then a parent that exits): one this test's own binary, whose environment
+        // macOS lets its account read, and one a system binary, whose environment it withholds.
+        let exe = std::env::current_exe().unwrap();
+        let line = format!("'{}' --exact fake::escaped_sleeper --ignored >/dev/null 2>&1 & echo $! > escaped-pid; /bin/sleep 23 & echo $! > escaped-system-pid", exe.display());
+        let mut sh = Command::new("/bin/sh");
+        sh.args(["-c", &line]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // SAFETY: only setsid between fork and exec.
+        unsafe { std::os::unix::process::CommandExt::pre_exec(&mut sh, || if libc::setsid() == -1 { Err(io::Error::last_os_error()) } else { Ok(()) }) };
+        sh.status().unwrap();
+    }
+    if let Some(line) = fake.options["run_at_start"].as_str() {
+        // A tool of the agent's, run before its start is recorded.
+        run(line, "start-run.out");
+    }
     if fake.options["ignore_term"] == true {
         // The real workriver host must terminate and reap this uniquely owned fake.
         unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN); }
@@ -87,6 +103,20 @@ fn fake_codex_app_server() {
         // Escape timeout if the test itself crashes before closing the fake.
         thread::sleep(Duration::from_secs(17));
     }
+}
+
+#[test]
+#[ignore = "launched by the fake app-server as a process that left the agent's group"]
+fn escaped_sleeper() {
+    if std::env::var_os("WORKRIVER_AGENT").is_some() {
+        thread::sleep(Duration::from_secs(23));
+    }
+}
+
+/// Runs `line` with `sh`, as a tool of the agent's would, its output and status into `out`.
+fn run(line: &str, out: &str) {
+    let o = Command::new("/bin/sh").args(["-c", line]).stdin(Stdio::null()).output().unwrap();
+    fs::write(out, format!("{}\n{}{}", o.status.success(), String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))).unwrap();
 }
 
 #[test]
@@ -153,6 +183,10 @@ impl Fake {
                 for field in ["approvalPolicy", "approvalsReviewer", "sandbox"] {
                     assert!(params.get(field).is_none(), "host overrides {field}");
                 }
+                // The one setting the host gives the thread: its tools keep the launch's marker.
+                let config = params["config"].as_object().unwrap();
+                assert_eq!(config.keys().collect::<Vec<_>>(), ["shell_environment_policy.set.WORKRIVER_AGENT"]);
+                assert_eq!(config["shell_environment_policy.set.WORKRIVER_AGENT"], std::env::var("WORKRIVER_AGENT").unwrap());
                 json!({
                     "thread":{"id":self.fixture["session"]}, "model":"effective-model",
                     "modelProvider":self.options["provider"].as_str().unwrap_or("openai"),
@@ -161,6 +195,14 @@ impl Fake {
                 })
             }
             Some("account/read") => {
+                if self.options["hold_ready"] == true {
+                    fs::write("ready-requested", "").unwrap();
+                    let until = Instant::now() + Duration::from_secs(15);
+                    while !std::path::Path::new("ready-release").exists() {
+                        assert!(Instant::now() < until, "readiness was not released");
+                        thread::sleep(Duration::from_millis(15));
+                    }
+                }
                 let account = self.options.get("account").cloned().unwrap_or_else(|| match self.account.as_str() {
                     "chatgpt" => json!({"type":"chatgpt", "planType":"plus", "email":"private@example.invalid"}),
                     _ => json!({"type":"apiKey"}),
@@ -209,11 +251,21 @@ impl Fake {
             other => panic!("unexpected native frame {other:?}: {frame}"),
         };
         self.reply(id, result);
+        if frame["method"] == "account/read" && self.options["exit_after_ready"] == true {
+            std::process::exit(0);
+        }
     }
 
     fn prompt(&mut self, id: &Value, text: &str) {
         self.count += 1;
         self.turn = format!("turn-{}", self.count);
+        if let Some(line) = text.strip_prefix("run:") {
+            // A tool the agent runs in its turn: a shell command, its output in a file.
+            self.reply(id, json!({"turn":{"id":self.turn, "status":"inProgress", "items":[]}}));
+            run(line, &format!("run-{}.out", self.count));
+            self.complete("completed");
+            return;
+        }
         if text == "bad-ack" {
             self.reply(id, json!({"turn":{"status":"inProgress"}}));
             return;

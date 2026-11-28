@@ -31,7 +31,7 @@ pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Exte
     blocking(move || {
         let r = Reader { named: q.named, light: true, have: String::new() };
         let who = app.who(&caller, r.named.as_deref())?;
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
             Some(t) => core::parse_task_ref(t).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| bad(format!("{t:?} is not a task; write it as <unit>#<n>, e.g. u1#3")))?,
             None => {
@@ -97,6 +97,10 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
     // A start names the place the service opened for it: only the start action records one.
     if matches!(body, Body::WorkspaceManagerStarted { .. }) {
         return Err(bad("a manager is started only by the start action, which opens its terminal and records it: the page's Start manager (a workspace's line)".into()));
+    }
+    // A hosted start is reserved by the start action, which spawns its host.
+    if matches!(body, Body::AgentStartReserved { .. }) {
+        return Err(bad("a hosted agent is started only by the start action: `workriver agent start`".into()));
     }
     // A template holds its text and the steps read from it: only the action that reads the
     // text records one, so the two cannot differ.

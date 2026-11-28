@@ -658,6 +658,35 @@ fn close_keeps_the_exited_leader_unreaped_until_its_other_group_member_dies() {
     assert!(process_state(member).is_none_or(|state| state.starts_with('Z')), "the group member survived close");
 }
 
+/// A process of the agent's that left its group (its own session, a parent that exited) still
+/// carries the launch's marker: the close finds it, reads it again and ends it, and reports
+/// it. One whose environment the system withholds cannot be found that way: the limit.
+#[test]
+fn close_ends_a_marked_process_that_left_the_agents_group() {
+    let mut host = Host::spawn(json!({"escape":true}));
+    let (mut wire, _) = host.ready();
+    let read = |name: &str| -> libc::pid_t { fs::read_to_string(host.root().join("cwd").join(name)).unwrap().trim().parse().unwrap() };
+    let (escaped, system) = until("the escaped processes start", || {
+        let ok = ["escaped-pid", "escaped-system-pid"].iter().all(|n| fs::read_to_string(host.root().join("cwd").join(n)).is_ok_and(|s| !s.trim().is_empty()));
+        ok.then(|| (read("escaped-pid"), read("escaped-system-pid")))
+    });
+    let instance: Value = serde_json::from_slice(&fs::read(host.dir.join("instance.json")).unwrap()).unwrap();
+    let leader = instance["agentGroup"].as_i64().unwrap() as libc::pid_t;
+    assert_ne!(unsafe { libc::getpgid(escaped) }, leader, "it left the agent's group");
+    wire.result("close", json!({"generation":GENERATION}));
+    host.ended();
+    let closed: Vec<Value> = host.journal().into_iter().filter(|e| e["event"] == "closed").collect();
+    assert_eq!(closed[0]["outcome"], "ended", "{closed:?}");
+    assert_eq!(closed[0]["processes"], json!([{"pid": escaped, "outcome": "exited"}]), "{closed:?}");
+    assert!(process_state(escaped).is_none_or(|s| s.starts_with('Z')), "the escaped process survived close");
+    // Nothing of its environment is in the journal or the log.
+    assert!(!fs::read_to_string(host.dir.join("journal.jsonl")).unwrap().contains("WORKRIVER_HOME="));
+    if cfg!(target_os = "macos") {
+        assert!(process_state(system).is_some(), "a system binary's environment is withheld: it is not found");
+    }
+    unsafe { libc::kill(system, libc::SIGKILL) };
+}
+
 #[test]
 fn close_drains_final_native_output_before_its_receipt() {
     let mut host = Host::spawn(json!({"closing_burst":128}));

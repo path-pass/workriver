@@ -47,7 +47,7 @@ pub(super) struct Caller {
 
 /// Who reads is found as for what is recorded (`App::who`); a reader names nothing but,
 /// where the service allows it, `--as`.
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 pub(super) struct Reader {
     #[serde(default, rename = "as")]
     pub(super) named: Option<String>,
@@ -88,6 +88,8 @@ impl App {
         }
         let chain = self.chain_of(caller)?;
         match self.place(caller, &chain)? {
+            // A hosted start not recorded yet: nobody under it is anyone, the user included.
+            Some(root) if root.at.starting => Err(ApiError(StatusCode::FORBIDDEN, starting(&root.place))),
             Some(root) => match &root.at.agent {
                 Some(a) => {
                     self.one_place(machine, &root, a, &chain)?;
@@ -182,7 +184,18 @@ impl App {
     /// another root that shows the session is the manager only where the old one was (the
     /// seat's machine and folder: it then has the seat back by itself, `back`); anywhere
     /// else it is refused until the user confirms the manager's new terminal.
+    ///
+    /// A session recorded as a hosted agent's, or reported by a host whose start is not
+    /// recorded yet, is that agent only at its own host's place, whatever else shows it,
+    /// before any pin or seat rule (`hosted_elsewhere`).
     fn one_place(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
+        let hosted = match self.store.lock().unwrap().hosted_by_session(&a.session)? {
+            Some(h) => Some(h.id),
+            None => self.hosts.pending_for(&a.session),
+        };
+        if let Some(id) = hosted.filter(|id| !root.place.starts_with(&format!("acp:{id}/"))) {
+            return Err(ApiError(StatusCode::FORBIDDEN, hosted_elsewhere(&a.session, &id, &root.place)));
+        }
         // A place where the runtime knows no shell has no root that stays: it is not pinned.
         let mine = root.shell.and_then(|pid| chain.iter().find(|p| p.pid == pid).cloned().or_else(|| {
             let runner = machine.map(|m| self.runner(Some(m))).transpose().ok()?;
@@ -298,7 +311,12 @@ impl App {
         let gone: Vec<&String> = pins.iter().filter(|(_, p)| p.machine.as_deref() == machine && !self.runs(p)).map(|(s, _)| s).collect();
         let mut changes: Vec<(String, Option<Pin>)> = gone.iter().filter(|s| machine.is_none() && seat(s).is_none()).map(|s| ((*s).clone(), None)).collect();
         let mut back = vec![];
-        let shown: Vec<(&Root, &RuntimeAgent)> = roots.iter().filter_map(|r| Some((r, r.at.agent.as_ref()?))).collect();
+        // A hosted session is at its own host's place only: shown anywhere else, it is nobody's.
+        let elsewhere = |r: &Root, a: &RuntimeAgent| {
+            let id = all.hosted_by_session(&a.session).map(|h| h.id.clone()).or_else(|| self.hosts.pending_for(&a.session));
+            id.is_some_and(|id| !r.place.starts_with(&format!("acp:{id}/")))
+        };
+        let shown: Vec<(&Root, &RuntimeAgent)> = roots.iter().filter_map(|r| Some((r, r.at.agent.as_ref()?))).filter(|(r, a)| !elsewhere(r, a)).collect();
         for (root, a) in &shown {
             let session = a.session.as_str();
             let pinned = pins.iter().find(|(s, _)| s == session).map(|(_, p)| p);
@@ -392,12 +410,34 @@ impl App {
     /// machine is read now (the agents and its roots), and the answer is that read's own,
     /// never one another read wrote meanwhile; not read, it is that error, never an older
     /// answer. A session with no seat is at the one place its machine's runtime shows it
-    /// (`Runtime::resolve`). It reads, never under an agent's writer: a message's send holds
-    /// `appointing` (or `discussing`) around it, a press nothing.
+    /// (`Runtime::resolve`). A recorded hosted session is bound to its instance and
+    /// generation, including when its host is stopped. It reads before taking the writer.
     pub(in crate::server) fn place_of(&self, session: &str, machine: Option<&str>) -> Result<String, RuntimeError> {
-        let Some(seat) = self.seat_machine(session)? else { return self.runtime.resolve(machine, session) };
+        let read = got(self.store.lock().unwrap().hosted_by_session(session));
+        let hosted = read.map_err(|Unread(why)| RuntimeError::Unreachable(why))?.flatten();
+        let expected = if let Some(a) = &hosted {
+            let started = a.started.as_ref().filter(|_| a.running() && machine.is_none())
+                .ok_or_else(|| RuntimeError::NoAgent(format!("{} is stopped", a.id)))?;
+            Some(a.place(started.generation))
+        } else if self.hosts.pending_for(session).is_some() {
+            return Err(RuntimeError::NotReady(format!("{session} is still starting")));
+        } else {
+            None
+        };
+        let Some(seat) = self.seat_machine(session)? else {
+            let Some(place) = expected else { return self.runtime.resolve(machine, session) };
+            return if self.runtime.roots(None, Some(&place))?.iter().any(|r| {
+                r.place == place && !r.at.starting && r.at.agent.as_ref().is_some_and(|a| a.session == session)
+            }) {
+                Ok(place)
+            } else {
+                Err(RuntimeError::NoAgent(format!("{session}'s host is stopped")))
+            };
+        };
         let agents = self.runtime.agents().inspect_err(|_| self.forget_seats(seat.as_deref()))?;
-        let found = self.see_roots_on(seat.as_deref(), &agents)?.into_iter().find(|(s, _)| s == session).map(|(_, place)| (seat.clone(), place));
+        let found = self.see_roots_on(seat.as_deref(), &agents)?.into_iter()
+            .find(|(s, place)| s == session && expected.as_ref().is_none_or(|p| place.as_ref() == Some(p)))
+            .map(|(_, place)| (seat.clone(), place));
         seat_answer(session, seat.as_deref(), machine, found.as_ref())
     }
 
@@ -490,10 +530,15 @@ impl App {
     /// except an agent on a blind task, which gets `State::blind_view` until it delivers.
     /// Nobody else reads: a request that is neither the user's nor from an agent's place is
     /// refused.
-    pub(super) fn view(&self, caller: &Caller, r: &Reader) -> Result<core::State, ApiError> {
+    pub(super) fn view(&self, caller: &Caller, r: &Reader) -> Result<(Principal, core::State), ApiError> {
         let who = self.who(caller, r.named.as_deref())?;
+        let state = self.visible_to(&who)?;
+        Ok((who, state))
+    }
+
+    pub(super) fn visible_to(&self, who: &Principal) -> Result<core::State, ApiError> {
         let all = self.store.lock().unwrap().recorded()?;
-        Ok(match &who {
+        Ok(match who {
             Principal::Agent { session, .. } => all.blind_view(session).unwrap_or_else(|| all.into_state().conversations_of(session)),
             _ => all.into_state(),
         })
@@ -507,6 +552,9 @@ impl App {
         }
         let chain = self.chain_of(caller)?;
         let root = self.place(caller, &chain)?;
+        if let Some(root) = root.as_ref().filter(|r| r.at.starting) {
+            return Err(ApiError(StatusCode::FORBIDDEN, starting(&root.place)));
+        }
         let actor = if let Some(root) = &root
             && let Some(a) = &root.at.agent
         {
@@ -534,6 +582,16 @@ fn seat_answer(session: &str, seat: Option<&str>, machine: Option<&str>, found: 
         Some((m, None)) if m.as_deref() == seat => Err(RuntimeError::NoAgent(session.into())),
         _ => Err(RuntimeError::Unreachable(format!("where the manager {session} runs{} cannot be read now", on(seat)))),
     }
+}
+
+/// What a caller at another place than its hosted session's host hears.
+fn hosted_elsewhere(session: &str, agent: &str, place: &str) -> String {
+    format!("{session} is the hosted agent {agent}, which is itself only at its own host; {place} shows it too and is refused: one session, one place")
+}
+
+/// What a caller under a hosted agent's place hears before its start is recorded.
+fn starting(place: &str) -> String {
+    format!("the agent at {place} is still starting: its commands are taken once its start is recorded")
 }
 
 /// " on machine m", or nothing for this one.

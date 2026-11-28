@@ -54,6 +54,10 @@ pub struct Settings<O> {
     /// parse. Not written while it is the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachments: Option<serde_json::Value>,
+    /// The hosted runtime, an experiment: on, the user may start agents workriver holds
+    /// itself. Off by default, and not written while off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    hosted: bool,
 }
 
 /// The harness and model a start takes unless the user changes them in its dialog.
@@ -80,7 +84,7 @@ impl Default for StartDefault {
 
 impl<O> Default for Settings<O> {
     fn default() -> Self {
-        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES, start: StartDefault::default(), attachments: None }
+        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES, start: StartDefault::default(), attachments: None, hosted: false }
     }
 }
 
@@ -164,6 +168,20 @@ impl<O: Serialize + DeserializeOwned> Settings<O> {
         let _held = SETTINGS.lock().unwrap();
         let mut all = Self::read(home);
         all.attachments = (*rule != attachments::Rule::default()).then_some(value);
+        all.write(home)
+    }
+
+    /// Whether the user turned the hosted runtime on (it is an experiment; off by default).
+    pub fn hosted(home: &Path) -> bool {
+        Self::read(home).hosted
+    }
+
+    /// Turns the hosted runtime on or off; the rest of the file stays. Off stops no agent
+    /// that runs: it only refuses new hosted starts.
+    pub fn set_hosted(home: &Path, on: bool) -> Result<(), String> {
+        let _held = SETTINGS.lock().unwrap();
+        let mut all = Self::read(home);
+        all.hosted = on;
         all.write(home)
     }
 

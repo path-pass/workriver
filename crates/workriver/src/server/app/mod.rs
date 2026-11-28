@@ -44,6 +44,11 @@ pub(super) struct App {
     /// Wakes the background read of repositories on other machines.
     pub(super) remote_kick: std::sync::mpsc::Sender<()>,
     pub(super) runtime: Arc<dyn Runtime>,
+    /// The hosts of the agents workriver holds (`runtime` sees them as places too).
+    pub(in crate::server) hosts: Arc<crate::runtime::Hosts>,
+    /// What the service keeps of its hosts while it runs: lifecycles under way, attached,
+    /// stopped and closing instances.
+    pub(in crate::server) hosting: Mutex<crate::server::hosted::Hosting>,
     /// What was wrong with the runtime at start, if anything.
     pub(super) warning: Option<String>,
     /// The live agents as last polled; None while the runtime cannot be reached.
@@ -231,7 +236,7 @@ impl App {
         let read = got(self.store.lock().unwrap().recorded());
         let all = read.map_err(|Unread(why)| RuntimeError::Unreachable(why))?.ok_or_else(|| RuntimeError::Unreachable("the records cannot be read now".into()))?;
         match self.receiver(&all, to, true, &live)? {
-            Some(a) => self.type_at(&a.session, a.machine.as_deref(), text),
+            Some(a) => self.type_at(&a.session, a.machine.as_deref(), &fresh_key(), text),
             None => Err(RuntimeError::NoAgent(to.into())),
         }
     }
@@ -254,6 +259,15 @@ impl App {
         }
         live.into_iter().find(|a| a.name == agent).map_or_else(|| agent.to_string(), |a| a.session)
     }
+}
+
+/// A delivery key no other message of this service has had, nor of any run before it: the
+/// run's start and a count.
+pub(in crate::server) fn fresh_key() -> String {
+    static RUN: std::sync::OnceLock<u128> = std::sync::OnceLock::new();
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let run = RUN.get_or_init(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    format!("{}-{run:x}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
 
 /// What the runtime answered before anything was typed: a failure there typed nothing.

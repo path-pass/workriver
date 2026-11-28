@@ -275,7 +275,7 @@ pub(in crate::server) struct Named {
 pub(in crate::server) async fn template_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<Named>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
         let r = Reader { named: q.named, light: true, have: String::new() };
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         let Some(t) = state.library().into_iter().find(|t| t.template.name == q.name) else {
             return Err(ApiError(StatusCode::NOT_FOUND, format!("no template {}: `workriver template list` lists them", q.name)));
         };

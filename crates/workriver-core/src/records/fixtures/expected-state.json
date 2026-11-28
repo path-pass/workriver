@@ -1881,6 +1881,72 @@
         "id": "00000000000000f1"
       },
       "kind": "attachment.restored"
+    },
+    {
+      "body": {
+        "auth": "chatgpt",
+        "cwd": "/r/chat",
+        "harness": "codex",
+        "id": "a1",
+        "model": "gpt-5",
+        "name": "hosted-w",
+        "workspace": "ws1"
+      },
+      "kind": "agent.start_reserved"
+    },
+    {
+      "body": {
+        "account": "chatgpt",
+        "agent": "a1",
+        "approvals": "on-request",
+        "generation": 1,
+        "host": {
+          "pid": 4100,
+          "start": 17
+        },
+        "model": "gpt-5",
+        "plan": "pro",
+        "session": "s-hosted",
+        "version": "0.172.0"
+      },
+      "kind": "agent.started"
+    },
+    {
+      "body": {
+        "agent": "a1",
+        "by": "user",
+        "decision": "allow",
+        "request": 12
+      },
+      "kind": "agent.answered"
+    },
+    {
+      "body": {
+        "auth": "api_key",
+        "cwd": "/r/chat",
+        "harness": "codex",
+        "id": "a2",
+        "name": "late",
+        "workspace": "ws1"
+      },
+      "kind": "agent.start_reserved"
+    },
+    {
+      "body": {
+        "agent": "a2",
+        "why": "did not start in time"
+      },
+      "kind": "agent.start_ended"
+    },
+    {
+      "body": {
+        "agent": "a1",
+        "outcome": "stuck",
+        "pids": [
+          4120
+        ]
+      },
+      "kind": "agent.closed"
     }
   ],
   "intent_took": [
@@ -2143,6 +2209,20 @@
         "id": "00000000000000f2"
       },
       "kind": "attachment.restored"
+    },
+    {
+      "body": {
+        "auth": "chatgpt",
+        "cwd": "/r/chat",
+        "harness": "codex",
+        "id": "a3",
+        "name": "late",
+        "workspace": "ws1"
+      },
+      "kind": "agent.start_reserved"
+    },
+    {
+      "rejected": "a1 is closed"
     }
   ],
   "runs": [
@@ -2321,6 +2401,52 @@
         "steps": [],
         "title": "Rotate keys",
         "unit": null
+      }
+    ],
+    "hosted": [
+      {
+        "answered": [
+          12
+        ],
+        "at": "2026-01-11T11:00:00Z",
+        "auth": "chatgpt",
+        "closed": {
+          "at": "2026-01-11T11:05:00Z",
+          "outcome": "stuck",
+          "pids": [
+            4120
+          ]
+        },
+        "cwd": "/r/chat",
+        "harness": "codex",
+        "id": "a1",
+        "model": "gpt-5",
+        "name": "hosted-w",
+        "started": {
+          "account": "chatgpt",
+          "approvals": "on-request",
+          "at": "2026-01-11T11:00:05Z",
+          "generation": 1,
+          "host": {
+            "pid": 4100,
+            "start": 17
+          },
+          "model": "gpt-5",
+          "plan": "pro",
+          "session": "s-hosted",
+          "version": "0.172.0"
+        },
+        "workspace": "ws1"
+      },
+      {
+        "at": "2026-01-11T11:02:00Z",
+        "auth": "api_key",
+        "cwd": "/r/chat",
+        "ended": "did not start in time",
+        "harness": "codex",
+        "id": "a2",
+        "name": "late",
+        "workspace": "ws1"
       }
     ],
     "intents": [

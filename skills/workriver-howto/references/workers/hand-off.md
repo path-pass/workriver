@@ -99,3 +99,20 @@ Other refusals of the same check:
 
 Never work around a refusal by setting or unsetting `HERDR_PANE_ID`, or by running the
 command from another pane: it is refused there too, or recorded as someone else.
+
+## A hosted worker
+
+A worker the user started as a hosted agent (`workriver agent list` shows it; no terminal)
+takes its hand-off the same way, with workriver's own commands instead of Herdr's:
+
+    workriver agent prompt <name> --text "<one paragraph>"   # it reaches it as "From \"<you>\" (your manager): …"
+    workriver agent read <name> --after <seq>               # its conversation, a page at a time
+    workriver agent status <name>                           # its state and what waits for the user
+    workriver agent cancel <name>                           # stops its turn
+
+Only the user starts, answers and closes one; you prompt, read and cancel only the workers
+of your workspace, and none that holds a manager's seat. A prompt is refused while it is
+in a turn or waits for an approval: try again once `agent show` says `idle`. Its
+`workriver` commands work from its own tools as from a terminal; one run from a job that
+left its tools' process tree (a detached daemon) is refused.
+

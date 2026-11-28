@@ -36,12 +36,12 @@ fn machines_are_separate_and_need_no_link() {
     assert_eq!(all.locate(None, "w1:p1").unwrap().agent.unwrap().session, "s-boss");
     assert_eq!(all.locate(Some("box"), "w1:p1").unwrap().agent.unwrap().session, "s-far");
     // Messages and new agents go to the agent's own machine, with that machine's own ids.
-    all.send_at(Some("box"), "w1:p1", "s-far", "hi").unwrap();
-    all.send_at(None, "w1:p1", "s-boss", "ho").unwrap();
+    all.send_at(Some("box"), "w1:p1", "s-far", "k", "hi").unwrap();
+    all.send_at(None, "w1:p1", "s-boss", "k", "ho").unwrap();
     assert_eq!((far.sent.lock().unwrap().len(), local.sent.lock().unwrap().len()), (1, 1));
     all.start_temporary("w1@box", "claude", "why-q9", "/srv/x").unwrap();
     assert_eq!(far.started.lock().unwrap()[0].0, "w1");
-    all.send_at(Some("box"), "place-why-q9", "s-why-q9", "before the next read").unwrap();
+    all.send_at(Some("box"), "place-why-q9", "s-why-q9", "k", "before the next read").unwrap();
     assert_eq!(far.sent.lock().unwrap().len(), 2);
     all.close("why-q9").unwrap();
     all.poll_all();

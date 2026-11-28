@@ -31,6 +31,7 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver/src/server/tests/work.rs",
     "crates/workriver/tests/caller.rs",
     "crates/workriver/tests/cli.rs",
+    "crates/workriver/tests/hosted_service.rs",
     "crates/workriver/tests/output.rs",
 ];
 const STILL_PANE: &[&str] = &[
@@ -43,6 +44,7 @@ const STILL_PANE: &[&str] = &[
     "crates/workriver/src/server/tests/work.rs",
     "crates/workriver/tests/caller.rs",
     "crates/workriver/tests/cli.rs",
+    "crates/workriver/tests/hosted_service.rs",
     "crates/workriver/tests/output.rs",
 ];
 

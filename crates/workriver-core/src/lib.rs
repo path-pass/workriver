@@ -5,6 +5,7 @@
 pub mod access;
 pub mod choices;
 pub mod conversations;
+pub mod hosted;
 pub mod planning;
 pub mod ports;
 pub mod records;
@@ -16,6 +17,7 @@ pub use access::*;
 pub use choices::*;
 pub use conversations::*;
 pub use planning::*;
+pub use hosted::HostedAgent;
 pub use records::*;
 pub use runtime::RuntimeRef;
 pub use work::*;

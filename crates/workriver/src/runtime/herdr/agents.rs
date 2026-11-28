@@ -109,7 +109,7 @@ impl Herdr {
             };
             let info = &r["process_info"];
             let front = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64()).map(|p| p as u32).collect();
-            out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent } });
+            out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent, starting: false } });
         }
         Ok(out)
     }

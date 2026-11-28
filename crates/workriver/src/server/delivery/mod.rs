@@ -222,11 +222,10 @@ pub(super) fn task_noted(state: &State, live: &[RuntimeAgent], home: &Path, e: &
     Ok(Noted { name: found.map_or_else(|| who(state, to), |a| quote::name(&a.name)), to: to.to_string(), message })
 }
 
-/// Whether `s` is a session as recorded: an agent's that was ever seen, or one that holds a
-/// seat. Such a string is found by that session alone, never by an agent's name (any agent
-/// may take a session id as its name).
+/// Whether `s` is a session as recorded: seen, hosted, or seated. Such a string is found
+/// by that session alone, never by an agent's name.
 pub(in crate::server) fn known_session(state: &State, s: &str) -> bool {
-    state.name_of(s).is_some() || state.seat_of(s).is_some()
+    state.name_of(s).is_some() || state.hosted_by_session(s).is_some() || state.seat_of(s).is_some()
 }
 
 /// The live agents `agent` names: those with this session, else those of this name. Each

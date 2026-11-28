@@ -21,14 +21,14 @@ fn main() -> anyhow::Result<()> {
         let path = common::home::database().map_err(workriver_data::Error::from).context("cannot open the workriver database")?;
         let store = workriver_data::Store::open(&path).context("cannot open the workriver database")?;
         // Without its runtime the daemon still records and shows; it just sees no agents.
-        let (runtime, warning) = runtime::connect(terminal_app.clone());
         let home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
+        let (runtime, hosts, warning) = runtime::connect(terminal_app.clone(), &home);
         let all = runtime::follow::Machines::new(runtime, home, terminal_app.clone());
         if let Some(w) = &warning {
             tracing::warn!("{w}");
         }
         let allow_as = std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1");
-        let options = server::Options { warning, waits: server::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(common::process::System), callers: std::sync::Arc::default(), user_home: std::env::home_dir(), jobs: server::jobs() };
+        let options = server::Options { warning, waits: server::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(common::process::System), callers: std::sync::Arc::default(), user_home: std::env::home_dir(), jobs: server::jobs(), hosts: Some(hosts) };
         let rt = tokio::runtime::Runtime::new()?;
         return rt.block_on(async {
             let listener = server::bind(cli.port.unwrap_or(cli::DEFAULT_PORT)).await?;

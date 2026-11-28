@@ -4,6 +4,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+pub const HOST_PROTOCOL: u64 = 1;
+pub(super) const HOST_FRAME_BYTES: usize = 2 * 1024 * 1024;
+
 pub(super) const ACP_INITIALIZE: u64 = 1;
 pub(super) const ACP_SESSION_NEW: u64 = 2;
 pub(super) const ACP_PROMPT: u64 = 3;
