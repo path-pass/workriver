@@ -1914,6 +1914,7 @@
     {
       "body": {
         "agent": "a1",
+        "by": "user",
         "decision": "allow",
         "request": 12
       },

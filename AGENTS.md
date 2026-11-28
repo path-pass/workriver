@@ -59,12 +59,12 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
 - Who is running, where, in what state, and delivering a message to an agent come from
   the agent runtime, not from per-harness hooks. The core defines a small runtime
   interface in workriver's own terms (agent, session, state, working directory, send a
-  message, wait for a state, open a place and start a harness in it); Herdr (through its
-  socket API) is the first and only
-  implementation, kept in one place so it can be replaced. No Herdr names (pane, tab)
-  outside that implementation; workspace is workriver's own word and record, never the
-  runtime's (the runtime's group of a terminal is shown as a hint only: no record holds
-  it and no rule reads it). Agents not running under Herdr are out of scope for now.
+  message, wait for a state, open a place and start a harness in it). The composite
+  runtime joins the Herdr adapter and workriver's own hosted runtime. The latter runs
+  Codex under a separate host, with its own journal, behind an experimental switch that
+  is off by default and only the user can turn on. No Herdr names (pane, tab) leave the
+  adapter. A workspace is workriver's own record. The runtime's terminal group is a hint
+  for display and does not determine permissions or placement in a workspace.
 - Later: a desktop app and an iOS app (Tauri is the candidate for both; not decided).
 
 ## Layout
@@ -85,6 +85,7 @@ frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
 crates/             Rust workspace, four crates:
   workriver-core/   records/ (Body, Event, State), planning/, work/, conversations/,
+                    hosted/ (hosted agent receipts and worker rules),
                     choices/ (a question's options as recorded, a fixed A2UI v1.0 subset:
                     a record format and its write rule, no UI: core draws nothing and holds
                     no UI text), access/ (authority, the blind view), runtime.rs (the runtime
@@ -94,7 +95,7 @@ crates/             Rust workspace, four crates:
   workriver-scan/   git and the file tree: runner.rs, history/, files/
   workriver/        the binary: cli/ (the CLI process), server/ (the service: app/,
                     access/, http/, schedule/, then a folder per domain), runtime/ (the facade;
-                    herdr/, the one adapter, private to it), common/ (both sides: config/,
+                    herdr/ and acp/ are private to it), common/ (both sides: config/,
                     home.rs, process.rs, wire/, diagnostics/)
 skills/             what agents read; the binary embeds all of it (`workriver guide …`):
                     workriver-manager (the role, the loop and the hard rules only; details
@@ -108,11 +109,11 @@ skills/             what agents read; the binary embeds all of it (`workriver gu
 Layering follows memriver: a core crate with models and write rules that knows nothing
 about the network, the UI or how events are stored; a data crate with the SQLite store; a
 scan crate that reads git and the file tree; an outer crate with the daemon, the CLI and
-the Herdr runtime implementation. Dependencies run one way: the outer crate on the other
+the runtime implementations. Dependencies run one way: the outer crate on the other
 three, data on core, core and scan on neither. Inside the outer crate `cli/` and `server/`
 never import each other (except the service's tests, which drive it through the CLI's
 client), `runtime/` imports neither, `common/` none of the three, and only `runtime/`
-imports `runtime/herdr/`. The service holds storage only as core's `ports::WorkStore`
+imports `runtime/herdr/` and `runtime/acp/`. The service holds storage only as core's `ports::WorkStore`
 (`App.store`): it reads what is recorded and records through that, and only `main.rs` and
 `server/mod.rs`, where the service is put together, name workriver-data, besides tests; no
 SQL, table or connection outside that crate. One record, or what a previous run left, is

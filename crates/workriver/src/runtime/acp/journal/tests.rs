@@ -108,6 +108,24 @@ fn pages_stop_at_encoded_byte_budget_and_resume_from_last_entry() {
 }
 
 #[test]
+fn the_service_and_host_fit_the_same_encoded_page() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("journal.jsonl");
+    let mut file = File::create(&path).unwrap();
+    let payload = "x".repeat(1024 * 1024 - 300);
+    for seq in 1..=2 {
+        writeln!(file, "{}", json!({"seq": seq, "payload": payload})).unwrap();
+    }
+    drop(file);
+
+    let journal = Journal::open(dir.path(), 1).unwrap();
+    let host = read_page(&journal, 0, 1000).unwrap();
+    assert_eq!(host["entries"].as_array().unwrap().len(), 2);
+    let service = JournalReader::default().page(&path, 0, Some(1000)).unwrap();
+    assert_eq!(serde_json::to_value(service).unwrap(), host);
+}
+
+#[test]
 fn an_oversized_first_row_is_a_read_error_instead_of_an_empty_page() {
     let dir = tempdir().unwrap();
     let mut journal = Journal::open(dir.path(), 1).unwrap();
@@ -152,12 +170,12 @@ fn sparse_offsets_seek_across_blocks_after_reopening() {
     for seq in 1..=512 {
         journal.append(json!({"kind": "acp", "msg": "山".repeat(seq % 31)}), false).unwrap();
     }
-    assert_eq!(journal.offsets.len(), 2);
+    assert_eq!(journal.index.offsets.len(), 2);
     assert_eq!(read_page(&journal, 255, 2).unwrap()["entries"][1]["seq"], 257);
     drop(journal);
 
     let mut journal = Journal::open(dir.path(), 2).unwrap();
-    assert_eq!(journal.offsets.len(), 2);
+    assert_eq!(journal.index.offsets.len(), 2);
     assert_eq!(journal.head(), 512);
     assert_eq!(journal.append(prompt("delivery", "next block"), true).unwrap(), 513);
     for (after, want) in [(0, 1), (255, 256), (256, 257), (257, 258), (511, 512), (512, 513)] {
@@ -166,4 +184,36 @@ fn sparse_offsets_seek_across_blocks_after_reopening() {
         assert_eq!(page["entries"][0]["seq"], want);
     }
     assert_eq!(read_page(&journal, u64::MAX, 1).unwrap(), json!({"entries": [], "head": 513}));
+}
+
+#[test]
+fn a_read_only_index_seeks_old_pages_and_picks_up_only_complete_appends() {
+    let dir = tempdir().unwrap();
+    let mut journal = Journal::open(dir.path(), 1).unwrap();
+    let mut reader = JournalReader::default();
+    for count in 1..=512 {
+        journal.append(json!({"kind":"native","msg":count}), false).unwrap();
+    }
+    for (after, want) in [(255, 256), (256, 257), (511, 512)] {
+        let page = reader.page(&journal.path, after, Some(1)).unwrap();
+        assert_eq!(page.head, 512);
+        assert_eq!(page.entries[0]["seq"], want);
+    }
+    let path = journal.path.clone();
+    drop(journal);
+    let mut tail = OpenOptions::new().append(true).open(&path).unwrap();
+    tail.write_all(br#"{"seq":513"#).unwrap();
+    let length = tail.metadata().unwrap().len();
+    let page = reader.page(&path, 512, None).unwrap();
+    assert_eq!(page.head, 512);
+    assert!(page.entries.is_empty());
+    assert_eq!(tail.metadata().unwrap().len(), length);
+
+    tail.write_all(b"}\n").unwrap();
+    let page = reader.page(&path, 512, None).unwrap();
+    assert_eq!(page.head, 513);
+    assert_eq!(page.entries, [json!({"seq":513})]);
+    let unchanged = reader.page(&path, 513, None).unwrap();
+    assert_eq!(unchanged.head, 513);
+    assert!(unchanged.entries.is_empty());
 }

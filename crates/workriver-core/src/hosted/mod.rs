@@ -61,6 +61,10 @@ pub struct Closed {
     pub outcome: Outcome,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pids: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub processes: Vec<ProcessResult>,
+    #[serde(default, rename = "markedError", skip_serializing_if = "Option::is_none")]
+    pub marked_error: Option<String>,
     pub at: String,
 }
 
@@ -72,14 +76,39 @@ pub enum Answer {
     Reject,
 }
 
+/// Who gave the decision the service records for an approval request.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AnswerBy {
+    #[default]
+    User,
+}
+
 /// How a close ended, as the host wrote it.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Outcome {
-    /// No process of the agent's group was left.
+    /// No process of the agent's group or marked launch was left.
     Ended,
-    /// Processes of its group were left at the deadline.
+    /// Processes were left at the deadline, or the group could not be listed.
     Stuck,
+    /// The marked processes could not be accounted for.
+    Unverifiable,
+}
+
+/// The close outcome for a process found by its launch marker.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ProcessResult {
+    pub pid: u32,
+    pub outcome: ProcessOutcome,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ProcessOutcome {
+    Exited,
+    Alive,
+    Unverifiable,
 }
 
 impl HostedAgent {
@@ -168,8 +197,8 @@ impl State {
                 if self.workspace(&workspace)?.closed {
                     return no(format!("{workspace} is closed: open it before starting an agent there"));
                 }
-                if blank(&name) || matches!(name.as_str(), "user" | "workriver") || name.starts_with('a') && name[1..].parse::<u64>().is_ok() {
-                    return no(format!("{name:?} cannot name an agent: give it a name that is not empty, `user`, `workriver` or an id like `a1`"));
+                if blank(&name) || matches!(name.as_str(), "user" | "workriver" | "start" | "processes") || name.starts_with('a') && name[1..].parse::<u64>().is_ok() {
+                    return no(format!("{name:?} cannot name an agent: give it a name that is not empty, `user`, `workriver`, `start`, `processes` or an id like `a1`"));
                 }
                 if let Some(a) = self.hosted.iter().find(|a| a.name == name && a.open()) {
                     return no(format!("{name} is {} already, which is not closed: close it, or give the new one another name", a.id));
@@ -204,15 +233,15 @@ impl State {
                 self.reservation(&agent)?;
                 AgentStartEnded { agent, why }
             }
-            AgentAnswered { agent, request, decision } => {
+            AgentAnswered { agent, request, decision, by } => {
                 if self.running_hosted(&agent)?.answered.contains(&request) {
                     return no(format!("the answer to request {request} of {agent} is recorded already"));
                 }
-                AgentAnswered { agent, request, decision }
+                AgentAnswered { agent, request, decision, by }
             }
-            AgentClosed { agent, outcome, pids } => {
+            AgentClosed { agent, outcome, pids, processes, marked_error } => {
                 self.running_hosted(&agent)?;
-                AgentClosed { agent, outcome, pids }
+                AgentClosed { agent, outcome, pids, processes, marked_error }
             }
             other => unreachable!("{} is not one of a hosted agent's kinds", name_of_kind(&other)),
         })
@@ -245,9 +274,9 @@ impl State {
                     self.hosted[k].answered.push(*request);
                 }
             }
-            AgentClosed { agent, outcome, pids } => {
+            AgentClosed { agent, outcome, pids, processes, marked_error } => {
                 if let Some(k) = find(self, agent) {
-                    self.hosted[k].closed = Some(Closed { outcome: *outcome, pids: pids.clone(), at });
+                    self.hosted[k].closed = Some(Closed { outcome: *outcome, pids: pids.clone(), processes: processes.clone(), marked_error: marked_error.clone(), at });
                 }
             }
             other => unreachable!("{} is not one of a hosted agent's kinds", name_of_kind(other)),

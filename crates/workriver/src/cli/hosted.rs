@@ -61,20 +61,23 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             }
             print_agent(&until_not(d, &agent, "closing", Duration::from_secs(45))?);
         }
-        AgentCmd::Processes { close, all } => {
+        AgentCmd::Processes { close, start, marker, all } => {
             if close.is_some() || all {
-                let r = d.call("/api/hosted/processes/close", Some(json!({"pid": close, "all": all})))?;
+                let r = d.call("/api/hosted/processes/close", Some(json!({"pid": close, "start": start, "marker": marker, "all": all})))?;
                 for p in r["processes"].as_array().into_iter().flatten() {
                     println!("{:<7} {:<5} {}", p["pid"], text(&p["agent"]), text(&p["outcome"]));
                 }
                 return Ok(None);
             }
             let r = d.get("/api/hosted/processes")?;
-            for (title, key) in [("running", "running"), ("left over (`--close PID` or `--all` ends them)", "leftover")] {
+            for (title, key) in [("running", "running"), ("left over", "leftover")] {
                 let list = r[key].as_array().cloned().unwrap_or_default();
                 println!("{title}: {}", if list.is_empty() { "none" } else { "" });
                 for p in list {
                     println!("  {:<7} {:<5} gen {} {:<16} started {} {}", p["pid"], text(&p["agent"]), p["generation"], text(&p["command"]), text(&p["started"]), text(&p["why"]));
+                    if key == "leftover" {
+                        println!("    workriver agent processes --close {} --start {} --marker {}", p["pid"], p["start"], text(&p["marker"]));
+                    }
                 }
             }
         }
@@ -117,6 +120,12 @@ fn print_agent(a: &Value) {
     }
     if let Some(c) = a["closed"].as_object() {
         println!("  closed: {} {}", c["outcome"].as_str().unwrap_or("?"), c.get("pids").map(|p| p.to_string()).unwrap_or_default());
+        if let Some(error) = c.get("markedError").and_then(Value::as_str) {
+            println!("    {error}");
+        }
+        for p in c.get("processes").and_then(Value::as_array).into_iter().flatten() {
+            println!("    process {}: {}", p["pid"], text(&p["outcome"]));
+        }
     }
     if let Some(p) = a["pending"].as_object().filter(|p| !p.is_empty()) {
         println!("  waiting for your answer (`workriver agent answer {} <request> allow|reject`):", text(&a["id"]));
@@ -201,9 +210,15 @@ pub(crate) enum AgentCmd {
     /// nothing ends them by itself. A process that cleared its environment, or one macOS
     /// keeps its environment from (its own binaries: sh, sleep), is not found.
     Processes {
-        /// End this leftover process.
-        #[arg(long, value_name = "PID", conflicts_with = "all")]
+        /// End this leftover process, with the start and marker from the list.
+        #[arg(long, value_name = "PID", conflicts_with = "all", requires_all = ["start", "marker"])]
         close: Option<u32>,
+        /// The process start value listed with --close.
+        #[arg(long, requires = "close")]
+        start: Option<u64>,
+        /// The launch marker listed with --close.
+        #[arg(long, requires = "close")]
+        marker: Option<String>,
         /// End every leftover process.
         #[arg(long)]
         all: bool,

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::access::{Principal, Rejected};
 use crate::records::{Body, Event, State};
-use crate::{Agent, Attachment, CommandRun, Delivery, DeliveryStep, Project, Question, Task, Thread, Unit, Workspace};
+use crate::{Agent, Attachment, CommandRun, Delivery, DeliveryStep, HostedAgent, Project, Question, Task, Thread, Unit, Workspace};
 
 /// How far the record has got: the number of its last committed change (that event's
 /// `seq`), 0 before the first. History is read by it too: it is the cursor.
@@ -237,6 +237,11 @@ pub trait WorkStore: Send {
     /// The hosted agent a session was started as, if any (`State::hosted_by_session`).
     fn hosted_by_session(&self, session: &str) -> Result<Option<crate::hosted::HostedAgent>, DataError> {
         Ok(self.recorded()?.hosted_by_session(session).cloned())
+    }
+
+    /// The hosted agent with this id, if a start reserved it.
+    fn hosted_agent(&self, id: &str) -> Result<Option<HostedAgent>, DataError> {
+        Ok(self.recorded()?.hosted_agent(id).ok().cloned())
     }
 
     /// Whether `session` holds the seat of any workspace.

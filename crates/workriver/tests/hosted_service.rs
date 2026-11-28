@@ -182,9 +182,12 @@ fn the_user_starts_drives_and_closes_a_hosted_worker_across_a_restart() {
     let cwd = w.root.join("cwd");
     let repo = w.root.join("repo");
     assert!(Command::new("git").arg("-C").arg(&repo).args(["init", "-q", "-b", "main"]).status().unwrap().success());
+    assert!(Command::new("git").arg("-C").arg(&repo)
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-q", "--allow-empty", "-m", "base"])
+        .status().unwrap().success());
     user.ok(&format!("\"$W\" project add '{}' --title Repo", repo.display()));
     user.ok(&format!("\"$W\" workspace add '{}' --name chat", repo.display()));
-    let start = format!("\"$W\" agent start --workspace ws1 --name w --cwd '{}' --model requested-model --auth chatgpt --wait", cwd.display());
+    let start = format!("\"$W\" agent start --workspace ws1 --name w --cwd '{}' --model requested-model --auth chatgpt", cwd.display());
 
     // Off by default: no hosted start.
     let (ok, out) = user.run(&start);
@@ -194,9 +197,17 @@ fn the_user_starts_drives_and_closes_a_hosted_worker_across_a_restart() {
     // A tool of the agent's that calls before its start is recorded is nobody, not the user,
     // though the token is in its reach.
     let backlog = |title: &str| format!("{BIN} backlog add \"{title}\" --goal g --project \"{}\"", repo.display());
-    options(&w, json!({"run_at_start": backlog("Before the start")}));
+    options(&w, json!({"run_at_start": backlog("Before the start"), "hold_ready": true}));
     let out = user.ok(&start);
-    assert!(out.contains("a1 w (codex): idle") && out.contains("session: root-thread"), "{out}\n{}", w.log());
+    assert!(out.contains("a1") && out.contains("starting"), "{out}");
+    eventually("the adapter cannot finish readiness yet", || cwd.join("ready-requested").exists());
+    assert!(w.kinds("agent.started").is_empty());
+    assert!(show(&mut user, "w").contains("a1 w (codex): starting"));
+    std::fs::write(cwd.join("ready-release"), "").unwrap();
+    eventually("the agent is ready after the receipt", || {
+        let shown = show(&mut user, "w");
+        shown.contains("a1 w (codex): idle") && shown.contains("session: root-thread")
+    });
     let early = std::fs::read_to_string(cwd.join("start-run.out")).unwrap();
     assert!(early.starts_with("false") && early.contains("still starting"), "{early}");
     let started = w.kinds("agent.started");
@@ -211,12 +222,22 @@ fn the_user_starts_drives_and_closes_a_hosted_worker_across_a_restart() {
     assert!(!ok && out.contains("w is a1 already"), "{out}");
 
     // Its tools' CLI calls are the hosted worker's, by their process.
-    user.ok(&format!("\"$W\" agent prompt w --text 'run:{}'", backlog("By the worker")));
+    user.ok(&backlog("Docs"));
+    user.ok("\"$W\" intent start i1 --workspace ws1");
+    let template = w.root.join("test-template.yml");
+    std::fs::write(&template, "name: docs\nunit: code\ndescription: Write docs.\nsteps:\n  - id: write\n    kind: implement\n    description: Write docs.\n").unwrap();
+    user.ok(&format!("\"$W\" template add '{}'", template.display()));
+    user.ok(&format!("\"$W\" unit add i1 --title Docs --branch feat/docs --template docs --repo '{}'", repo.display()));
+    user.ok("\"$W\" task fill 'u1#1' --title Docs --agent root-thread");
+    user.ok(&format!("\"$W\" agent prompt w --text 'run:{BIN} task start \"u1#1\" --model effective-model && {BIN} task deliver \"u1#1\" --note done'"));
     eventually("the worker's tool ran", || cwd.join("run-1.out").exists());
     let ran = std::fs::read_to_string(cwd.join("run-1.out")).unwrap();
     assert!(ran.starts_with("true"), "{ran}");
-    let by: Vec<(String, String)> = w.kinds("intent.created").iter().map(|e| (e["body"]["title"].as_str().unwrap().into(), e["actor"].as_str().unwrap().into())).collect();
-    assert_eq!(by, [("By the worker".to_string(), "root-thread".to_string())]);
+    for kind in ["task.started", "task.delivered"] {
+        let events = w.kinds(kind);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!((events[0]["actor"].as_str(), events[0]["body"]["unit"].as_str(), events[0]["body"]["task"].as_u64()), (Some("root-thread"), Some("u1"), Some(1)), "{events:?}");
+    }
 
     // Approval requests wait for the user; one answered is recorded once, without its text.
     user.ok(&format!("\"$W\" agent prompt w --text '{}'", fixture()["prompt"].as_str().unwrap()));
@@ -234,7 +255,7 @@ fn the_user_starts_drives_and_closes_a_hosted_worker_across_a_restart() {
     assert!(!ok && out.contains("not waiting"), "{out}");
     let answered = w.kinds("agent.answered");
     assert_eq!(answered.len(), 1);
-    assert_eq!(answered[0]["body"], json!({"agent": "a1", "request": key.parse::<u64>().unwrap(), "decision": "allow"}));
+    assert_eq!(answered[0]["body"], json!({"agent": "a1", "request": key.parse::<u64>().unwrap(), "decision": "allow", "by": "user"}));
     let out = user.ok("\"$W\" agent cancel w");
     assert!(out.contains("w: cancelled"), "{out}");
 
@@ -251,13 +272,61 @@ fn the_user_starts_drives_and_closes_a_hosted_worker_across_a_restart() {
     assert!(out.contains("a1 w (codex): closed") && out.contains("closed: ended"), "{out}\n{}", w.log());
     assert_eq!(w.kinds("agent.closed")[0]["body"], json!({"agent": "a1", "outcome": "ended"}));
     eventually("the host exits", || !Command::new("kill").args(["-0", &host.to_string()]).status().unwrap().success());
-    // A closed agent's journal is still read.
+    // A second restart keeps the close and the answer exactly once.
+    w.serve = None;
+    w.serve();
+    assert!(show(&mut user, "w").contains("a1 w (codex): closed"));
+    assert_eq!(w.kinds("agent.closed").len(), 1);
+    assert_eq!(w.kinds("agent.answered"), answered);
+    // A closed agent's journal is still read after restart.
     let page = user.ok("\"$W\" agent read w --after 0 --limit 1000");
     assert!(page.contains("\"event\":\"closed\""), "{page}");
     // The name is free again; the switch off refuses new starts only.
     user.ok("\"$W\" agent hosted off");
     let (ok, out) = user.run(&start);
     assert!(!ok && out.contains("the hosted runtime is off"), "{out}");
+}
+
+#[test]
+fn an_adapter_that_exits_after_creating_its_session_does_not_start_an_agent() {
+    use std::os::unix::net::UnixStream;
+
+    let (w, mut user) = world();
+    let cwd = w.root.join("cwd");
+    let repo = w.root.join("repo");
+    user.ok(&format!("\"$W\" project add '{}' --title Repo", repo.display()));
+    user.ok("\"$W\" agent hosted on");
+    options(&w, json!({"hold_ready": true, "exit_after_ready": true, "lingering_member": true}));
+    user.ok(&format!("\"$W\" agent start --workspace ws1 --name w --cwd '{}' --model requested-model --auth chatgpt", cwd.display()));
+    eventually("the adapter is ready to return its session", || cwd.join("ready-requested").exists() && cwd.join("member-ready").exists());
+
+    // The adapter's group stays around during closing. Stop the test service's poll so that
+    // its first observation of the session is a closing hello, not a running one.
+    let service = w.serve.as_ref().unwrap().0.id() as libc::pid_t;
+    // SAFETY: This is the test's own unreaped service process.
+    assert_eq!(unsafe { libc::kill(service, libc::SIGSTOP) }, 0);
+    std::fs::write(cwd.join("ready-release"), "").unwrap();
+    let dir = w.home.join("agents/a1");
+    let proof: String = std::fs::read(dir.join("host.key")).unwrap().iter().map(|b| format!("{b:02x}")).collect();
+    eventually("a closing host still reports its session", || {
+        let Ok(mut stream) = UnixStream::connect(dir.join("host.sock")) else { return false };
+        stream.set_read_timeout(Some(Duration::from_millis(400))).unwrap();
+        let hello = json!({"jsonrpc":"2.0", "id":1, "method":"hello", "params":{"proof":proof, "protocolVersion":1}});
+        if writeln!(stream, "{hello}").is_err() {
+            return false;
+        }
+        let mut line = String::new();
+        if BufReader::new(stream).read_line(&mut line).is_err() {
+            return false;
+        }
+        serde_json::from_str::<Value>(&line).is_ok_and(|v| v["result"]["state"] == "closing" && v["result"]["session"] == "root-thread")
+    });
+    // SAFETY: The service still owns the same unreaped child.
+    assert_eq!(unsafe { libc::kill(service, libc::SIGCONT) }, 0);
+
+    eventually("the failed start is recorded", || !w.kinds("agent.start_ended").is_empty());
+    assert!(w.kinds("agent.started").is_empty());
+    assert!(show(&mut user, "w").contains("the host closed before the agent started"));
 }
 
 /// A process of the agent's that left its group is listed as its: running while its launch
@@ -282,7 +351,7 @@ fn a_leftover_process_is_listed_and_ended_only_by_the_user() {
     let listed = |user: &mut Shell| user.ok("\"$W\" agent processes");
     let running_part = |out: &str| out.split("left over").next().unwrap_or_default().to_string();
     let out = listed(&mut user);
-    assert!(running_part(&out).contains(&format!("  {escaped} ")) && out.contains("left over (`--close PID` or `--all` ends them): none"), "{out}");
+    assert!(running_part(&out).contains(&format!("  {escaped} ")) && out.contains("left over: none"), "{out}");
     // The host dies: its agent is stopped, and what it left is listed, never ended by itself.
     let host = w.kinds("agent.started")[0]["body"]["host"]["pid"].as_u64().unwrap();
     assert!(Command::new("kill").args(["-KILL", &host.to_string()]).status().unwrap().success());
@@ -291,13 +360,50 @@ fn a_leftover_process_is_listed_and_ended_only_by_the_user() {
     assert!(out.contains(&format!("  {escaped} ")) && out.contains("its agent's host is gone") && out.contains("running: none"), "{out}");
     std::thread::sleep(Duration::from_secs(3));
     assert!(Command::new("kill").args(["-0", &escaped]).status().unwrap().success(), "a leftover was ended by itself");
-    let (ok, out) = user.run("\"$W\" agent processes --close 1");
-    assert!(!ok && out.contains("is not a leftover"), "{out}");
-    let out = user.ok(&format!("\"$W\" agent processes --close {escaped}"));
+    let selector = out.lines().find_map(|line| line.split_once(&format!("--close {escaped} ")).map(|(_, rest)| rest)).expect("the list contains a close selection");
+    let (start, marker) = selector.strip_prefix("--start ").unwrap().split_once(" --marker ").unwrap();
+    let wrong_start = start.parse::<u64>().unwrap() + 1;
+    for (start, marker) in [(wrong_start.to_string(), marker.to_string()), (start.into(), marker.replace("/1/", "/2/"))] {
+        let (ok, out) = user.run(&format!("\"$W\" agent processes --close {escaped} --start {start} --marker {marker}"));
+        assert!(!ok && out.contains("no longer matches the listed process"), "{out}");
+        assert!(Command::new("kill").args(["-0", &escaped]).status().unwrap().success(), "a stale selection ended the process");
+    }
+    let out = user.ok(&format!("\"$W\" agent processes --close {escaped} {selector}"));
     assert!(out.contains(&escaped) && out.contains("exited"), "{out}");
     eventually("the leftover is gone", || !Command::new("kill").args(["-0", &escaped]).status().unwrap().success());
     // The system binary's environment is withheld (macOS): it was never listed.
     if !system.is_empty() {
         let _ = Command::new("kill").args(["-KILL", &system]).status();
     }
+}
+
+#[test]
+fn a_close_receipt_reports_each_marked_process_to_the_user() {
+    let (w, mut user) = world();
+    let cwd = w.root.join("cwd");
+    let repo = w.root.join("repo");
+    assert!(Command::new("git").arg("-C").arg(&repo).args(["init", "-q", "-b", "main"]).status().unwrap().success());
+    user.ok(&format!("\"$W\" project add '{}' --title Repo", repo.display()));
+    user.ok(&format!("\"$W\" workspace add '{}' --name chat", repo.display()));
+    user.ok("\"$W\" agent hosted on");
+    options(&w, json!({"escape": true}));
+    let started = user.ok(&format!("\"$W\" agent start --workspace ws1 --name w --cwd '{}' --model requested-model --auth chatgpt --wait", cwd.display()));
+    assert!(started.contains("a1 w (codex): idle"), "{started}\n{}", w.log());
+    let mut escaped = String::new();
+    eventually("the detached process is visible", || {
+        escaped = std::fs::read_to_string(cwd.join("escaped-pid")).unwrap_or_default().trim().to_string();
+        !escaped.is_empty() && user.ok("\"$W\" agent processes").contains(&format!("  {escaped} "))
+    });
+    let receipt = user.ok("\"$W\" agent close w --wait");
+    #[cfg(target_os = "macos")]
+    if let Ok(system) = std::fs::read_to_string(cwd.join("escaped-system-pid")) {
+        // macOS withholds this fixture's system binary environment.
+        let _ = Command::new("kill").args(["-KILL", system.trim()]).status();
+    }
+    let process = format!("process {escaped}: exited");
+    assert!(receipt.contains("closed: ended") && receipt.contains(&process), "{receipt}");
+    assert!(show(&mut user, "w").contains(&process));
+    assert!(w.kinds("agent.closed")[0]["body"]["processes"].as_array().unwrap().contains(&json!({
+        "pid": escaped.parse::<u32>().unwrap(), "outcome": "exited",
+    })));
 }

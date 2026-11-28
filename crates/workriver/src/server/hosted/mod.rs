@@ -3,8 +3,6 @@
 // prompts, reads and cancels its own workers; nobody else does anything (`State::drives`).
 // Every request reads the records and the caller's rights anew: a page of a conversation is
 // a request of its own. The conversation stays in the host's journal.
-use std::time::Duration;
-
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
@@ -13,7 +11,7 @@ use serde_json::{Value, json};
 use workriver_core::{self as core, Body, Principal};
 
 use crate::common::config::harness;
-use crate::runtime::{HostError, Settings};
+use crate::runtime::{HostError, HostStatus, JournalPage, Settings};
 use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::delivery::quote;
@@ -23,11 +21,6 @@ mod leftovers;
 mod lifecycle;
 
 pub(in crate::server) use lifecycle::{CLOSE_WAIT, Hosting, START_WAIT};
-
-/// What a page of a conversation holds at most.
-const PAGE: usize = 1000;
-/// The bytes of a page of a journal no host reads for us (the host's own budget).
-const PAGE_BYTES: usize = 2 * 1024 * 1024 - 1024;
 
 #[derive(Deserialize)]
 pub(in crate::server) struct Start {
@@ -74,12 +67,7 @@ impl App {
     /// now, if `who` may drive it (`State::drives`): refused alike whether it exists or not.
     /// An agent on an undelivered blind task drives nothing.
     fn driven(&self, who: &Principal, agent: &str) -> Result<core::HostedAgent, ApiError> {
-        let all = self.store.lock().unwrap().recorded()?;
-        let blind = matches!(who, Principal::Agent { session, .. } if all.blind_view(session).is_some());
-        match all.hosted_named(agent) {
-            Ok(a) if !blind && all.drives(who, a) => Ok(a.clone()),
-            _ => Err(ApiError(StatusCode::FORBIDDEN, format!("no hosted agent {agent} that you may drive: the user drives every one, a workspace's manager its own workers"))),
-        }
+        driven(&self.visible_to(who)?, who, agent).cloned()
     }
 
     /// What a hosted agent is now: its records, and its host's word while it runs.
@@ -90,14 +78,14 @@ impl App {
             "cwd": a.cwd, "auth": a.auth, "reserved": a.at, "state": state, "session": a.session(),
             "place": a.started.as_ref().map(|s| a.place(s.generation)), "host": a.started.as_ref().map(|s| s.host.pid),
             "version": a.started.as_ref().map(|s| &s.version), "account": a.started.as_ref().map(|s| &s.account), "approvals": a.started.as_ref().map(|s| &s.approvals),
-            "ended": a.ended, "closed": a.closed, "pending": host.map(|h| h["pending"].clone()),
+            "ended": a.ended, "closed": a.closed, "pending": host.map(|h| h.pending),
         })
     }
 
     /// Its state in one word (`starting`, `idle`, `working`, `blocked`, `closing`,
     /// `unconfirmed`, `stopped`, `incompatible`, `unknown`, `ended`, `closed`), with its
     /// host's status when it answered.
-    fn state_of(&self, a: &core::HostedAgent) -> (String, Option<Value>) {
+    fn state_of(&self, a: &core::HostedAgent) -> (String, Option<HostStatus>) {
         if a.ended.is_some() {
             return ("ended".into(), None);
         }
@@ -109,17 +97,20 @@ impl App {
             let h = self.hosting.lock().unwrap();
             (h.closing.get(&a.id).copied(), h.stopped.contains(&a.id), h.incompatible.contains(&a.id))
         };
+        if stopped {
+            return ("stopped".into(), None);
+        }
         if incompatible {
             return ("incompatible".into(), None);
         }
         if let Some(at) = closing {
-            return (if at.elapsed() > CLOSE_WAIT { "unconfirmed" } else { "closing" }.into(), None);
+            return (if at.elapsed() > self.waits.hosted_close { "unconfirmed" } else { "closing" }.into(), None);
         }
-        if stopped || !self.hosts.alive(&a.id) {
-            return ("stopped".into(), None);
+        if !self.hosts.alive(&a.id) {
+            return ("unknown".into(), None);
         }
-        match self.hosts.call(&a.id, "status", json!({}), Duration::from_secs(5)) {
-            Ok(st) if st["generation"] == s.generation => (st["state"].as_str().unwrap_or("unknown").into(), Some(st)),
+        match self.hosts.status(&a.id) {
+            Ok(st) if st.generation == s.generation => (st.state.clone(), Some(st)),
             _ => ("unknown".into(), None),
         }
     }
@@ -144,16 +135,15 @@ impl App {
     }
 
     /// A page of its conversation: from its host while it runs, else from its journal.
-    fn read_hosted(&self, a: &core::HostedAgent, p: &Page) -> Result<Value, ApiError> {
-        let limit = p.limit.unwrap_or(200).clamp(1, PAGE);
+    fn read_hosted(&self, a: &core::HostedAgent, p: &Page) -> Result<JournalPage, ApiError> {
         if a.running() && self.hosts.alive(&a.id) {
-            match self.hosts.call(&a.id, "read", json!({"after": p.after, "limit": limit}), Duration::from_secs(10)) {
+            match self.hosts.read(&a.id, p.after, p.limit) {
                 Ok(page) => return Ok(page),
                 Err(HostError::Refused(why)) => return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("{} cannot read its journal: {why}", a.id))),
                 Err(HostError::Unreachable(_)) => {}
             }
         }
-        crate::runtime::journal_page(&self.hosts.journal(&a.id), p.after, limit, PAGE_BYTES).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot read the journal of {}: {e:#}", a.id)))
+        self.hosts.read_journal(&a.id, p.after, p.limit).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot read the journal of {}: {e:#}", a.id)))
     }
 
     /// The user's answer to one approval request, by its key: the host settles it first; only
@@ -164,15 +154,21 @@ impl App {
             core::hosted::Answer::Allow => "allow",
             core::hosted::Answer::Reject => "reject",
         };
-        let params = json!({"generation": s.generation, "request": x.request, "optionId": option});
-        match self.hosts.call(&a.id, "answer", params, Duration::from_secs(5)) {
-            Ok(r) => {
-                self.record(&Principal::Service, Body::AgentAnswered { agent: a.id.clone(), request: x.request, decision: x.decision })?;
-                Ok(json!({"agent": a.id, "request": x.request, "decision": option, "replied": r["replied"]}))
+        match self.hosts.answer(&a.id, s.generation, x.request, x.decision) {
+            Ok(replied) => {
+                self.record_answer(&a.id, x.request, x.decision)?;
+                Ok(json!({"agent": a.id, "request": x.request, "decision": option, "replied": replied}))
             }
             Err(HostError::Refused(why)) => Err(bad(format!("{} did not take the answer: {}", a.id, refusal(&why)))),
             Err(e) => Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("{} did not take the answer: {e}", a.id))),
         }
+    }
+}
+
+fn driven<'a>(view: &'a core::State, who: &Principal, agent: &str) -> Result<&'a core::HostedAgent, ApiError> {
+    match view.hosted_named(agent) {
+        Ok(a) if !view.reduced && view.drives(who, a) => Ok(a),
+        _ => Err(ApiError(StatusCode::FORBIDDEN, format!("no hosted agent {agent} that you may drive: the user drives every one, a workspace's manager its own workers"))),
     }
 }
 
@@ -200,11 +196,7 @@ pub(in crate::server) async fn start(State(app): State<Shared>, Extension(caller
             return Err(bad(format!("{} is not a folder here", s.cwd)));
         }
         let body = Body::AgentStartReserved { id: String::new(), workspace: s.workspace, name: s.name, harness: s.harness, model: s.model, cwd: s.cwd, auth: s.auth };
-        let e = app.record(&who, body)?;
-        let Body::AgentStartReserved { id, .. } = &e.body else { unreachable!() };
-        let a = app.store.lock().unwrap().recorded()?.hosted_agent(id)?.clone();
-        let bg = app.clone();
-        std::thread::spawn(move || bg.start_hosted(a));
+        let id = app.reserve_hosted(&who, body)?;
         Ok(Json(json!({"agent": id, "state": "starting"})))
     })
     .await
@@ -213,21 +205,17 @@ pub(in crate::server) async fn start(State(app): State<Shared>, Extension(caller
 /// The hosted agents the caller may drive, with their state.
 pub(in crate::server) async fn list(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
-        let who = app.who(&caller, None)?;
-        let all = app.store.lock().unwrap().recorded()?;
-        let blind = matches!(&who, Principal::Agent { session, .. } if all.blind_view(session).is_some());
-        let mine: Vec<core::HostedAgent> = all.hosted.iter().filter(|a| !blind && (who == Principal::User || all.drives(&who, a))).cloned().collect();
-        drop(all);
-        Ok(Json(json!({"on": Settings::hosted(&app.home), "agents": mine.iter().map(|a| app.shown(a)).collect::<Vec<_>>()})))
+        let (who, view) = app.view(&caller, &Reader::default())?;
+        let agents: Vec<Value> = view.hosted.iter().filter(|a| !view.reduced && view.drives(&who, a)).map(|a| app.shown(a)).collect();
+        Ok(Json(json!({"on": Settings::hosted(&app.home), "agents": agents})))
     })
     .await
 }
 
 pub(in crate::server) async fn show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Path(agent): Path<String>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
-        let who = app.who(&caller, None)?;
-        let a = app.driven(&who, &agent)?;
-        Ok(Json(app.shown(&a)))
+        let (who, view) = app.view(&caller, &Reader::default())?;
+        Ok(Json(app.shown(driven(&view, &who, &agent)?)))
     })
     .await
 }
@@ -240,21 +228,20 @@ pub(in crate::server) async fn prompt(State(app): State<Shared>, Extension(calle
     .await
 }
 
-pub(in crate::server) async fn read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Path(agent): Path<String>, Query(p): Query<Page>) -> Result<Json<Value>, ApiError> {
+pub(in crate::server) async fn read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Path(agent): Path<String>, Query(p): Query<Page>) -> Result<Json<JournalPage>, ApiError> {
     blocking(move || {
-        let who = app.who(&caller, None)?;
-        let a = app.driven(&who, &agent)?;
-        app.read_hosted(&a, &p).map(Json)
+        let (who, view) = app.view(&caller, &Reader::default())?;
+        app.read_hosted(driven(&view, &who, &agent)?, &p).map(Json)
     })
     .await
 }
 
 pub(in crate::server) async fn status(State(app): State<Shared>, Extension(caller): Extension<Caller>, Path(agent): Path<String>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
-        let who = app.who(&caller, None)?;
-        let a = app.driven(&who, &agent)?;
-        let (state, host) = app.state_of(&a);
-        Ok(Json(json!({"agent": a.id, "state": state, "pending": host.as_ref().map_or(json!({}), |h| h["pending"].clone()), "head": host.as_ref().map(|h| h["head"].clone())})))
+        let (who, view) = app.view(&caller, &Reader::default())?;
+        let a = driven(&view, &who, &agent)?;
+        let (state, host) = app.state_of(a);
+        Ok(Json(json!({"agent": a.id, "state": state, "pending": host.as_ref().map_or(json!({}), |h| h.pending.clone()), "head": host.as_ref().map(|h| h.head)})))
     })
     .await
 }
@@ -262,10 +249,11 @@ pub(in crate::server) async fn status(State(app): State<Shared>, Extension(calle
 pub(in crate::server) async fn cancel(State(app): State<Shared>, Extension(caller): Extension<Caller>, Path(agent): Path<String>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
         let who = app.who(&caller, None)?;
+        let _order = app.appointing.lock().unwrap();
         let a = app.driven(&who, &agent)?;
         let s = a.started.as_ref().filter(|_| a.running()).ok_or_else(|| bad(format!("{} is not running", a.id)))?;
-        match app.hosts.call(&a.id, "cancel", json!({"generation": s.generation}), Duration::from_secs(15)) {
-            Ok(r) => Ok(Json(json!({"agent": a.id, "state": r["state"]}))),
+        match app.hosts.cancel(&a.id, s.generation) {
+            Ok(state) => Ok(Json(json!({"agent": a.id, "state": state}))),
             Err(e) => Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("{} was not cancelled: {e}", a.id))),
         }
     })
@@ -295,8 +283,9 @@ pub(in crate::server) async fn close(State(app): State<Shared>, Extension(caller
 
 #[derive(Deserialize)]
 pub(in crate::server) struct Ending {
-    #[serde(default)]
     pid: Option<u32>,
+    start: Option<u64>,
+    marker: Option<String>,
     #[serde(default)]
     all: bool,
 }
@@ -315,10 +304,12 @@ pub(in crate::server) async fn processes(State(app): State<Shared>, Extension(ca
 pub(in crate::server) async fn processes_close(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(e): Json<Ending>) -> Result<Json<Value>, ApiError> {
     blocking(move || {
         app.user(&caller)?;
-        if e.pid.is_none() && !e.all {
-            return Err(bad("name a leftover process (`pid`) or all of them (`all`)".into()));
-        }
-        app.end_leftovers(e.pid).map(Json)
+        let chosen = match (e.all, e.pid, e.start, e.marker) {
+            (true, None, None, None) => None,
+            (false, Some(pid), Some(start), Some(marker)) => Some(leftovers::Selection { pid, start, marker }),
+            _ => return Err(bad("name a listed leftover process (`pid`, `start`, `marker`) or all of them (`all`)".into())),
+        };
+        app.end_leftovers(chosen).map(Json)
     })
     .await
 }

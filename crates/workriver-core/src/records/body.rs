@@ -795,15 +795,25 @@ pub enum Body {
     /// workriver's own: the route asks for the user; a receipt found missing later is recorded
     /// from the host's journal. `request` is the request's key there; no text of the agent's.
     #[serde(rename = "agent.answered")]
-    AgentAnswered { agent: String, request: u64, decision: crate::hosted::Answer },
+    AgentAnswered {
+        agent: String,
+        request: u64,
+        decision: crate::hosted::Answer,
+        #[serde(default)]
+        by: crate::hosted::AnswerBy,
+    },
     /// A hosted agent's close, as its host wrote it: the one outcome.
     #[serde(rename = "agent.closed")]
     AgentClosed {
         agent: String,
         outcome: crate::hosted::Outcome,
-        /// The processes left in its group when the outcome is `stuck`.
+        /// The processes not known to have exited.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pids: Vec<u32>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        processes: Vec<crate::hosted::ProcessResult>,
+        #[serde(default, rename = "markedError", skip_serializing_if = "Option::is_none")]
+        marked_error: Option<String>,
     },
 }
 

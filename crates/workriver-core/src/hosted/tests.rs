@@ -46,7 +46,7 @@ fn only_the_user_reserves_and_only_workriver_records_the_rest() {
 fn a_name_is_one_open_agent_and_an_id_is_never_given_again() {
     let mut s = setup();
     refused(&mut s, "user", reserve("w"), "w is a1 already");
-    for bad in ["", "user", "a7"] {
+    for bad in ["", "user", "a7", "processes", "start"] {
         refused(&mut s, "user", reserve(bad), "cannot name an agent");
     }
     let mut far = reserve("x");
@@ -82,7 +82,8 @@ fn a_start_records_only_a_session_nobody_knew() {
 fn an_answer_is_recorded_once_while_the_agent_runs() {
     let mut s = setup();
     let answer = json!({"kind": "agent.answered", "body": {"agent": "a1", "request": 12, "decision": "reject"}});
-    add(&mut s, "workriver", answer.clone()).unwrap();
+    let receipt = add(&mut s, "workriver", answer.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&receipt.body).unwrap()["body"]["by"], "user");
     refused(&mut s, "workriver", answer.clone(), "is recorded already");
     add(&mut s, "workriver", json!({"kind": "agent.closed", "body": {"agent": "a1", "outcome": "ended"}})).unwrap();
     let mut late = answer;

@@ -195,6 +195,14 @@ impl Fake {
                 })
             }
             Some("account/read") => {
+                if self.options["hold_ready"] == true {
+                    fs::write("ready-requested", "").unwrap();
+                    let until = Instant::now() + Duration::from_secs(15);
+                    while !std::path::Path::new("ready-release").exists() {
+                        assert!(Instant::now() < until, "readiness was not released");
+                        thread::sleep(Duration::from_millis(15));
+                    }
+                }
                 let account = self.options.get("account").cloned().unwrap_or_else(|| match self.account.as_str() {
                     "chatgpt" => json!({"type":"chatgpt", "planType":"plus", "email":"private@example.invalid"}),
                     _ => json!({"type":"apiKey"}),
@@ -243,6 +251,9 @@ impl Fake {
             other => panic!("unexpected native frame {other:?}: {frame}"),
         };
         self.reply(id, result);
+        if frame["method"] == "account/read" && self.options["exit_after_ready"] == true {
+            std::process::exit(0);
+        }
     }
 
     fn prompt(&mut self, id: &Value, text: &str) {

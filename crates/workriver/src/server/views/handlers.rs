@@ -37,7 +37,7 @@ pub(in crate::server) enum Snapshot {
 
 pub(in crate::server) async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<views::Workspace>, ApiError> {
     blocking(move || {
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         let kind = if r.light {
             Snapshot::Light
         } else if caller.session && r.named.is_none() && *app.browser_git.lock().unwrap() != BrowserGit::Ready {
@@ -78,7 +78,7 @@ pub(in crate::server) async fn workspace(State(app): State<Shared>, Extension(ca
 /// Scoped like `/api/workspace`. Not on a machine's listener: no CLI reads it.
 pub(in crate::server) async fn unit_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<views::Code>, ApiError> {
     blocking(move || {
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         let started = std::time::Instant::now();
         let live = app.live();
         let code = {
@@ -112,7 +112,7 @@ pub(in crate::server) struct StateReport {
 /// computed from those same visible records.
 pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>, Query(report): Query<StateReport>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         let mut out = serde_json::to_value(&state).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         if let Some(intents) = out["intents"].as_array_mut() {
             for (shown, i) in intents.iter_mut().zip(&state.intents) {
@@ -296,7 +296,7 @@ pub(in crate::server) struct HistoryAt {
 /// before it. Built from the intent's events (`intent_events`), not kept in the state.
 pub(in crate::server) async fn intent_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>, Query(at): Query<HistoryAt>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         if state.reduced {
             return Err(ApiError(StatusCode::FORBIDDEN, "you are on a blind task: an intent's history, which holds its note, is hidden from you until you deliver it".into()));
         }

@@ -20,12 +20,11 @@ use anyhow::Context;
 use serde_json::{Value, json};
 
 use super::codex::{self, Adapter, Event};
-use super::journal::Journal;
-use super::wire::{self, ACP_CLOSE, ACP_INITIALIZE, ACP_PROMPT, ACP_SESSION_NEW, Line, Lines, error, notification, reply, request};
+use super::journal::{Journal, page_limit};
+use super::wire::{self, ACP_CLOSE, ACP_INITIALIZE, ACP_PROMPT, ACP_SESSION_NEW, HOST_FRAME_BYTES, HOST_PROTOCOL, Line, Lines, error, notification, reply, request};
 use close::{Closing, Step, outcome};
 use instance::{Directory, Socket};
 
-const PROTOCOL_VERSION: u64 = 1;
 const CHALLENGE_SLOTS: usize = 4;
 const APPROVAL_BYTES: usize = 24 * 1024;
 const STATUS_BYTES: usize = 512 * 1024;
@@ -171,7 +170,7 @@ impl Host {
             let params = &frame["params"];
             let proof = params["proof"].as_str().unwrap_or_default().as_bytes();
             let accepted = valid_request(&frame) && frame["method"] == "hello" && proves(proof, &self.directory.proof);
-            let compatible = params["protocolVersion"] == PROTOCOL_VERSION;
+            let compatible = params["protocolVersion"] == HOST_PROTOCOL;
             let result = if !accepted {
                 error(id, -32000, "unauthorized")
             } else if !compatible {
@@ -192,7 +191,7 @@ impl Host {
 
     fn command(&mut self) -> anyhow::Result<bool> {
         let Some(client) = &mut self.client else { return Ok(false) };
-        let frame = match client.stream.next(2 * 1024 * 1024) {
+        let frame = match client.stream.next(HOST_FRAME_BYTES) {
             Ok(Some(frame)) => frame,
             Ok(None) => return Ok(false),
             Err(_) => {
@@ -209,11 +208,11 @@ impl Host {
         let result = match frame["method"].as_str().unwrap() {
             "status" => Ok(self.status()),
             "hello" if !proves(params["proof"].as_str().unwrap_or_default().as_bytes(), &self.directory.proof) => Err("unauthorized"),
-            "hello" if params["protocolVersion"] != PROTOCOL_VERSION => Err("incompatible"),
+            "hello" if params["protocolVersion"] != HOST_PROTOCOL => Err("incompatible"),
             "hello" => Ok(self.hello()),
             "read" => {
                 let after = params["after"].as_u64().unwrap_or_default();
-                let limit = params["limit"].as_u64().unwrap_or(200).clamp(1, 1000) as usize;
+                let limit = page_limit(params["limit"].as_u64().map(|n| usize::try_from(n).unwrap_or(usize::MAX)));
                 let mut bytes = format!(r#"{{"jsonrpc":"2.0","id":{id},"result":"#).into_bytes();
                 if self.journal.read(after, limit, &mut bytes).is_err() {
                     self.respond(error(id, -32000, "cannot read the journal"));
@@ -284,7 +283,7 @@ impl Host {
 
     fn hello(&self) -> Value {
         json!({
-            "protocolVersion":PROTOCOL_VERSION, "id":self.record["id"], "session":self.record["session"],
+            "protocolVersion":HOST_PROTOCOL, "id":self.record["id"], "session":self.record["session"],
             "generation":self.generation, "state":if self.closing.is_some() { "closing" } else { self.record["state"].as_str().unwrap() },
             "head":self.journal.head(), "versions":self.record["versions"], "billing":self.billing,
             "model":self.record["model"], "approvals":self.record["approvals"]
@@ -593,8 +592,7 @@ impl Host {
         let members = if close.checks_group() { list_members(leader) } else { Ok(Vec::new()) };
         let (pids, listing_error) = close::remaining(leader, exited, members);
         // The processes that carry this launch's marker count with the group.
-        let marked = if close.checks_group() { close.sweep.alive(&marker) } else { vec![] };
-        let group_empty = listing_error.is_none() && pids.is_empty() && marked.is_empty();
+        let group_empty = listing_error.is_none() && pids.is_empty() && !close.sweep.has_remaining(&marker);
         let Some(step) = close.advance(now, !self.working, exited, group_empty) else {
             return Ok(false);
         };
@@ -614,16 +612,25 @@ impl Host {
             Step::Eof => { self.input.take(); }
             Step::Terminate | Step::Kill => {
                 let sig = if step == Step::Terminate { libc::SIGTERM } else { libc::SIGKILL };
-                // Found once, before the first signal; each is read again before every one.
                 if step == Step::Terminate {
                     close.sweep.take(scan(), &marker, leader);
                 }
-                close.sweep.signal(&marker, sig);
+                close.sweep.signal(&marker, sig, close.deadline);
                 if !group_empty && let Err(error) = close::signal(leader, sig) {
                     eprintln!("host: signalling the app-server group ({sig}): {error}");
                 }
             }
             Step::Finish => {
+                use workriver_core::hosted::{Outcome, ProcessOutcome};
+
+                // Cleanup after TERM can leave a marked descendant outside the group.
+                close.sweep.take(scan(), &marker, leader);
+                let processes = close.sweep.report(&marker);
+                if now < close.deadline && processes.iter().any(|p| p.outcome == ProcessOutcome::Alive) {
+                    close.sweep.signal(&marker, libc::SIGKILL, close.deadline);
+                    close.until = (now + Duration::from_millis(100)).min(close.deadline);
+                    return Ok(false);
+                }
                 // The child can exit with unread, already-written protocol frames.
                 if exited && group_empty && self.output.is_some() && now < close.deadline {
                     close.until = close.deadline;
@@ -637,11 +644,17 @@ impl Host {
                 } else {
                     None
                 };
-                let marked = close.sweep.alive(&marker);
                 let mut stuck = pids.clone();
-                stuck.extend(marked.iter().filter(|p| !pids.contains(p)));
+                for p in processes.iter().filter(|p| p.outcome != ProcessOutcome::Exited) {
+                    if !stuck.contains(&p.pid) {
+                        stuck.push(p.pid);
+                    }
+                }
                 let mut result = outcome(listing_error.is_none() && exited, &stuck);
-                result["processes"] = close.sweep.report(&marker);
+                if close.sweep.failed || processes.iter().any(|p| p.outcome == ProcessOutcome::Unverifiable) {
+                    result["outcome"] = json!(Outcome::Unverifiable);
+                }
+                result["processes"] = json!(processes);
                 if close.sweep.failed {
                     result["markedError"] = json!("this account's processes could not be listed");
                 }

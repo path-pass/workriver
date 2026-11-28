@@ -39,6 +39,8 @@ workriver agent processes
 workriver agent processes  arg all --all value=["ALL"] num=0 default=["false"] action=SetTrue
 workriver agent processes  arg close --close value=["PID"] num=1 action=Set conflicts=all
 workriver agent processes  arg help --help -h num=0 action=Help
+workriver agent processes  arg marker --marker value=["MARKER"] num=1 action=Set
+workriver agent processes  arg start --start value=["START"] num=1 action=Set
 workriver agent prompt
 workriver agent prompt  arg agent index=1 value=["AGENT"] num=1 action=Set required
 workriver agent prompt  arg help --help -h num=0 action=Help

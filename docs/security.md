@@ -310,29 +310,34 @@ harness (Codex) with no terminal, and keeps its conversation in a journal beside
   reservation. A workspace's seated manager may prompt, read and cancel the hosted workers of
   its own workspace, and none that holds a manager's seat; it never answers an approval.
   Every request reads the records and the caller's rights anew: a page of a conversation is
-  a request of its own, so a seat change stops the next page.
+  a request of its own, so a seat change or a blind assignment can stop the next page.
+  A prompt or cancellation and a seat change take effect in order.
 - **Which process it is.** A hosted agent's place is its host: the host's process id and
   start are taken from the child the service spawned, never from what the host writes. A
   command from its tools descends from that host and is that agent's; before its start is
   recorded, nobody under the host is anyone (you neither, though the token is in reach).
   A session recorded as hosted is that agent only at its own host: a terminal that shows
-  the same session is refused. A host no reservation is for is never adopted; a reservation
-  whose host does not end keeps its name and is never published.
+  the same session is refused. Prompts and held deliveries bind to that hosted instance and
+  generation. A stopped host's session receives nothing. An unpublished host whose
+  reservation lost its service is closed once ready or once its start window runs out.
 - **Terminals gone or not answering.** A terminal runtime counts as not running only when
-  its socket is not there and no process of its own holds a listener bound at that path;
-  one that does not answer makes every identity read fail, so a command in no terminal is
-  then refused, not taken for you.
+  the service can establish that its socket is missing and no listener is bound at that
+  path. If that check is inconclusive or the runtime cannot answer, identity reads fail
+  and the service refuses the command.
 - **Processes it leaves.** Every process a hosted agent starts carries a marker in its
   environment (its agent, launch and instance). A close ends its own launch's marked
   processes too, each read again before every signal, and says how each ended. Those left
   over (its agent closed, its host gone) are listed for you (`workriver agent processes`)
-  and ended only when you ask, one or all; nothing ends one by itself. A process that clears
-  its environment escapes this, and so, on macOS, does one of the system's own binaries
-  (`sh`, `sleep`) once it leaves the agent's process group: macOS shows their environment
-  to nobody else.
+  after the first reconciliation. Only you can ask to end them, one or all. To end one,
+  provide the PID, process start and launch marker from the list. The service checks the
+  identity and whether the launch is still left over before every signal. Linux uses a
+  pidfd when available. macOS has a short interval between re-reading the process and
+  signalling its PID, during which the PID could be reused. A process that clears its
+  environment escapes the marker check. macOS also hides the environment of system
+  binaries (such as `sh` or `sleep`), so they escape the check once they leave the group.
 - **What reaches the agent.** A manager's prompt arrives as `From "<name>" (your manager):
   <text>`, one line; yours arrives as you wrote it. The records hold no text of the agent's:
-  an answer is its request's key and allow or reject.
+  an answer records the request's key, allow or reject, and the user who answered.
 
 What these do not hold, since the runtime's own interface is your account's, is under
 [What this does not protect against](#what-this-does-not-protect-against): the bait for

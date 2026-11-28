@@ -1,7 +1,8 @@
 // Processes as the operating system describes them: one process, its chain of parents, the
 // same read on another machine over ssh, and running a command with a time limit.
-use std::time::Duration;
+use std::{io, time::Duration};
 
+use workriver_core::hosted::ProcessOutcome;
 use workriver_scan as scan;
 
 /// One process as its operating system describes it.
@@ -204,6 +205,72 @@ pub fn marked() -> Option<Vec<(u32, Owned, String)>> {
     }).collect())
 }
 
+/// Whether the same process of this account still runs. None if it cannot be verified.
+pub fn owned_running(pid: u32, start: u64) -> Option<bool> {
+    if let Some(found) = owned(pid) {
+        return Some(found.start == start && !found.zombie);
+    }
+    let pid = libc::pid_t::try_from(pid).ok().filter(|&pid| pid > 0)?;
+    // SAFETY: signal zero queries one PID without delivering a signal.
+    if unsafe { libc::kill(pid, 0) } != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        return Some(false);
+    }
+    None
+}
+
+/// The outcome for the process the scan found, not for a different user of that PID.
+pub fn marked_state(pid: u32, start: u64, expected: &str) -> ProcessOutcome {
+    match owned_running(pid, start) {
+        Some(false) => ProcessOutcome::Exited,
+        Some(true) if matches!(marker(pid), Ok(Some(m)) if m == expected) => ProcessOutcome::Alive,
+        _ => ProcessOutcome::Unverifiable,
+    }
+}
+
+/// Verifies the process's id, account, start and marker before each signal. A Linux pidfd
+/// pins the target across the check and the signal; the other path has a PID reuse window.
+pub fn signal_marked(pid: u32, start: u64, expected: &str, sig: libc::c_int) -> io::Result<()> {
+    let system_pid = libc::pid_t::try_from(pid).ok().filter(|&pid| pid > 0).ok_or(io::ErrorKind::InvalidInput)?;
+    #[cfg(target_os = "linux")]
+    let pidfd = {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        // SAFETY: pidfd_open takes one positive PID and zero flags.
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, system_pid, 0u32) };
+        if fd >= 0 {
+            // SAFETY: the successful syscall returns a newly owned file descriptor.
+            Some(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) })
+        } else {
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::ENOSYS) => None,
+                Some(libc::ESRCH) => return Ok(()),
+                _ => return Err(error),
+            }
+        }
+    };
+
+    if marked_state(pid, start, expected) != ProcessOutcome::Alive || owned_running(pid, start) != Some(true) {
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(fd) = pidfd {
+        use std::os::fd::AsRawFd;
+        // SAFETY: the owned pidfd is open; null siginfo requests the default sender info.
+        let result = unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), sig, std::ptr::null::<libc::siginfo_t>(), 0u32) };
+        return sent(result == 0);
+    }
+    // SAFETY: a positive PID addresses one process, whose identity was just read again.
+    sent(unsafe { libc::kill(system_pid, sig) } == 0)
+}
+
+fn sent(success: bool) -> io::Result<()> {
+    if success {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) }
+}
+
 /// Whether a process named `name` holds a Unix socket bound at `path`, even one whose file
 /// is gone: the kernel keeps the address a listener was bound with. None: it cannot be told
 /// (the processes, or the sockets of one of them, cannot be read).
@@ -213,7 +280,10 @@ pub fn unix_bound(path: &std::path::Path, name: &str) -> Option<bool> {
     use libproc::libproc::file_info::{ListFDs, ProcFDType, pidfdinfo};
     use libproc::libproc::net_info::{SocketFDInfo, SocketInfoKind};
     use libproc::libproc::proc_pid::{listpidinfo, pidinfo};
-    let want = path.as_os_str().as_encoded_bytes();
+    use std::os::unix::ffi::OsStrExt;
+
+    let want = socket_location(path);
+    let mut absent = Some(false);
     for pid in libproc::processes::pids_by_type(libproc::processes::ProcFilter::All).ok()? {
         if one(pid).is_none_or(|p| p.name != name) {
             continue;
@@ -223,26 +293,74 @@ pub fn unix_bound(path: &std::path::Path, name: &str) -> Option<bool> {
             if !matches!(fd.proc_fdtype.into(), ProcFDType::Socket) {
                 continue;
             }
-            let Ok(s) = pidfdinfo::<SocketFDInfo>(pid as i32, fd.proc_fd) else { continue };
+            let Ok(s) = pidfdinfo::<SocketFDInfo>(pid as i32, fd.proc_fd) else {
+                absent = None;
+                continue;
+            };
             if matches!(s.psi.soi_kind.into(), SocketInfoKind::Un) {
                 // SAFETY: a socket of kind Un carries the Unix member of the union.
                 let sun = unsafe { s.psi.soi_proto.pri_un.unsi_addr.ua_sun };
                 let bound: Vec<u8> = sun.sun_path.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
-                if bound == want {
+                if bound.is_empty() {
+                    continue;
+                }
+                let bound = std::path::Path::new(std::ffi::OsStr::from_bytes(&bound));
+                if bound == path && bound.is_absolute() {
                     return Some(true);
+                }
+                // A relative bound address used the listener's working directory at bind.
+                let location = bound.is_absolute().then(|| socket_location(bound)).flatten();
+                match (&want, location) {
+                    (Some(want), Some(location)) if *want == location => return Some(true),
+                    (Some(_), Some(_)) => {}
+                    // The address still names its original socket file, whichever directory it was bound in.
+                    (Some(want), None) if bound.file_name().is_some() && bound.file_name() != want.file_name() => {}
+                    _ => absent = None,
                 }
             }
         }
     }
-    Some(false)
+    absent
+}
+
+/// The address's location even after the socket is unlinked, if its directory can be resolved.
+#[cfg(target_os = "macos")]
+fn socket_location(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let path = std::path::absolute(path).ok()?;
+    match path.symlink_metadata() {
+        Ok(m) if m.is_symlink() => return path.canonicalize().ok(),
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return None,
+        _ => {}
+    }
+    Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?))
 }
 
 /// The same from the kernel's table of Unix sockets, whoever holds one.
 #[cfg(target_os = "linux")]
 pub fn unix_bound(path: &std::path::Path, _name: &str) -> Option<bool> {
     let table = std::fs::read_to_string("/proc/net/unix").ok()?;
-    let want = path.to_str()?;
-    Some(table.lines().skip(1).any(|l| l.split_whitespace().nth(7) == Some(want)))
+    unix_table_bound(&table, path.to_str()?)
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn unix_table_bound(table: &str, want: &str) -> Option<bool> {
+    if want.contains('\n') {
+        return None;
+    }
+    let mut rows = table.strip_suffix('\n')?.split('\n');
+    rows.next()?;
+    for mut row in rows {
+        // The inode is the seventh field. The kernel appends one space and the address.
+        for _ in 0..6 {
+            row = row.trim_start_matches(' ').split_once(' ')?.1;
+        }
+        let mut fields = row.trim_start_matches(' ').splitn(2, ' ');
+        fields.next()?.parse::<u64>().ok()?;
+        if fields.next() == Some(want) {
+            return Some(true);
+        }
+    }
+    Some(false)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -469,12 +587,42 @@ mod tests {
     #[test]
     fn a_bound_socket_is_found_after_its_file_is_gone() {
         let dir = tempfile::Builder::new().prefix("wr-bound-").tempdir_in("/tmp").unwrap();
-        let path = dir.path().join("s.sock");
+        let path = dir.path().join("with  spaces.sock");
         let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         let me = one(std::process::id()).unwrap().name;
         assert_eq!(unix_bound(&path, &me), Some(true));
-        assert_eq!(unix_bound(&dir.path().join("other.sock"), &me), Some(false));
+        // Other tests may close an fd while macOS is inspecting this process.
+        assert_ne!(unix_bound(&dir.path().join("with"), &me), Some(true));
+        assert_ne!(unix_bound(&dir.path().join("other.sock"), &me), Some(true));
+    }
+
+    #[test]
+    fn the_linux_socket_table_keeps_the_complete_address() {
+        let table = concat!("Num RefCount Protocol Flags Type St Inode Path\n",
+            "00000000: 00000002 00000000 00010000 0001 01 1234 /tmp/a socket  \n",
+            "00000000: 00000002 00000000 00000000 0001 03 999\n");
+        assert_eq!(unix_table_bound(table, "/tmp/a socket  "), Some(true));
+        assert_eq!(unix_table_bound(table, "/tmp/a"), Some(false));
+        assert_eq!(unix_table_bound("header\nincomplete", "/tmp/a"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_bound_socket_is_found_under_either_directory_spelling() {
+        let dir = tempfile::Builder::new().prefix("wr-bound-").tempdir_in("/tmp").unwrap();
+        let real = dir.path().join("real");
+        let alias = dir.path().join("alias");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let path = alias.join("s.sock");
+        let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let me = one(std::process::id()).unwrap().name;
+        assert_eq!(unix_bound(&real.join("s.sock"), &me), Some(true));
+        assert_ne!(unix_bound(&alias.join("other.sock"), &me), Some(true));
+        std::fs::remove_file(alias).unwrap();
+        assert_ne!(unix_bound(&real.join("s.sock"), &me), Some(false));
     }
 
     #[test]

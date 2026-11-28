@@ -8,4 +8,6 @@ mod side;
 mod wire;
 
 pub(super) use host::run;
-pub use service::{HostError, Hosts, PROTOCOL, Published, journal_lines, journal_page};
+pub use journal::JournalPage;
+pub use service::{HostError, HostHello, HostStatus, Hosts, Published};
+pub use wire::HOST_PROTOCOL;

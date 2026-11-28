@@ -116,6 +116,10 @@ impl WorkStore for Store {
         Ok(Recorded::new(self.revision(), self.state.clone()))
     }
 
+    fn hosted_agent(&self, id: &str) -> Result<Option<workriver_core::HostedAgent>, DataError> {
+        Ok(self.state.hosted_agent(id).ok().cloned())
+    }
+
     fn record(&mut self, who: &Principal, request: Body) -> Result<Committed, DataError> {
         let event = self.append(who, request)?;
         Ok(Committed { event, revision: self.revision(), recorded: Recorded::new(self.revision(), self.state.clone()) })

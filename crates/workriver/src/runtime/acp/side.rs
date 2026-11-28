@@ -3,7 +3,6 @@
 // delivery key. Only this machine has hosts.
 use std::time::Duration;
 
-use serde_json::json;
 use workriver_core::runtime::{AgentState, Place, Root, Runtime, RuntimeAgent, RuntimeError};
 
 use super::service::{HostError, Hosts, Published, runs};
@@ -30,8 +29,8 @@ fn quiet(p: &Published) -> RuntimeAgent {
 
 impl Hosts {
     fn agent(&self, id: &str, p: &Published) -> RuntimeAgent {
-        let word = match self.call(id, "status", json!({}), Duration::from_secs(2)) {
-            Ok(s) => s["state"].as_str().unwrap_or_default().to_string(),
+        let word = match self.status_for(id, Duration::from_secs(2)) {
+            Ok(s) => s.state,
             Err(_) => String::new(),
         };
         RuntimeAgent { state: if self.alive(id) { state(&word) } else { AgentState::Unknown }, ..quiet(p) }
@@ -80,8 +79,7 @@ impl Runtime for Hosts {
     /// once, so a try after a lost answer is answered as a repeat and sends nothing.
     fn send_at(&self, machine: Option<&str>, place: &str, session: &str, key: &str, text: &str) -> Result<(), RuntimeError> {
         let (id, generation) = parse(place).filter(|_| machine.is_none()).ok_or_else(|| RuntimeError::NoAgent(session.into()))?;
-        let params = json!({"generation": generation, "session": session, "key": key, "text": text});
-        match self.call(id, "prompt", params, Duration::from_secs(5)) {
+        match self.prompt(id, generation, session, key, text) {
             Ok(_) => Ok(()),
             Err(HostError::Refused(why)) => Err(match why.as_str() {
                 "busy" => RuntimeError::Busy(format!("{session} is in a turn")),

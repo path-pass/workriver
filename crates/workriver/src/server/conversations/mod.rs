@@ -116,7 +116,7 @@ pub(super) async fn message_rate(State(app): State<Shared>, Extension(caller): E
 pub(super) async fn message_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<crate::common::wire::MessageShow>, ApiError> {
     blocking(move || {
         let who = app.who(&caller, r.named.as_deref())?;
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         // Not there and not the caller's are one answer: what is not its own it never sees.
         let m = state.message_for(&id, &who).map_err(|e| ApiError(StatusCode::NOT_FOUND, e.0))?;
         let name = |session: &str| delivery::quote::name(state.name_of(session).unwrap_or(session));

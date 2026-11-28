@@ -9,6 +9,9 @@ Newest first. A manager that was already running reads this once after an update
   it its hand-off with `workriver agent prompt <name> --text …`, read it with `workriver
   agent read`, stop its turn with `workriver agent cancel`; only the user starts, answers
   and closes one, and you drive only your own workspace's. (`hand-off`, `stalled`)
+- A hosted worker's session stays with its host. When the host stops, a prompt to that
+  session is refused. Each new page of an agent's journal checks your current seat and
+  whether you are on an undelivered blind task. (`hand-off`, `stalled`)
 
 ## 2026-11-26
 

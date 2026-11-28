@@ -1,289 +1,339 @@
 // A hosted agent's life as the service sees it: the user's start (reserved, spawned, waited
 // for, recorded, published), the user's close (asked of the host, recorded from its journal's
-// one `closed` line), and the reconciliation that brings the records and the hosts back
-// together at start-up and at each poll. The service never signals a host or its agent.
+// one `closed` line), and reconciliation. The service never signals a host or its agent.
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use workriver_core::{self as core, Body, Principal};
 
-use crate::runtime::{HostError, Published};
+use crate::runtime::{HostError, HostHello, Published};
 use crate::server::app::*;
 use crate::server::http::*;
 
-/// How long a start may take, from its reservation, before it is closed and ended.
+/// How long a start may take from its reservation before it is asked to close.
 pub(in crate::server) const START_WAIT: Duration = Duration::from_secs(60);
 /// How long after a close is asked for its outcome is waited for before it is unconfirmed:
 /// the host's own deadline and some.
 pub(in crate::server) const CLOSE_WAIT: Duration = Duration::from_secs(40);
 
-/// What the service keeps of its hosts while it runs (in memory; the records and the
-/// journals hold what lasts).
+/// What the service keeps of its hosts while it runs. The records and journals hold what lasts.
 #[derive(Default)]
 pub(in crate::server) struct Hosting {
-    /// Instances whose start, close or reconciliation runs now: one at a time each.
-    busy: std::collections::HashSet<String>,
-    /// Instances attached in this run (a hello answered with the protocol this service speaks).
-    attached: std::collections::HashSet<String>,
-    /// Instances whose host speaks another protocol: never attached, the user ends them.
-    pub(super) incompatible: std::collections::HashSet<String>,
-    /// Instances whose host is gone and whose journal has no `closed` line: stopped, read once.
-    pub(super) stopped: std::collections::HashSet<String>,
-    /// Closes asked for and not recorded yet, with when they were asked.
-    pub(super) closing: std::collections::HashMap<String, Instant>,
+    busy: HashSet<String>,
+    /// The first reconciliation's outstanding instances. None until the records are read.
+    initial: Option<HashSet<String>>,
+    /// The connection whose approval receipts were reconciled before publishing each agent.
+    attached: HashMap<String, u64>,
+    /// A direct approval receipt whose write failed, even if its connection stayed open.
+    answers_pending: HashSet<String>,
+    /// Failed starts still waiting for their host to go, and when a close was last accepted.
+    ending: HashMap<String, (String, Option<Instant>)>,
+    pub(super) incompatible: HashSet<String>,
+    pub(super) stopped: HashSet<String>,
+    pub(super) closing: HashMap<String, Instant>,
 }
 
 /// One instance's turn at its lifecycle: released when dropped.
-pub(super) struct Turn<'a>(&'a App, String);
+struct Turn(Shared, String);
 
-impl Drop for Turn<'_> {
+impl Drop for Turn {
     fn drop(&mut self) {
         self.0.hosting.lock().unwrap().busy.remove(&self.1);
     }
 }
 
 impl App {
-    /// The instance's lifecycle for the caller alone, or None while another holds it.
-    pub(super) fn turn(&self, id: &str) -> Option<Turn<'_>> {
-        self.hosting.lock().unwrap().busy.insert(id.into()).then(|| Turn(self, id.into()))
+    fn turn(self: &Shared, id: &str) -> Option<Turn> {
+        self.hosting.lock().unwrap().busy.insert(id.into()).then(|| Turn(self.clone(), id.into()))
     }
 
-    /// The rest of a reserved start, in the background: the host spawned, waited for until
-    /// `START_WAIT` after the reservation, its start recorded and published. A start that fails
-    /// closes its host and ends the reservation once the host is gone; a host that does not go
-    /// keeps the reservation open (its name taken, never published) for the reconciliation.
-    pub(super) fn start_hosted(&self, a: core::HostedAgent) {
-        let Some(_turn) = self.turn(&a.id) else { return };
-        let begun = Instant::now();
-        let (pid, start) = match self.hosts.spawn(&a.id, &a.harness, &a.cwd, &a.model, &a.auth) {
+    /// Whether the first pass has examined every instance. Leftover actions wait for it.
+    pub(super) fn hosted_reconciled(&self) -> bool {
+        self.hosting.lock().unwrap().initial.as_ref().is_some_and(HashSet::is_empty)
+    }
+
+    /// Records and claims a start before the reconciler can take it. The receipt is already
+    /// committed by the time the first read of the reserved instance is made in the background.
+    pub(super) fn reserve_hosted(self: &Shared, who: &Principal, body: Body) -> Result<String, ApiError> {
+        let mut hosting = self.hosting.lock().unwrap();
+        let e = self.record(who, body)?;
+        let Body::AgentStartReserved { id, .. } = e.body else { unreachable!() };
+        hosting.busy.insert(id.clone());
+        drop(hosting);
+        let turn = Turn(self.clone(), id.clone());
+        let deadline = Instant::now() + self.waits.hosted_start;
+        if let Err(e) = std::thread::Builder::new().spawn(move || turn.0.start_hosted(&turn.1, deadline)) {
+            self.end_start(&id, &format!("the background start could not run: {e}"));
+        }
+        Ok(id)
+    }
+
+    /// The reserved start's background work. Only a running hello with a session can be
+    /// recorded, and its root comes from the service's own spawned child.
+    fn start_hosted(&self, id: &str, deadline: Instant) {
+        let read = got(self.store.lock().unwrap().hosted_agent(id));
+        let Ok(Some(Some(a))) = read else {
+            return self.end_start(id, "the reservation could not be read");
+        };
+        let (pid, start) = match self.hosts.spawn(id, &a.harness, &a.cwd, &a.model, &a.auth) {
             Ok(root) => root,
-            Err(e) => return self.end_start(&a.id, &format!("the host did not start: {e:#}")),
+            Err(e) => return self.end_start(id, &format!("the host did not start: {e:#}")),
         };
         let mut why = "did not start in time".to_string();
-        while begun.elapsed() < START_WAIT {
-            if !self.hosts.alive(&a.id) {
+        let mut generation = 1;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) {
+            self.hosts.reap();
+            if !self.hosts.alive(id) {
                 why = "the host stopped before the agent started; see its host.log".into();
                 break;
             }
-            match self.hosts.hello(&a.id) {
-                Ok(h) if h["session"].is_string() && h["state"] != "starting" => {
-                    self.hosts.pending(&a.id, h["session"].as_str().unwrap_or_default());
-                    let body = started(&a.id, &h, pid, start);
-                    match self.record(&Principal::Service, body) {
-                        Ok(_) => return self.publish(&a.id),
-                        Err(e) => {
-                            why = format!("its start could not be recorded: {}", e.1);
-                            break;
+            match self.hosts.hello_for(id, left.min(Duration::from_secs(5))) {
+                Ok((epoch, h)) => {
+                    generation = h.generation;
+                    if matches!(h.state.as_str(), "closing" | "closed") {
+                        why = "the host closed before the agent started".into();
+                        break;
+                    }
+                    if h.state == "running" && let Some(session) = h.session.as_deref() {
+                        self.hosts.pending(id, session);
+                        let body = started(id, session, &h, core::Shell { pid, start });
+                        match self.record(&Principal::Service, body) {
+                            Ok(_) => return self.publish(id, epoch),
+                            Err(e) => {
+                                why = format!("its start could not be recorded: {}", e.1);
+                                break;
+                            }
                         }
                     }
-                }
-                Ok(h) if h["state"] == "closing" || h["state"] == "closed" => {
-                    why = "the host closed before the agent started".into();
-                    break;
                 }
                 Err(HostError::Refused(w)) if w == "incompatible" => {
                     why = "the host speaks another protocol".into();
                     break;
                 }
-                _ => {}
+                Err(_) => {}
             }
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(200)));
         }
-        self.stop_start(&a.id, &why);
+        self.end_failed_start(id, &why, Some((true, generation)).filter(|_| self.hosts.alive(id)));
     }
 
-    /// A start that will not finish: its host asked to close, and the start ended once the
-    /// host is gone (waited for within the close's own deadline).
-    fn stop_start(&self, id: &str, why: &str) {
-        let _ = self.hosts.call(id, "close", json!({"generation": 1}), Duration::from_secs(5));
-        let until = Instant::now() + self.waits.hosted_close;
-        while self.hosts.alive(id) && Instant::now() < until {
-            self.hosts.reap();
-            std::thread::sleep(Duration::from_millis(200));
-        }
-        self.hosts.reap();
-        if self.hosts.alive(id) {
-            tracing::warn!("the host of {id} is still running after its start failed ({why}); it is kept starting until it is gone");
+    /// Asks a live host of a failed start to close. Its name stays reserved until it is gone;
+    /// the next round checks again without keeping this round waiting for the host to exit.
+    /// The boolean identifies a host already tracked from our spawned child.
+    fn end_failed_start(&self, id: &str, why: &str, live: Option<(bool, u64)>) {
+        let (why, asked) = self.hosting.lock().unwrap().ending.entry(id.into())
+            .or_insert_with(|| (why.into(), None)).clone();
+        let Some((tracked, generation)) = live else { return self.end_start(id, &why) };
+        if asked.is_some_and(|at| at.elapsed() < self.waits.hosted_close) {
             return;
         }
-        self.end_start(id, why);
+        let close = if tracked { self.hosts.close(id, generation) } else { self.hosts.orphan_close(id, generation) };
+        if close.is_ok() && let Some(entry) = self.hosting.lock().unwrap().ending.get_mut(id) {
+            entry.1 = Some(Instant::now());
+        }
     }
 
     fn end_start(&self, id: &str, why: &str) {
         self.hosts.forget(id);
-        if let Err(e) = self.record(&Principal::Service, Body::AgentStartEnded { agent: id.into(), why: why.into() }) {
-            tracing::warn!("cannot record that the start of {id} ended ({why}): {}", e.1);
+        match self.record(&Principal::Service, Body::AgentStartEnded { agent: id.into(), why: why.into() }) {
+            Ok(_) => { self.hosting.lock().unwrap().ending.remove(id); }
+            Err(e) => tracing::warn!("cannot record that the start of {id} ended ({why}): {}", e.1),
         }
     }
 
-    /// The instance's agent is the records' from now on: its root is an agent's place.
-    pub(super) fn publish(&self, id: &str) {
-        let read = got(self.store.lock().unwrap().recorded());
-        let Ok(Some(all)) = read else { return };
-        let Ok(a) = all.hosted_agent(id) else { return };
-        if let Some(s) = &a.started {
+    /// The instance is an agent's place only after reading its committed start. A failed read
+    /// leaves it unpublished for the next reconciliation, with its original trusted root.
+    fn publish(&self, id: &str, epoch: u64) {
+        let read = got(self.store.lock().unwrap().hosted_agent(id));
+        if let Ok(Some(Some(a))) = read && let Some(s) = &a.started {
             self.hosts.track(id, s.host.pid, s.host.start);
-            self.hosts.publish(id, Published { session: s.session.clone(), name: a.name.clone(), harness: a.harness.clone(), cwd: a.cwd.clone(), generation: s.generation });
-            self.hosting.lock().unwrap().attached.insert(id.into());
+            self.hosts.publish(id, Published { session: s.session.clone(), name: a.name, harness: a.harness, cwd: a.cwd, generation: s.generation });
+            self.hosting.lock().unwrap().attached.insert(id.into(), epoch);
             let _ = self.changed.send(());
         }
     }
 
-    /// The records and the hosts brought together: at start-up, and at each poll for what is
-    /// open. Each instance under its own lifecycle; one held by a start or a close is left to
-    /// it. A failed read of the records skips this round.
-    pub(in crate::server) fn reconcile_hosted(&self) {
+    /// Open instances and directories left without a start, each under its own lifecycle
+    /// turn. A slow host cannot delay another host's reconciliation or the next round.
+    pub(in crate::server) fn reconcile_hosted(self: &Shared) {
         self.hosts.reap();
         let read = got(self.store.lock().unwrap().recorded());
         let Ok(Some(all)) = read else { return };
-        let open: Vec<core::HostedAgent> = all.hosted.iter().filter(|a| a.open()).cloned().collect();
-        let unreserved: Vec<String> = self.hosts.on_disk().into_iter().filter(|id| all.hosted_agent(id).is_err()).collect();
-        drop(all);
-        // A host no reservation is for is never adopted: asked to close, and logged.
-        for id in unreserved {
-            if let Some((pid, start)) = instance_host(&self.hosts.dir(&id)) {
-                tracing::warn!("a host runs for {id}, which no start reserved (process {pid}): it is asked to close");
-                self.hosts.track(&id, pid, start);
-                let _ = self.hosts.call(&id, "close", json!({"generation": 1}), Duration::from_secs(5));
-                self.hosts.forget(&id);
+        let mut ids: HashSet<String> = all.hosted.iter().filter(|a| a.open()).map(|a| a.id.clone()).collect();
+        ids.extend(self.hosts.on_disk().into_iter().filter(|id| all.hosted_agent(id).is_err() || all.hosted_agent(id).is_ok_and(|a| a.ended.is_some())));
+        {
+            let mut h = self.hosting.lock().unwrap();
+            let initial = h.initial.get_or_insert_with(|| ids.clone());
+            ids.extend(initial.iter().cloned());
+        }
+        for id in ids {
+            let Some(turn) = self.turn(&id) else { continue };
+            if let Err(e) = std::thread::Builder::new().spawn(move || turn.0.reconcile_one(&turn.1)) {
+                tracing::warn!("cannot reconcile {id} this round: {e}");
             }
         }
-        for a in open {
-            let Some(_turn) = self.turn(&a.id) else { continue };
-            match &a.started {
-                None => self.reconcile_reserved(&a),
+    }
+
+    fn reconcile_one(&self, id: &str) {
+        let read = got(self.store.lock().unwrap().hosted_agent(id));
+        let Ok(Some(agent)) = read else { return };
+        match agent {
+            Some(a) if a.open() => match &a.started {
                 Some(s) => self.reconcile_started(&a, s),
+                None => self.reconcile_reserved(&a),
+            },
+            None | Some(core::HostedAgent { ended: Some(_), .. }) => {
+                // A lost spawn may write its instance record after we ended the reservation.
+                // It is only ever contacted for cleanup, never used as the identity of a place.
+                if let Some((host, generation)) = self.hosts.instance_host(id) {
+                    tracing::debug!("an unpublished host runs for {id} (process {}): it is asked to close", host.pid);
+                    let _ = self.hosts.orphan_close(id, generation);
+                }
             }
+            _ => {}
+        }
+        if let Some(initial) = self.hosting.lock().unwrap().initial.as_mut() {
+            initial.remove(id);
         }
     }
 
-    /// A reservation with no start: a young one is its start's (which ends it either way);
-    /// an older one a stopped service, or a start that could not close its host, left. Its
-    /// host, if it runs, is closed (never adopted: the service takes a host's root only from
-    /// the child it spawned), and the start ends once it is gone.
+    /// A lost reservation may wait for a young host still starting. A ready host is also
+    /// closed, since a restarted service cannot attest to a root it did not spawn.
     fn reconcile_reserved(&self, a: &core::HostedAgent) {
-        let age = humantime::parse_rfc3339_weak(&a.at).ok().and_then(|t| t.elapsed().ok());
-        if age.is_none_or(|age| age < self.waits.hosted_young) {
-            return;
+        const LOST: &str = "the service stopped before the start finished";
+        let tracked = self.hosts.alive(&a.id);
+        let live = if tracked { Some((true, 1)) } else { self.hosts.instance_host(&a.id).map(|(_, generation)| (false, generation)) };
+        let ending = self.hosting.lock().unwrap().ending.contains_key(&a.id);
+        if ending || live.is_none() {
+            return self.end_failed_start(&a.id, LOST, live);
         }
-        if self.hosts.root(&a.id).is_none() {
-            if let Some((pid, start)) = instance_host(&self.hosts.dir(&a.id)) {
-                self.hosts.track(&a.id, pid, start);
-            }
+        let age = humantime::parse_rfc3339_weak(&a.at).ok().and_then(|t| t.elapsed().ok()).unwrap_or_default();
+        let left = self.waits.hosted_start.saturating_sub(age);
+        if left.is_zero() {
+            return self.end_failed_start(&a.id, "did not start in time", live);
         }
-        if !self.hosts.alive(&a.id) {
-            return self.end_start(&a.id, "the service stopped before the start finished");
+        let wait = left.min(Duration::from_secs(5));
+        let hello = if tracked {
+            self.hosts.hello_for(&a.id, wait).map(|(_, hello)| hello)
+        } else {
+            self.hosts.orphan_hello(&a.id, wait)
+        };
+        if hello.is_ok_and(|h| matches!(h.state.as_str(), "running" | "closing" | "closed")) {
+            self.end_failed_start(&a.id, LOST, live);
         }
-        self.stop_start(&a.id, "the service stopped before the start finished");
     }
 
-    /// A started agent not closed: the close its journal holds is recorded (with the answers
-    /// whose receipts were lost); a host that runs is attached once; a host gone is stopped.
+    /// A started agent's receipts are recovered before it advances to attached, stopped, or
+    /// closed. The attached epoch identifies the exact connection, even if another request
+    /// has already opened a replacement before this round.
     fn reconcile_started(&self, a: &core::HostedAgent, s: &core::hosted::Started) {
         self.hosts.track(&a.id, s.host.pid, s.host.start);
         let alive = self.hosts.alive(&a.id);
-        let (closing, stopped, attached) = {
+        let (closing, stopped, attached, incompatible, pending) = {
             let h = self.hosting.lock().unwrap();
-            (h.closing.contains_key(&a.id), h.stopped.contains(&a.id), h.attached.contains(&a.id))
+            (h.closing.contains_key(&a.id), h.stopped.contains(&a.id), h.attached.get(&a.id).copied(),
+                h.incompatible.contains(&a.id), h.answers_pending.contains(&a.id))
         };
-        if alive && !closing {
-            if !attached && !self.hosting.lock().unwrap().incompatible.contains(&a.id) {
-                match self.hosts.hello(&a.id) {
-                    Ok(_) => {
-                        self.record_answers(a);
-                        self.publish(&a.id);
-                    }
-                    Err(HostError::Refused(w)) if w == "incompatible" => {
-                        tracing::warn!("the host of {} speaks another protocol than this service's ({}): close it by ending process {} and start the agent again", a.id, crate::runtime::HOST_PROTOCOL, s.host.pid);
-                        self.hosting.lock().unwrap().incompatible.insert(a.id.clone());
-                    }
-                    Err(e) => tracing::debug!("cannot attach {} yet: {e}", a.id),
-                }
-            }
+        if stopped || alive && incompatible {
             return;
         }
-        if stopped {
+        if alive && !closing && attached.is_some() && self.hosts.connection_epoch(&a.id) == attached && !pending {
             return;
         }
-        // Gone, or closing: the journal says how it ended, if it did.
-        match self.journal_end(&a.id) {
-            Ok(Some(closed)) => {
-                self.record_answers(a);
-                let outcome = if closed["outcome"] == "ended" { core::hosted::Outcome::Ended } else { core::hosted::Outcome::Stuck };
-                let pids = closed["pids"].as_array().into_iter().flatten().filter_map(|p| p.as_u64()).map(|p| p as u32).collect();
-                match self.record(&Principal::Service, Body::AgentClosed { agent: a.id.clone(), outcome, pids }) {
-                    Ok(_) => {
-                        self.hosts.forget(&a.id);
-                        let mut h = self.hosting.lock().unwrap();
-                        h.closing.remove(&a.id);
-                        h.attached.remove(&a.id);
-                    }
-                    Err(e) => tracing::warn!("cannot record the close of {}: {}", a.id, e.1),
+        // A successful handshake comes before reading the journal: the old connection may
+        // have lost the acknowledgement of an answer it finished just before the handshake.
+        let hello = (alive && !closing).then(|| self.hosts.hello(&a.id));
+        // Clear only the pending write that prompted this scan. A direct answer failing during
+        // the scan leaves a new pending flag for the next round.
+        self.hosting.lock().unwrap().answers_pending.remove(&a.id);
+        let receipts = match self.hosts.journal_receipts(&a.id) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("cannot read the journal of {}: {e:#}", a.id);
+                self.hosting.lock().unwrap().answers_pending.insert(a.id.clone());
+                return;
+            }
+        };
+        if !self.record_answers(&a.id, receipts.decided) {
+            self.hosting.lock().unwrap().answers_pending.insert(a.id.clone());
+            return;
+        }
+        if let Some(closed) = receipts.closed {
+            let body = Body::AgentClosed {
+                agent: a.id.clone(), outcome: closed.outcome, pids: closed.pids,
+                processes: closed.processes, marked_error: closed.marked_error,
+            };
+            match self.record(&Principal::Service, body) {
+                Ok(_) => {
+                    self.hosts.forget(&a.id);
+                    let mut h = self.hosting.lock().unwrap();
+                    h.closing.remove(&a.id);
+                    h.attached.remove(&a.id);
+                    h.answers_pending.remove(&a.id);
                 }
+                Err(e) => tracing::warn!("cannot record the close of {}: {}", a.id, e.1),
             }
-            Ok(None) if !alive => {
-                self.record_answers(a);
-                self.hosting.lock().unwrap().stopped.insert(a.id.clone());
-                let _ = self.changed.send(());
+        } else if !alive {
+            let mut h = self.hosting.lock().unwrap();
+            h.closing.remove(&a.id);
+            h.stopped.insert(a.id.clone());
+            let _ = self.changed.send(());
+        } else if let Some(hello) = hello {
+            match hello {
+                Ok((epoch, _)) => self.publish(&a.id, epoch),
+                Err(HostError::Refused(w)) if w == "incompatible" => {
+                    tracing::warn!("the host of {} speaks another protocol than this service's ({}): close it by ending process {} and start the agent again", a.id, crate::runtime::HOST_PROTOCOL, s.host.pid);
+                    self.hosting.lock().unwrap().incompatible.insert(a.id.clone());
+                }
+                Err(e) => tracing::debug!("cannot attach {} yet: {e}", a.id),
             }
-            Ok(None) => {}
-            Err(e) => tracing::warn!("cannot read the journal of {}: {e:#}", a.id),
         }
     }
 
-    /// The journal's `closed` line, if it has one: the close's one authority.
-    fn journal_end(&self, id: &str) -> anyhow::Result<Option<Value>> {
-        let mut found = None;
-        crate::runtime::journal_lines(&self.hosts.journal(id), |_, line| {
-            if mentions(line, br#""event":"closed""#) {
-                let v: Value = serde_json::from_slice(line)?;
-                if v["kind"] == "host" && v["event"] == "closed" {
-                    found = Some(v);
-                }
-            }
-            Ok(true)
-        })?;
-        Ok(found)
-    }
-
-    /// Every decision of the user's the journal holds (over all generations) whose answer is
-    /// not recorded, recorded now: a set difference, so a receipt lost before a later one
-    /// that was recorded is found too.
-    pub(super) fn record_answers(&self, a: &core::HostedAgent) {
-        let mut decided = vec![];
-        let read = crate::runtime::journal_lines(&self.hosts.journal(&a.id), |_, line| {
-            if mentions(line, br#""event":"decided""#) {
-                let v: Value = serde_json::from_slice(line)?;
-                if let (Some(request), Some(kind), true) = (v["request"].as_u64(), v["optionKind"].as_str(), v["kind"] == "host" && v["event"] == "decided") {
-                    decided.push((request, if kind == "allow_once" { core::hosted::Answer::Allow } else { core::hosted::Answer::Reject }));
-                }
-            }
-            Ok(true)
-        });
-        if let Err(e) = read {
-            return tracing::warn!("cannot read the journal of {}: {e:#}", a.id);
-        }
-        let recorded = |request: u64| -> bool {
-            let read = got(self.store.lock().unwrap().recorded());
-            matches!(read, Ok(Some(all)) if all.hosted_agent(&a.id).is_ok_and(|x| x.answered.contains(&request)))
-        };
+    /// The journal decisions whose answer is not recorded yet. Set difference recovers an
+    /// early lost receipt even when a later answer was recorded.
+    fn record_answers(&self, id: &str, decided: Vec<(u64, core::hosted::Answer)>) -> bool {
+        let read = got(self.store.lock().unwrap().hosted_agent(id));
+        let Ok(Some(Some(mut a))) = read else { return false };
         for (request, decision) in decided {
-            if !recorded(request) && let Err(e) = self.record(&Principal::Service, Body::AgentAnswered { agent: a.id.clone(), request, decision }) {
-                tracing::warn!("cannot record the answer to request {request} of {}: {}", a.id, e.1);
+            if a.answered.contains(&request) {
+                continue;
             }
+            if let Err(e) = self.record_answer(id, request, decision) {
+                tracing::warn!("cannot record the answer to request {request} of {id}: {}", e.1);
+                return false;
+            }
+            a.answered.push(request);
         }
+        true
     }
 
-    /// The user's close: asked of the host, which answers at once; the outcome is recorded
-    /// from its journal once it is there (`reconcile_started`).
-    pub(super) fn close_hosted(&self, a: &core::HostedAgent) -> Result<Value, ApiError> {
+    pub(super) fn record_answer(&self, id: &str, request: u64, decision: core::hosted::Answer) -> Result<(), ApiError> {
+        let result = self.record(&Principal::Service, Body::AgentAnswered {
+            agent: id.into(), request, decision, by: core::hosted::AnswerBy::User,
+        });
+        let Err(error) = result else { return Ok(()) };
+        self.hosting.lock().unwrap().answers_pending.insert(id.into());
+        // The reconciliation and a direct response can both try to record the same decision.
+        if error.0 == axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            && self.store.lock().unwrap().hosted_agent(id)?.is_some_and(|a| a.answered.contains(&request))
+        {
+            return Ok(());
+        }
+        Err(error)
+    }
+
+    /// The user's close returns once its host accepts. Its outcome is recorded from the
+    /// journal when the host has finished.
+    pub(super) fn close_hosted(self: &Shared, a: &core::HostedAgent) -> Result<Value, ApiError> {
         let s = a.started.as_ref().ok_or_else(|| bad(format!("{} has not started: a start that does not finish ends by itself", a.id)))?;
         let _turn = self.turn(&a.id).ok_or_else(|| bad(format!("{} is starting or closing now; try again in a moment", a.id)))?;
         if !self.hosts.alive(&a.id) {
-            return Err(bad(format!("{}'s host is not running: there is nothing to close (it shows as stopped)", a.id)));
+            return Err(bad(format!("{}'s host is not running: there is nothing to close", a.id)));
         }
-        match self.hosts.call(&a.id, "close", json!({"generation": s.generation}), Duration::from_secs(5)) {
-            Ok(_) => {
+        match self.hosts.close(&a.id, s.generation) {
+            Ok(()) => {
                 self.hosting.lock().unwrap().closing.insert(a.id.clone(), Instant::now());
                 Ok(json!({"agent": a.id, "state": "closing"}))
             }
@@ -292,31 +342,16 @@ impl App {
     }
 }
 
-/// Whether a journal line holds `what` at all: a cheap look before it is parsed.
-fn mentions(line: &[u8], what: &[u8]) -> bool {
-    line.windows(what.len()).any(|w| w == what)
-}
-
-/// `agent.started` from the host's `hello`, with its root as the service spawned it.
-fn started(id: &str, h: &Value, pid: u32, start: u64) -> Body {
-    let text = |v: &Value| v.as_str().unwrap_or_default().to_string();
+fn started(id: &str, session: &str, h: &HostHello, host: core::Shell) -> Body {
     Body::AgentStarted {
         agent: id.into(),
-        session: text(&h["session"]),
-        model: text(&h["model"]),
-        host: core::Shell { pid, start },
-        generation: h["generation"].as_u64().unwrap_or(1),
-        version: text(&h["versions"]["harnessVersion"]),
-        account: text(&h["billing"]["account"]),
-        plan: text(&h["billing"]["plan"]),
-        approvals: text(&h["approvals"]["approvalPolicy"]),
+        session: session.into(),
+        model: h.model.clone(),
+        host,
+        generation: h.generation,
+        version: h.version.clone(),
+        account: h.account.clone(),
+        plan: h.plan.clone(),
+        approvals: h.approvals.clone(),
     }
-}
-
-/// The host a starting instance's own record names, while that process runs: only ever
-/// closed, never published (the service takes a published root only from its own child).
-fn instance_host(dir: &std::path::Path) -> Option<(u32, u64)> {
-    let v: Value = serde_json::from_slice(&std::fs::read(dir.join("instance.json")).ok()?).ok()?;
-    let (pid, start) = (v["host"]["pid"].as_u64()? as u32, v["host"]["start"].as_u64()?);
-    crate::common::process::one(pid).filter(|p| p.start == start).map(|_| (pid, start))
 }

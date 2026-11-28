@@ -97,14 +97,13 @@ pub(super) struct Waits {
     /// How long a hosted agent's host is waited for to close (`hosted::CLOSE_WAIT`; less in
     /// tests).
     hosted_close: Duration,
-    /// How old a hosted start's reservation is before the reconciliation takes it from its
-    /// start (the start's wait and a close's; none in tests).
-    hosted_young: Duration,
+    /// A hosted start's readiness window, including on restart (60 seconds; less in tests).
+    hosted_start: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), look: schedule::LOOK, hosted_close: hosted::CLOSE_WAIT, hosted_young: hosted::START_WAIT + hosted::CLOSE_WAIT }
+        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), look: schedule::LOOK, hosted_close: hosted::CLOSE_WAIT, hosted_start: hosted::START_WAIT }
     }
 }
 
@@ -208,8 +207,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
             let _ = tokio::task::spawn_blocking(move || app.poll()).await;
         }
     });
-    // The hosts and the records brought together (`App::reconcile_hosted`), one round at a
-    // time, beside the poll: a round may wait for a host to close.
+    // Start a reconciliation round beside the poll; host requests run independently.
     let reconciler = app.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(reconciler.waits.tick);

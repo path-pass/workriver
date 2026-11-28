@@ -2,58 +2,127 @@ use super::*;
 
 #[test]
 fn host_records_stuck_after_the_deadline_if_members_remain_or_listing_fails() {
+    for (group_failed, marked_failed) in [(false, false), (true, false), (false, true)] {
+        let (_dir, mut host) = closing_host();
+        let leader = host.child.id();
+        let remaining = u32::MAX;
+        let listing = |group| {
+            assert_eq!(group, leader);
+            if group_failed { Err(io::Error::other("test listing failure")) }
+            else if marked_failed { Ok(vec![leader]) }
+            else { Ok(vec![leader, remaining]) }
+        };
+        let scan = || (!marked_failed).then(Vec::new);
+        // Once expired, each poll advances one phase against the same deadline.
+        let deadline = host.closing.as_ref().unwrap().deadline;
+        for _ in 0..4 {
+            assert!(!host.progress_close(deadline, listing, scan).unwrap());
+        }
+        assert!(host.progress_close(deadline, listing, scan).unwrap());
+        let receipt = close_receipt(&mut host);
+        assert_eq!(receipt["outcome"], if marked_failed { "unverifiable" } else { "stuck" });
+        assert_eq!(receipt["pids"], if marked_failed { Value::Null } else if group_failed { json!([]) } else { json!([remaining]) });
+        assert_eq!(receipt["listingError"], if group_failed { json!("test listing failure") } else { Value::Null });
+        assert_eq!(receipt["markedError"].is_string(), marked_failed);
+    }
+}
+
+fn closing_host() -> (tempfile::TempDir, Host) {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 
-    for failed in [false, true] {
-        let dir = tempfile::Builder::new().prefix("wr-close-").tempdir_in("/tmp").unwrap();
-        let path = dir.path();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::write(path.join("host.key"), [0; 32]).unwrap();
-        fs::set_permissions(path.join("host.key"), fs::Permissions::from_mode(0o600)).unwrap();
-        fs::write(path.join("instance.json"), json!({
-            "id":"a1","harness":"codex","cwd":path,"auth":"chatgpt","generation":1,"state":"starting"
-        }).to_string()).unwrap();
-        let (directory, instance) = Directory::open(path).unwrap();
-        let child = Command::new("/bin/sh").args(["-c", "exit 0"]).env_clear().process_group(0).spawn().unwrap();
-        let leader = child.id();
-        let start = Instant::now();
-        while !close::exited(leader).unwrap() {
-            assert!(start.elapsed() < Duration::from_secs(5));
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        let mut host = Host {
-            socket: directory.bind().unwrap(), directory, record: instance.record().unwrap(),
-            journal: Journal::open(path, 1).unwrap(), adapter: Adapter::new(path, None, "chatgpt", "fake").unwrap(),
-            child, input: None, output: None, generation: 1, client: None,
-            challengers: [const { None }; CHALLENGE_SLOTS], client_epoch: 0,
-            pending: BTreeMap::new(), billing: Value::Null, working: false, cancelling: None,
-            closing: Some(Closing::new(start, false, true)), reaped: false,
-        };
-        let remaining = u32::MAX;
-        let listing = |group| {
-            assert_eq!(group, leader);
-            if failed { Err(io::Error::other("test listing failure")) } else { Ok(vec![leader, remaining]) }
-        };
-        // Once expired, each poll advances one phase against the same deadline.
-        let deadline = host.closing.as_ref().unwrap().deadline;
-        for _ in 0..4 {
-            assert!(!host.progress_close(deadline, listing, || Some(vec![])).unwrap());
-        }
-        assert!(host.progress_close(deadline, listing, || Some(vec![])).unwrap());
-        let mut bytes = Vec::new();
-        host.journal.read(0, 10, &mut bytes).unwrap();
-        let page: Value = serde_json::from_slice(&bytes).unwrap();
-        let entries = page["entries"].as_array().unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0]["event"], "closed");
-        assert_eq!(entries[0]["outcome"], "stuck");
-        assert_eq!(entries[0]["pids"], if failed { json!([]) } else { json!([remaining]) });
-        assert_eq!(entries[0]["listingError"], if failed { json!("test listing failure") } else { Value::Null });
-        assert_eq!(host.record["state"], "closed");
+    let dir = tempfile::Builder::new().prefix("wr-close-").tempdir_in("/tmp").unwrap();
+    let path = dir.path();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(path.join("host.key"), [0; 32]).unwrap();
+    fs::set_permissions(path.join("host.key"), fs::Permissions::from_mode(0o600)).unwrap();
+    fs::write(path.join("instance.json"), json!({
+        "id":"a1","harness":"codex","cwd":path,"auth":"chatgpt","generation":1,"state":"starting"
+    }).to_string()).unwrap();
+    let (directory, instance) = Directory::open(path).unwrap();
+    let child = Command::new("/bin/sh").args(["-c", "exit 0"]).env_clear().process_group(0).spawn().unwrap();
+    let leader = child.id();
+    let start = Instant::now();
+    while !close::exited(leader).unwrap() {
+        assert!(start.elapsed() < Duration::from_secs(5));
+        std::thread::sleep(Duration::from_millis(1));
     }
+    let host = Host {
+        socket: directory.bind().unwrap(), directory, record: instance.record().unwrap(),
+        journal: Journal::open(path, 1).unwrap(), adapter: Adapter::new(path, None, "chatgpt", "fake").unwrap(),
+        child, input: None, output: None, generation: 1, client: None,
+        challengers: [const { None }; CHALLENGE_SLOTS], client_epoch: 0,
+        pending: BTreeMap::new(), billing: Value::Null, working: false, cancelling: None,
+        closing: Some(Closing::new(start, false, true)), reaped: false,
+    };
+    (dir, host)
+}
+
+fn close_receipt(host: &mut Host) -> Value {
+    let mut bytes = Vec::new();
+    host.journal.read(0, 10, &mut bytes).unwrap();
+    let page: Value = serde_json::from_slice(&bytes).unwrap();
+    let entries = page["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["event"], "closed");
+    assert_eq!(host.record["state"], "closed");
+    entries[0].clone()
+}
+
+#[test]
+fn host_ends_a_marked_process_born_during_cleanup() {
+    use std::{cell::RefCell, process::{Child, Command, Stdio}};
+
+    #[derive(Default)]
+    struct Late(Option<Child>);
+    impl Drop for Late {
+        fn drop(&mut self) {
+            if let Some(child) = &mut self.0 {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    let (_dir, mut host) = closing_host();
+    let late = RefCell::new(Late::default());
+    let marker = host.marker();
+    let leader = host.child.id();
+    let listing = |_| Ok(vec![leader]);
+    for _ in 0..4 {
+        assert!(!host.progress_close(Instant::now(), listing, || Some(vec![])).unwrap());
+    }
+    let scan_late = || {
+        if late.borrow().0.is_none() {
+            let child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "common::process::tests::a_marked_sleeper", "--ignored"])
+                .env(crate::common::process::MARKER, &marker).env("MARKED_SLEEP", "1")
+                .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+            let pid = child.id();
+            late.borrow_mut().0 = Some(child);
+            let until = Instant::now() + Duration::from_secs(2);
+            while crate::common::process::marker(pid).as_ref().ok().and_then(Option::as_ref) != Some(&marker) {
+                assert!(Instant::now() < until, "late process did not inherit its marker");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        let pid = late.borrow().0.as_ref().unwrap().id();
+        let marked = crate::common::process::owned(pid).filter(|p| !p.zombie)
+            .zip(crate::common::process::marker(pid).ok().flatten());
+        Some(marked.into_iter().map(|(owned, marker)| (pid, owned, marker)).collect())
+    };
+    let until = Instant::now() + Duration::from_secs(3);
+    while !host.progress_close(Instant::now(), listing, scan_late).unwrap() {
+        assert!(Instant::now() < until, "the late process was not ended");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let late = late.into_inner();
+    let pid = late.0.as_ref().expect("the post-KILL scan must see and end the late process").id();
+    let receipt = close_receipt(&mut host);
+    assert_eq!(receipt["outcome"], "ended");
+    assert_eq!(receipt["processes"], json!([{"pid": pid, "outcome": "exited"}]));
 }
 
 #[test]

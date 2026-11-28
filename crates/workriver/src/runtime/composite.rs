@@ -61,10 +61,10 @@ impl Runtime for Composite {
     }
 
     fn focus(&self, session: &str) -> Result<(), RuntimeError> {
-        match self.hosts.resolve(None, session) {
-            Ok(_) => Err(RuntimeError::Unsupported),
-            Err(_) => self.terminal.focus(session),
+        if Self::hosted(&self.resolve(None, session)?) {
+            return Err(RuntimeError::Unsupported);
         }
+        self.terminal.focus(session)
     }
 
     fn send_at(&self, machine: Option<&str>, place: &str, session: &str, key: &str, text: &str) -> Result<(), RuntimeError> {
@@ -139,11 +139,18 @@ impl Runtime for Composite {
         self.terminal.watch(machine, to)
     }
 
-    /// A hosted session is at its host's place, never at a terminal that reports it.
+    /// A session must be found once across both runtimes. A failed read cannot rule out a
+    /// second place.
     fn resolve(&self, machine: Option<&str>, session: &str) -> Result<String, RuntimeError> {
+        let terminal = self.terminal.resolve(machine, session);
         match self.hosts.resolve(machine, session) {
-            Ok(place) => Ok(place),
-            Err(_) => self.terminal.resolve(machine, session),
+            Ok(place) => match terminal {
+                Ok(other) => Err(RuntimeError::Ambiguous(format!("{session} shows in {other} and {place}"))),
+                Err(RuntimeError::None | RuntimeError::NoAgent(_)) => Ok(place),
+                Err(e) => Err(e),
+            },
+            Err(RuntimeError::None | RuntimeError::NoAgent(_)) => terminal,
+            Err(e) => Err(e),
         }
     }
 
@@ -254,15 +261,26 @@ mod tests {
     }
 
     #[test]
-    fn a_hosted_session_is_at_its_host_and_a_host_not_published_is_starting() {
+    fn session_lookups_require_both_runtimes_to_agree_on_one_place() {
         let dir = tempfile::tempdir().unwrap();
-        // A terminal that reports the hosted session too: it resolves at its host.
         let terminal = Arc::new(Terminal(Mutex::new(Ok(vec![("w1:p1".into(), agent("s-h", AgentState::Idle), 1)]))));
-        let both = Composite::new(terminal, hosts(dir.path(), true));
+        let both = Composite::new(terminal.clone(), hosts(dir.path(), true));
+        assert!(matches!(both.resolve(None, "s-h"), Err(RuntimeError::Ambiguous(_))));
+        assert!(matches!(both.focus("s-h"), Err(RuntimeError::Ambiguous(_))));
+        *terminal.0.lock().unwrap() = Err("does not answer".into());
+        assert!(matches!(both.resolve(None, "s-h"), Err(RuntimeError::Unreachable(_))));
+        assert!(matches!(both.focus("s-h"), Err(RuntimeError::Unreachable(_))));
+        *terminal.0.lock().unwrap() = Ok(vec![("w1:p1".into(), agent("s-t", AgentState::Idle), 1)]);
+        assert_eq!(both.resolve(None, "s-t").unwrap(), "w1:p1");
+        both.focus("s-t").unwrap();
         assert_eq!(both.resolve(None, "s-h").unwrap(), "acp:a1/1");
         assert!(matches!(both.focus("s-h"), Err(RuntimeError::Unsupported)));
         assert!(matches!(both.screen(None, "acp:a1/1"), Err(RuntimeError::Unsupported)));
-        // Not published yet: a root that is starting, with no agent.
+    }
+
+    #[test]
+    fn a_host_not_published_is_starting() {
+        let dir = tempfile::tempdir().unwrap();
         let starting = Composite::new(Arc::new(NoRuntime), hosts(dir.path(), false));
         let roots = starting.roots(None, None).unwrap();
         assert!(roots[0].at.starting && roots[0].at.agent.is_none(), "{roots:?}");

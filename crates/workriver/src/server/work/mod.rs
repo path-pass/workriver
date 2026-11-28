@@ -31,7 +31,7 @@ pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Exte
     blocking(move || {
         let r = Reader { named: q.named, light: true, have: String::new() };
         let who = app.who(&caller, r.named.as_deref())?;
-        let state = app.view(&caller, &r)?;
+        let (_, state) = app.view(&caller, &r)?;
         let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
             Some(t) => core::parse_task_ref(t).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| bad(format!("{t:?} is not a task; write it as <unit>#<n>, e.g. u1#3")))?,
             None => {

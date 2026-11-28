@@ -47,7 +47,7 @@ pub(super) struct Caller {
 
 /// Who reads is found as for what is recorded (`App::who`); a reader names nothing but,
 /// where the service allows it, `--as`.
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 pub(super) struct Reader {
     #[serde(default, rename = "as")]
     pub(super) named: Option<String>,
@@ -410,12 +410,34 @@ impl App {
     /// machine is read now (the agents and its roots), and the answer is that read's own,
     /// never one another read wrote meanwhile; not read, it is that error, never an older
     /// answer. A session with no seat is at the one place its machine's runtime shows it
-    /// (`Runtime::resolve`). It reads, never under an agent's writer: a message's send holds
-    /// `appointing` (or `discussing`) around it, a press nothing.
+    /// (`Runtime::resolve`). A recorded hosted session is bound to its instance and
+    /// generation, including when its host is stopped. It reads before taking the writer.
     pub(in crate::server) fn place_of(&self, session: &str, machine: Option<&str>) -> Result<String, RuntimeError> {
-        let Some(seat) = self.seat_machine(session)? else { return self.runtime.resolve(machine, session) };
+        let read = got(self.store.lock().unwrap().hosted_by_session(session));
+        let hosted = read.map_err(|Unread(why)| RuntimeError::Unreachable(why))?.flatten();
+        let expected = if let Some(a) = &hosted {
+            let started = a.started.as_ref().filter(|_| a.running() && machine.is_none())
+                .ok_or_else(|| RuntimeError::NoAgent(format!("{} is stopped", a.id)))?;
+            Some(a.place(started.generation))
+        } else if self.hosts.pending_for(session).is_some() {
+            return Err(RuntimeError::NotReady(format!("{session} is still starting")));
+        } else {
+            None
+        };
+        let Some(seat) = self.seat_machine(session)? else {
+            let Some(place) = expected else { return self.runtime.resolve(machine, session) };
+            return if self.runtime.roots(None, Some(&place))?.iter().any(|r| {
+                r.place == place && !r.at.starting && r.at.agent.as_ref().is_some_and(|a| a.session == session)
+            }) {
+                Ok(place)
+            } else {
+                Err(RuntimeError::NoAgent(format!("{session}'s host is stopped")))
+            };
+        };
         let agents = self.runtime.agents().inspect_err(|_| self.forget_seats(seat.as_deref()))?;
-        let found = self.see_roots_on(seat.as_deref(), &agents)?.into_iter().find(|(s, _)| s == session).map(|(_, place)| (seat.clone(), place));
+        let found = self.see_roots_on(seat.as_deref(), &agents)?.into_iter()
+            .find(|(s, place)| s == session && expected.as_ref().is_none_or(|p| place.as_ref() == Some(p)))
+            .map(|(_, place)| (seat.clone(), place));
         seat_answer(session, seat.as_deref(), machine, found.as_ref())
     }
 
@@ -508,10 +530,15 @@ impl App {
     /// except an agent on a blind task, which gets `State::blind_view` until it delivers.
     /// Nobody else reads: a request that is neither the user's nor from an agent's place is
     /// refused.
-    pub(super) fn view(&self, caller: &Caller, r: &Reader) -> Result<core::State, ApiError> {
+    pub(super) fn view(&self, caller: &Caller, r: &Reader) -> Result<(Principal, core::State), ApiError> {
         let who = self.who(caller, r.named.as_deref())?;
+        let state = self.visible_to(&who)?;
+        Ok((who, state))
+    }
+
+    pub(super) fn visible_to(&self, who: &Principal) -> Result<core::State, ApiError> {
         let all = self.store.lock().unwrap().recorded()?;
-        Ok(match &who {
+        Ok(match who {
             Principal::Agent { session, .. } => all.blind_view(session).unwrap_or_else(|| all.into_state().conversations_of(session)),
             _ => all.into_state(),
         })

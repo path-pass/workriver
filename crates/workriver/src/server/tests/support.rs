@@ -689,6 +689,8 @@ pub(super) struct Faults {
     pub(super) agents_down: std::sync::atomic::AtomicBool,
     /// Nothing can be recorded while this is set.
     pub(super) writes_down: std::sync::atomic::AtomicBool,
+    /// Fail the next attempt to record this kind.
+    pub(super) fail_write: std::sync::Mutex<Option<&'static str>>,
     /// When `down_after` sets `down`, it sets `writes_down` too.
     pub(super) and_writes: std::sync::atomic::AtomicBool,
     /// Once an event of this kind is committed, this one is recorded as the user right
@@ -703,6 +705,12 @@ pub(super) struct Flaky {
     faults: std::sync::Arc<Faults>,
 }
 
+impl Flaky {
+    pub(super) fn new(db: &std::path::Path, faults: std::sync::Arc<Faults>) -> Self {
+        Self { inner: opened(db), faults }
+    }
+}
+
 fn gone<T>() -> Result<T, workriver_core::ports::DataError> {
     Err(workriver_core::ports::DataError::Unavailable("the disk is gone".into()))
 }
@@ -715,7 +723,10 @@ impl workriver_core::ports::WorkStore for Flaky {
         self.inner.recorded()
     }
     fn record(&mut self, who: &workriver_core::Principal, request: workriver_core::Body) -> Result<workriver_core::ports::Committed, workriver_core::ports::DataError> {
-        if self.faults.writes_down.load(std::sync::atomic::Ordering::SeqCst) {
+        let fail = self.faults.fail_write.lock().unwrap().take_if(|kind| {
+            serde_json::to_value(&request).unwrap()["kind"].as_str() == Some(*kind)
+        });
+        if fail.is_some() || self.faults.writes_down.load(std::sync::atomic::Ordering::SeqCst) {
             return gone();
         }
         let done = self.inner.record(who, request)?;

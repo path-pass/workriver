@@ -13,7 +13,7 @@ mod composite;
 mod herdr;
 pub mod ssh;
 
-pub use acp::{HostError, Hosts, PROTOCOL as HOST_PROTOCOL, Published, journal_lines, journal_page};
+pub use acp::{HOST_PROTOCOL, HostError, HostHello, HostStatus, Hosts, JournalPage, Published};
 pub use composite::Composite;
 
 pub(crate) fn host(dir: &std::path::Path) -> anyhow::Result<()> {
