@@ -44,6 +44,11 @@ pub(super) struct App {
     /// Wakes the background read of repositories on other machines.
     pub(super) remote_kick: std::sync::mpsc::Sender<()>,
     pub(super) runtime: Arc<dyn Runtime>,
+    /// The hosts of the agents workriver holds (`runtime` sees them as places too).
+    pub(in crate::server) hosts: Arc<crate::runtime::Hosts>,
+    /// What the service keeps of its hosts while it runs: lifecycles under way, attached,
+    /// stopped and closing instances.
+    pub(in crate::server) hosting: Mutex<crate::server::hosted::Hosting>,
     /// What was wrong with the runtime at start, if anything.
     pub(super) warning: Option<String>,
     /// The live agents as last polled; None while the runtime cannot be reached.

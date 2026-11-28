@@ -29,3 +29,9 @@ check its branch for what it committed first.
 **You will see:** the board says `stalled since …` under the task until it is delivered or
 dropped, or its agent works again; the user sees it in Needs you. You are told once per stop.
 If you are the one that stopped, or the intent has no manager, only the user is told.
+
+A hosted worker (`workriver agent list`) has no terminal: read its conversation with
+`workriver agent read <name> --after <seq>` instead, and get it going with `task note` as
+above. `agent show` says `stopped` when its host is gone (only the user can start another),
+and `blocked` when an approval waits for the user: tell the user; you cannot answer it.
+

@@ -158,3 +158,73 @@ The process-boundary tests in `crates/workriver/tests/hosted.rs` drive the real 
 its Unix socket with `tests/__fixtures__/hosted_app_server.rs`. They validate the journal
 and native approval replies against the pinned ACP v1 and Codex 0.172.0 schemas in
 `tests/__fixtures__/`.
+
+## The service's side
+
+The service holds its hosts through `runtime::Hosts` (`runtime/acp/service.rs`) and sees them
+as a runtime beside the terminals' (`runtime/composite.rs`). The hosted runtime is an
+experiment behind a user-only switch (`settings.json` `hosted`, `workriver agent hosted
+on|off`, `/api/settings/hosted`); off refuses new starts only, and agents already running are
+attached, read, answered and closed as usual.
+
+**Records.** `agent.start_reserved` is the user's (`Body::user_only`, refused on
+`/api/append`) and gives the id `a<N>`; one open agent has a name. `agent.started`,
+`agent.start_ended`, `agent.answered` and `agent.closed` are workriver's
+(`Body::service_only`): a start only for an open reservation and a session the records did not
+know; an answer once per request key while the agent runs; a close once. `agent.started`
+carries the host's pid and start as the service spawned it, the generation, the harness
+version, the account kind and plan, and the approval policy; never an account id or address.
+
+**Start.** The user's request records the reservation and answers `{agent, state: starting}`.
+In the background the service makes the instance directory, writes `host.key` and
+`instance.json`, spawns `workriver host <dir>` with `setsid`, and polls `hello` until the host
+reports a session (at most 60 s after the reservation). Then it records `agent.started` and
+publishes the instance. A start that fails asks the host to close and records
+`agent.start_ended` only once the host process is gone; a host that does not go keeps the
+reservation open: its name stays taken and it is never published.
+
+**Places.** A published instance's root is `acp:<id>/<generation>` with the host's pid as its
+shell; `App::who` finds a caller by its chain of parents as for a terminal. A host tracked but
+not published is a root with `Place.starting`: every caller under it is refused, the user
+included. A session recorded as hosted is that agent only at a root of its own instance
+(`App::one_place`, `see_roots_on`); another root that shows it is refused. The CLI sends
+`WORKRIVER_PLACE` as its place when `HERDR_PANE_ID` is not set, cross-checked only.
+
+**Composite.** A method that takes a place goes to the side that owns it (`acp:` is the
+hosts'). `roots`, `agent_roots` and `processes` are the union of both sides and fail as a whole
+when either fails; the terminal side's `None` contributes nothing. With no host known the
+terminal side's answer passes unchanged. `agents` degrades: a terminal side that fails shows
+its last agents as `unknown`. `resolve` finds a hosted session at its host first. The terminal
+runtime is `None` only when its socket file is missing and no process named for it holds a
+listener bound at that path (`process::unix_bound`); anything else is `Unreachable`.
+
+**Deliveries.** `send_at` carries the held message's key (`Held.key`; a discussion's question
+keys on its id). On a hosted place it is `prompt {generation, session, key, text}`: `busy` is
+`RuntimeError::Busy`, `blocked` and `billing` are `Blocked`, `moved` is `Moved`, `gone` is
+`NoAgent`, a lost connection is `Unreachable`; `give` holds all but `NoAgent` and retries with
+the same key. A manager's prompt is `quote::said` (`From "<name>" (your manager): …`); the
+user's is sent as written.
+
+**Routes.** `/api/hosted` (list), `/start`, `/{id}` (show), `/{id}/prompt`, `/read`
+(`after`, `limit`), `/status`, `/cancel`, `/answer`, `/close`. Start, answer and close ask for
+the user; the others for whoever drives the agent (`State::drives`: the user, or the seated
+manager of its workspace while the agent holds no seat), read anew per request, and an agent
+on an undelivered blind task drives nothing. None is on a machine's listener. A read of a
+running instance asks its host; of a stopped or closed one, its journal, read without the
+host's writer (`journal_page`).
+
+**Reconciliation**, each poll tick, one instance at a time under its lifecycle turn:
+
+| Records | Host | Done |
+|---|---|---|
+| Reserved | this run's start under way | left to the start |
+| Reserved | another run's host, live by its own `instance.json` | asked to close; the start ends once it is gone (never adopted) |
+| Reserved | none | `agent.start_ended` |
+| Started | live, not attached yet | `hello`; an incompatible protocol is not attached (`incompatible`, the user ends that process); else missing answers recorded, published |
+| Started | gone or closing, journal has `closed` | missing answers recorded, then `agent.closed` with its outcome |
+| Started | gone, no `closed` line | missing answers recorded; `stopped` |
+| None | a live host in `agents/` | asked to close and logged |
+
+Missing answers are the set difference of the journal's `decided` lines and the recorded
+answers. A close asked for and not recorded after 40 s shows `unconfirmed`. The service
+never signals a host or its agent.

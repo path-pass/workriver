@@ -98,6 +98,10 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
     if matches!(body, Body::WorkspaceManagerStarted { .. }) {
         return Err(bad("a manager is started only by the start action, which opens its terminal and records it: the page's Start manager (a workspace's line)".into()));
     }
+    // A hosted start is reserved by the start action, which spawns its host.
+    if matches!(body, Body::AgentStartReserved { .. }) {
+        return Err(bad("a hosted agent is started only by the start action: `workriver agent start`".into()));
+    }
     // A template holds its text and the steps read from it: only the action that reads the
     // text records one, so the two cannot differ.
     if matches!(body, Body::TemplateSet { .. }) {

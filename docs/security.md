@@ -296,6 +296,36 @@ agents that answer a question or review a command are workriver's own, as before
   holding none (a project added inside another would change the project of intents already
   recorded there). Projects already nested in an older store stay as they were.
 
+### Hosted agents (an experiment)
+
+workriver can also hold a worker itself: a `workriver host` process of its own runs the
+harness (Codex) with no terminal, and keeps its conversation in a journal beside it
+([design/hosted-agent.md](design/hosted-agent.md)). It is off until you turn it on
+(`workriver agent hosted on`, yours alone); off refuses new starts only.
+
+- **Who.** You start, answer and close a hosted agent: each route asks for you, the
+  reservation (`agent.start_reserved`) is yours alone in the event rules, and it is recorded
+  only by the start action (`/api/append` refuses it). Its start, the start's end, an answer
+  its host took and its close are workriver's alone, each tied by the rules to that
+  reservation. A workspace's seated manager may prompt, read and cancel the hosted workers of
+  its own workspace, and none that holds a manager's seat; it never answers an approval.
+  Every request reads the records and the caller's rights anew: a page of a conversation is
+  a request of its own, so a seat change stops the next page.
+- **Which process it is.** A hosted agent's place is its host: the host's process id and
+  start are taken from the child the service spawned, never from what the host writes. A
+  command from its tools descends from that host and is that agent's; before its start is
+  recorded, nobody under the host is anyone (you neither, though the token is in reach).
+  A session recorded as hosted is that agent only at its own host: a terminal that shows
+  the same session is refused. A host no reservation is for is never adopted; a reservation
+  whose host does not end keeps its name and is never published.
+- **Terminals gone or not answering.** A terminal runtime counts as not running only when
+  its socket is not there and no process of its own holds a listener bound at that path;
+  one that does not answer makes every identity read fail, so a command in no terminal is
+  then refused, not taken for you.
+- **What reaches the agent.** A manager's prompt arrives as `From "<name>" (your manager):
+  <text>`, one line; yours arrives as you wrote it. The records hold no text of the agent's:
+  an answer is its request's key and allow or reject.
+
 What these do not hold, since the runtime's own interface is your account's, is under
 [What this does not protect against](#what-this-does-not-protect-against): the bait for
 your pick of a manager, and what a program can do to a terminal.

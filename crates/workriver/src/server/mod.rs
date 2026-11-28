@@ -30,6 +30,7 @@ mod commands;
 mod conversations;
 mod delivery;
 mod files;
+mod hosted;
 mod http;
 mod machines;
 mod planning;
@@ -61,6 +62,9 @@ pub(super) struct Options {
     pub(super) user_home: Option<std::path::PathBuf>,
     /// The jobs it runs by the clock (`jobs()`; a test's own, or none: no timer runs).
     pub(super) jobs: Vec<schedule::Job>,
+    /// The hosts of the agents workriver holds, as `runtime` sees them too; none: a set of
+    /// its own in the data directory (tests that hold no hosted agent).
+    pub(super) hosts: Option<Arc<crate::runtime::Hosts>>,
 }
 
 /// The service's jobs by the clock: each domain's constant, listed here where the service
@@ -107,7 +111,8 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
 /// The service over whatever keeps the work, as the data port, with its data directory
 /// (`store_home`: the token, the caller socket, the attachments, the settings).
 pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn WorkStore>, store_home: std::path::PathBuf, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as, sample, procs, callers, user_home, jobs } = options;
+    let Options { warning, waits, machines, allow_as, sample, procs, callers, user_home, jobs, hosts } = options;
+    let hosts = hosts.unwrap_or_else(|| crate::runtime::Hosts::new(&store_home));
     let port = listener.local_addr()?.port();
     let (changed, _) = broadcast::channel(16);
     let shared = Arc::new(Mutex::new(views::Shared::default()));
@@ -141,6 +146,8 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         seats: Mutex::default(),
         tunnels: Mutex::default(),
         runtime,
+        hosts,
+        hosting: Mutex::default(),
         warning,
         live: Mutex::new(None),
         pending: Mutex::default(),
@@ -193,6 +200,17 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
             }
             let app = poller.clone();
             let _ = tokio::task::spawn_blocking(move || app.poll()).await;
+        }
+    });
+    // The hosts and the records brought together (`App::reconcile_hosted`), one round at a
+    // time, beside the poll: a round may wait for a host to close.
+    let reconciler = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(reconciler.waits.tick);
+        loop {
+            tick.tick().await;
+            let app = reconciler.clone();
+            let _ = tokio::task::spawn_blocking(move || app.reconcile_hosted()).await;
         }
     });
     // This machine's changes as they happen (another machine's are followed in follow.rs,

@@ -49,11 +49,14 @@ pub struct Herdr {
     panes: Mutex<HashMap<String, String>>,
     /// Set for another machine's Herdr: its name, carried by every id read from it.
     machine: Option<String>,
+    /// Whether a Herdr may serve at the socket's path although its file is not there: then a
+    /// missing file is not proof that no terminal of it runs (`call_within`).
+    may_run: fn(&std::path::Path) -> bool,
 }
 
 impl Herdr {
     pub fn new(socket: PathBuf, terminal_app: String) -> Herdr {
-        Herdr { socket, terminal_app, ids: AtomicU64::new(1), panes: Mutex::default(), machine: None }
+        Herdr { socket, terminal_app, ids: AtomicU64::new(1), panes: Mutex::default(), machine: None, may_run: protocol::serves_there }
     }
 }
 

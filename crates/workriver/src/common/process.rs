@@ -65,6 +65,52 @@ pub(crate) fn one(_: u32) -> Option<Proc> {
     None
 }
 
+/// Whether a process named `name` holds a Unix socket bound at `path`, even one whose file
+/// is gone: the kernel keeps the address a listener was bound with. None: it cannot be told
+/// (the processes, or the sockets of one of them, cannot be read).
+#[cfg(target_os = "macos")]
+pub fn unix_bound(path: &std::path::Path, name: &str) -> Option<bool> {
+    use libproc::libproc::bsd_info::BSDInfo;
+    use libproc::libproc::file_info::{ListFDs, ProcFDType, pidfdinfo};
+    use libproc::libproc::net_info::{SocketFDInfo, SocketInfoKind};
+    use libproc::libproc::proc_pid::{listpidinfo, pidinfo};
+    let want = path.as_os_str().as_encoded_bytes();
+    for pid in libproc::processes::pids_by_type(libproc::processes::ProcFilter::All).ok()? {
+        if one(pid).is_none_or(|p| p.name != name) {
+            continue;
+        }
+        let info = pidinfo::<BSDInfo>(pid as i32, 0).ok()?;
+        for fd in listpidinfo::<ListFDs>(pid as i32, info.pbi_nfiles as usize).ok()? {
+            if !matches!(fd.proc_fdtype.into(), ProcFDType::Socket) {
+                continue;
+            }
+            let Ok(s) = pidfdinfo::<SocketFDInfo>(pid as i32, fd.proc_fd) else { continue };
+            if matches!(s.psi.soi_kind.into(), SocketInfoKind::Un) {
+                // SAFETY: a socket of kind Un carries the Unix member of the union.
+                let sun = unsafe { s.psi.soi_proto.pri_un.unsi_addr.ua_sun };
+                let bound: Vec<u8> = sun.sun_path.iter().take_while(|c| **c != 0).map(|c| *c as u8).collect();
+                if bound == want {
+                    return Some(true);
+                }
+            }
+        }
+    }
+    Some(false)
+}
+
+/// The same from the kernel's table of Unix sockets, whoever holds one.
+#[cfg(target_os = "linux")]
+pub fn unix_bound(path: &std::path::Path, _name: &str) -> Option<bool> {
+    let table = std::fs::read_to_string("/proc/net/unix").ok()?;
+    let want = path.to_str()?;
+    Some(table.lines().skip(1).any(|l| l.split_whitespace().nth(7) == Some(want)))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn unix_bound(_: &std::path::Path, _: &str) -> Option<bool> {
+    None
+}
+
 /// Now, in the measure of `Proc::start` on this machine.
 #[cfg(target_os = "linux")]
 pub fn now() -> u64 {
@@ -238,6 +284,19 @@ mod tests {
         assert_eq!(ids(&ours), ids(&theirs));
         assert_eq!(theirs[0].name, "sleep");
         assert!(gone.unwrap().is_empty() && chain(0x3fff_fff0).is_empty(), "a process that is gone");
+    }
+
+    /// A listener whose file was removed is still found at its path; a path nobody is bound
+    /// at is not.
+    #[test]
+    fn a_bound_socket_is_found_after_its_file_is_gone() {
+        let dir = tempfile::Builder::new().prefix("wr-bound-").tempdir_in("/tmp").unwrap();
+        let path = dir.path().join("s.sock");
+        let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let me = one(std::process::id()).unwrap().name;
+        assert_eq!(unix_bound(&path, &me), Some(true));
+        assert_eq!(unix_bound(&dir.path().join("other.sock"), &me), Some(false));
     }
 
     #[test]

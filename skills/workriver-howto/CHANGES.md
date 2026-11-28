@@ -2,6 +2,14 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-29
+
+- **Hosted workers** (managers; an experiment the user turns on): the user may start a
+  worker workriver holds itself, with no terminal (`workriver agent list` shows them). Give
+  it its hand-off with `workriver agent prompt <name> --text …`, read it with `workriver
+  agent read`, stop its turn with `workriver agent cancel`; only the user starts, answers
+  and closes one, and you drive only your own workspace's. (`hand-off`, `stalled`)
+
 ## 2026-11-26
 
 - **Name the intent** in `workriver unit add i3` and `workriver chore add i3`.

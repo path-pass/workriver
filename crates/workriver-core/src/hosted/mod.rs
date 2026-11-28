@@ -111,9 +111,10 @@ impl State {
         }
     }
 
-    /// A hosted agent by its id, or by the name an open one has.
+    /// A hosted agent by its id, or by its name: the open one that has it, else the last.
     pub fn hosted_named(&self, agent: &str) -> Result<&HostedAgent, Rejected> {
-        match self.hosted.iter().rev().find(|a| a.id == agent || (a.name == agent && a.open())) {
+        let open = self.hosted.iter().find(|a| a.id == agent || (a.name == agent && a.open()));
+        match open.or_else(|| self.hosted.iter().rev().find(|a| a.name == agent)) {
             Some(a) => Ok(a),
             None => no(format!("no hosted agent {agent}; `workriver agent list` shows them")),
         }

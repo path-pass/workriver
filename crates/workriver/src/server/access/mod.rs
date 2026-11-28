@@ -184,7 +184,15 @@ impl App {
     /// another root that shows the session is the manager only where the old one was (the
     /// seat's machine and folder: it then has the seat back by itself, `back`); anywhere
     /// else it is refused until the user confirms the manager's new terminal.
+    ///
+    /// A session recorded as a hosted agent's is that agent only at its own host's place,
+    /// whatever else shows it, before any pin or seat rule (`hosted_elsewhere`).
     fn one_place(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
+        if let Some(h) = self.store.lock().unwrap().hosted_by_session(&a.session)?
+            && !root.place.starts_with(&format!("acp:{}/", h.id))
+        {
+            return Err(ApiError(StatusCode::FORBIDDEN, hosted_elsewhere(&a.session, &h.id, &root.place)));
+        }
         // A place where the runtime knows no shell has no root that stays: it is not pinned.
         let mine = root.shell.and_then(|pid| chain.iter().find(|p| p.pid == pid).cloned().or_else(|| {
             let runner = machine.map(|m| self.runner(Some(m))).transpose().ok()?;
@@ -300,7 +308,9 @@ impl App {
         let gone: Vec<&String> = pins.iter().filter(|(_, p)| p.machine.as_deref() == machine && !self.runs(p)).map(|(s, _)| s).collect();
         let mut changes: Vec<(String, Option<Pin>)> = gone.iter().filter(|s| machine.is_none() && seat(s).is_none()).map(|s| ((*s).clone(), None)).collect();
         let mut back = vec![];
-        let shown: Vec<(&Root, &RuntimeAgent)> = roots.iter().filter_map(|r| Some((r, r.at.agent.as_ref()?))).collect();
+        // A hosted session is at its own host's place only: shown anywhere else, it is nobody's.
+        let elsewhere = |r: &Root, a: &RuntimeAgent| all.hosted_by_session(&a.session).is_some_and(|h| !r.place.starts_with(&format!("acp:{}/", h.id)));
+        let shown: Vec<(&Root, &RuntimeAgent)> = roots.iter().filter_map(|r| Some((r, r.at.agent.as_ref()?))).filter(|(r, a)| !elsewhere(r, a)).collect();
         for (root, a) in &shown {
             let session = a.session.as_str();
             let pinned = pins.iter().find(|(s, _)| s == session).map(|(_, p)| p);
@@ -539,6 +549,11 @@ fn seat_answer(session: &str, seat: Option<&str>, machine: Option<&str>, found: 
         Some((m, None)) if m.as_deref() == seat => Err(RuntimeError::NoAgent(session.into())),
         _ => Err(RuntimeError::Unreachable(format!("where the manager {session} runs{} cannot be read now", on(seat)))),
     }
+}
+
+/// What a caller at another place than its hosted session's host hears.
+fn hosted_elsewhere(session: &str, agent: &str, place: &str) -> String {
+    format!("{session} is the hosted agent {agent}, which is itself only at its own host; {place} shows it too and is refused: one session, one place")
 }
 
 /// What a caller under a hosted agent's place hears before its start is recorded.

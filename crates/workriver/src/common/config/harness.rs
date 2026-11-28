@@ -5,20 +5,23 @@
 /// A harness: the runtime's kind for it (what the runtime starts), the flag that takes a
 /// model, the aliases the harness resolves itself (shown as choices; any other model is one
 /// token of the forms `model_ok` takes), and the mark that starts a line of its screen when
-/// it reports a problem as it starts (a model it does not know).
+/// it reports a problem as it starts (a model it does not know); and whether workriver can
+/// hold it itself (hosted) besides starting it in a terminal.
 pub struct Harness {
     pub kind: &'static str,
     pub model_flag: &'static str,
     pub aliases: &'static [&'static str],
     pub error_mark: &'static str,
+    pub hosted: bool,
 }
 
 /// Claude Code and Codex. Codex names its models by their slugs and has no aliases. Both
 /// start ready, with a session, and only a line of their screen saying so when the model is
-/// one they do not know (Claude Code 2.1.330, Codex 0.171.0, measured).
+/// one they do not know (Claude Code 2.1.330, Codex 0.171.0, measured). Only Codex is
+/// hosted so far (its app-server adapter); Claude Code's comes with its bridge.
 pub const HARNESSES: &[Harness] = &[
-    Harness { kind: "claude", model_flag: "--model", aliases: &["opus", "sonnet", "fable"], error_mark: "⚠" },
-    Harness { kind: "codex", model_flag: "--model", aliases: &[], error_mark: "⚠" },
+    Harness { kind: "claude", model_flag: "--model", aliases: &["opus", "sonnet", "fable"], error_mark: "⚠", hosted: false },
+    Harness { kind: "codex", model_flag: "--model", aliases: &[], error_mark: "⚠", hosted: true },
 ];
 
 /// The harness of that kind, if it is in the table.

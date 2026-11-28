@@ -280,10 +280,25 @@ fn a_drop_before_the_prompt_is_unreachable_after_it_failed() {
 }
 
 #[test]
-fn no_socket_means_no_runtime() {
-    let herdr = Herdr::new("/nonexistent/herdr.sock".into(), String::new());
+fn no_socket_and_no_herdr_means_no_runtime() {
+    let herdr = Herdr { may_run: |_| false, ..Herdr::new("/nonexistent/herdr.sock".into(), String::new()) };
     assert!(matches!(herdr.agents(), Err(RuntimeError::None)));
+    assert!(matches!(herdr.roots(None, None), Err(RuntimeError::None)));
     assert!(herdr.check().unwrap().contains("not running"));
+}
+
+/// A socket path gone while a Herdr process runs, or a socket file nobody answers at (a stale
+/// one), says nothing of its places: unreachable, never "no runtime".
+#[test]
+fn a_herdr_that_does_not_answer_is_unreachable() {
+    let gone = Herdr { may_run: |_| true, ..Herdr::new("/nonexistent/herdr.sock".into(), String::new()) };
+    assert!(matches!(gone.roots(None, None), Err(RuntimeError::Unreachable(_))), "{:?}", gone.roots(None, None));
+    let dir = tempfile::Builder::new().prefix("wr-stale-").tempdir_in("/tmp").unwrap();
+    let path = dir.path().join("herdr.sock");
+    drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+    let stale = Herdr { may_run: |_| false, ..Herdr::new(path, String::new()) };
+    assert!(matches!(stale.roots(None, None), Err(RuntimeError::Unreachable(_))));
+    assert!(matches!(stale.agents(), Err(RuntimeError::Unreachable(_))));
 }
 
 #[test]

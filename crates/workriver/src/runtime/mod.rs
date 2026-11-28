@@ -9,8 +9,12 @@ use crate::common::config;
 
 pub mod follow;
 mod acp;
+mod composite;
 mod herdr;
 pub mod ssh;
+
+pub use acp::{HostError, Hosts, PROTOCOL as HOST_PROTOCOL, Published, journal_lines, journal_page};
+pub use composite::Composite;
 
 pub(crate) fn host(dir: &std::path::Path) -> anyhow::Result<()> {
     acp::run(dir)
@@ -22,16 +26,19 @@ use herdr as adapter;
 /// The adapter's sentences: content only, never read back for who someone is.
 pub use adapter::words;
 
-/// This machine's runtime, and a line on what is wrong with it when it does not answer as
-/// expected (the service still starts).
-pub fn connect(terminal_app: String) -> (Arc<dyn Runtime>, Option<String>) {
-    adapter::connect(terminal_app)
+/// This machine's runtime: its terminals and the hosts of the service whose data directory is
+/// `home`, as one; the hosts on their own; and a line on what is wrong with the terminals'
+/// runtime when it does not answer as expected (the service still starts).
+pub fn connect(terminal_app: String, home: &std::path::Path) -> (Arc<dyn Runtime>, Arc<Hosts>, Option<String>) {
+    let (terminal, warning) = adapter::connect(terminal_app);
+    let hosts = Hosts::new(home);
+    (Arc::new(Composite::new(terminal, hosts.clone())), hosts, warning)
 }
 
-/// Where this process runs, as the runtime's environment names it: an opaque place, sent
-/// along to be cross-checked only.
+/// Where this process runs, as the runtime's environment names it (a terminal's, else the
+/// place a host gives its agent): an opaque place, sent along to be cross-checked only.
 pub fn caller_place() -> Option<String> {
-    adapter::place_from_env()
+    adapter::place_from_env().or_else(|| std::env::var("WORKRIVER_PLACE").ok().filter(|p| !p.is_empty()))
 }
 
 /// What the adapter keeps for a followed machine, read and checked by its own rules; the

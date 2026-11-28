@@ -3,6 +3,61 @@ workriver  arg actor --as value=["AGENT"] num=1 env=WORKRIVER_AS action=Set glob
 workriver  arg help --help -h num=0 action=Help
 workriver  arg port --port value=["PORT"] num=1 env=WORKRIVER_PORT action=Set global
 workriver  arg version --version -V num=0 action=Version
+workriver agent
+workriver agent  arg help --help -h num=0 action=Help
+workriver agent answer
+workriver agent answer  arg agent index=1 value=["AGENT"] num=1 action=Set required
+workriver agent answer  arg decision index=3 value=["DECISION"] num=1 one-of=["allow", "reject"] action=Set required
+workriver agent answer  arg help --help -h num=0 action=Help
+workriver agent answer  arg request index=2 value=["REQUEST"] num=1 action=Set required
+workriver agent cancel
+workriver agent cancel  arg agent index=1 value=["AGENT"] num=1 action=Set required
+workriver agent cancel  arg help --help -h num=0 action=Help
+workriver agent close
+workriver agent close  arg agent index=1 value=["AGENT"] num=1 action=Set required
+workriver agent close  arg help --help -h num=0 action=Help
+workriver agent close  arg wait --wait value=["WAIT"] num=0 default=["false"] action=SetTrue
+workriver agent help
+workriver agent help answer
+workriver agent help cancel
+workriver agent help close
+workriver agent help help
+workriver agent help hosted
+workriver agent help list
+workriver agent help prompt
+workriver agent help read
+workriver agent help show
+workriver agent help start
+workriver agent help status
+workriver agent hosted
+workriver agent hosted  arg help --help -h num=0 action=Help
+workriver agent hosted  arg on index=1 value=["ON"] num=1 one-of=["on", "off"] action=Set
+workriver agent list
+workriver agent list  arg help --help -h num=0 action=Help
+workriver agent prompt
+workriver agent prompt  arg agent index=1 value=["AGENT"] num=1 action=Set required
+workriver agent prompt  arg help --help -h num=0 action=Help
+workriver agent prompt  arg text --text value=["TEXT"] num=1 action=Set required
+workriver agent read
+workriver agent read  arg after --after value=["AFTER"] num=1 default=["0"] action=Set
+workriver agent read  arg agent index=1 value=["AGENT"] num=1 action=Set required
+workriver agent read  arg help --help -h num=0 action=Help
+workriver agent read  arg limit --limit value=["LIMIT"] num=1 default=["200"] action=Set
+workriver agent show
+workriver agent show  arg agent index=1 value=["AGENT"] num=1 action=Set required
+workriver agent show  arg help --help -h num=0 action=Help
+workriver agent start
+workriver agent start  arg auth --auth value=["AUTH"] num=1 one-of=["chatgpt", "api_key"] action=Set required
+workriver agent start  arg cwd --cwd value=["CWD"] num=1 default=["."] action=Set
+workriver agent start  arg harness --harness value=["HARNESS"] num=1 default=["codex"] action=Set
+workriver agent start  arg help --help -h num=0 action=Help
+workriver agent start  arg model --model value=["MODEL"] num=1 action=Set
+workriver agent start  arg name --name value=["NAME"] num=1 action=Set required
+workriver agent start  arg wait --wait value=["WAIT"] num=0 default=["false"] action=SetTrue
+workriver agent start  arg workspace --workspace value=["WORKSPACE"] num=1 action=Set required
+workriver agent status
+workriver agent status  arg agent index=1 value=["AGENT"] num=1 action=Set required
+workriver agent status  arg help --help -h num=0 action=Help
 workriver answer
 workriver answer  arg asked --asked value=["ASKED"] num=1 action=Set
 workriver answer  arg conclusion --conclusion value=["CONCLUSION"] num=0 default=["false"] action=SetTrue
@@ -155,6 +210,17 @@ workriver guide  arg help --help -h num=0 action=Help
 workriver guide  arg topic index=2 value=["TOPIC"] num=1 action=Set
 workriver guide  arg what index=1 value=["WHAT"] num=1 one-of=["worker", "manager", "import", "how", "changes", "install-stub"] action=Set required
 workriver help
+workriver help agent
+workriver help agent answer
+workriver help agent cancel
+workriver help agent close
+workriver help agent hosted
+workriver help agent list
+workriver help agent prompt
+workriver help agent read
+workriver help agent show
+workriver help agent start
+workriver help agent status
 workriver help answer
 workriver help ask
 workriver help attach

@@ -16,6 +16,7 @@ mod client;
 mod conversations;
 mod display;
 mod guide;
+mod hosted;
 mod machines;
 mod parse;
 mod planning;
@@ -27,6 +28,7 @@ pub(crate) use conversations::MessageCmd;
 pub(crate) use conversations::wait_answer;
 pub(crate) use display::*;
 pub(crate) use guide::*;
+pub(crate) use hosted::AgentCmd;
 pub(crate) use machines::*;
 pub(crate) use parse::*;
 pub(crate) use planning::*;
@@ -120,6 +122,10 @@ pub(crate) enum Cmd {
     },
     #[command(subcommand, about = runtime::words::HELP_MACHINE)]
     Machine(MachineCmd),
+    /// Agents workriver holds itself (hosted, an experiment): the user starts, answers and
+    /// closes them; a workspace's manager prompts, reads and cancels its own workers.
+    #[command(subcommand)]
+    Agent(AgentCmd),
     #[command(subcommand, about = runtime::words::HELP_WORKSPACE)]
     Workspace(WorkspaceCmd),
     /// Projects: folders holding one or more repositories.
@@ -360,6 +366,10 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             None => return Ok(()),
         },
         Cmd::Workspace(_) | Cmd::Project(_) | Cmd::Backlog(_) | Cmd::Intent(_) | Cmd::Unit(_) | Cmd::Template(_) | Cmd::Manager(ManagerCmd::Here { .. }) => match planning::run(cli.cmd, &cx)? {
+            Some(out) => out,
+            None => return Ok(()),
+        },
+        Cmd::Agent(_) => match hosted::run(cli.cmd, &cx)? {
             Some(out) => out,
             None => return Ok(()),
         },

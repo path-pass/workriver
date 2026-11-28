@@ -35,6 +35,7 @@ use crate::server::planning::*;
 use crate::server::work::*;
 use crate::server::commands::*;
 use crate::server::conversations::*;
+use crate::server::hosted;
 
 /// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
 /// acts as the user or changes where workriver reaches asks for the user in its handler
@@ -81,6 +82,16 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/run/{id}/focus", post(run_focus))
         .route("/api/run/{id}/review", post(run_review))
         .route("/api/here", post(here))
+        .route("/api/hosted", get(hosted::list))
+        .route("/api/hosted/start", post(hosted::start))
+        .route("/api/hosted/{id}", get(hosted::show))
+        .route("/api/hosted/{id}/prompt", post(hosted::prompt))
+        .route("/api/hosted/{id}/read", get(hosted::read))
+        .route("/api/hosted/{id}/status", get(hosted::status))
+        .route("/api/hosted/{id}/cancel", post(hosted::cancel))
+        .route("/api/hosted/{id}/answer", post(hosted::answer))
+        .route("/api/hosted/{id}/close", post(hosted::close))
+        .route("/api/settings/hosted", get(hosted::switch_get).post(hosted::switch_set))
         .route("/api/ask", post(ask_why))
         .route("/api/message", post(message))
         .route("/api/messages/rate", post(message_rate))

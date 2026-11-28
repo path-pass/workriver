@@ -31,6 +31,10 @@ fn fake_codex_app_server() {
             .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
         fs::write("probe-result", if probe.success() { "refused" } else { "open" }).unwrap();
     }
+    if let Some(line) = fake.options["run_at_start"].as_str() {
+        // A tool of the agent's, run before its start is recorded.
+        run(line, "start-run.out");
+    }
     if fake.options["ignore_term"] == true {
         // The real workriver host must terminate and reap this uniquely owned fake.
         unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN); }
@@ -87,6 +91,12 @@ fn fake_codex_app_server() {
         // Escape timeout if the test itself crashes before closing the fake.
         thread::sleep(Duration::from_secs(17));
     }
+}
+
+/// Runs `line` with `sh`, as a tool of the agent's would, its output and status into `out`.
+fn run(line: &str, out: &str) {
+    let o = Command::new("/bin/sh").args(["-c", line]).stdin(Stdio::null()).output().unwrap();
+    fs::write(out, format!("{}\n{}{}", o.status.success(), String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))).unwrap();
 }
 
 #[test]
@@ -214,6 +224,13 @@ impl Fake {
     fn prompt(&mut self, id: &Value, text: &str) {
         self.count += 1;
         self.turn = format!("turn-{}", self.count);
+        if let Some(line) = text.strip_prefix("run:") {
+            // A tool the agent runs in its turn: a shell command, its output in a file.
+            self.reply(id, json!({"turn":{"id":self.turn, "status":"inProgress", "items":[]}}));
+            run(line, &format!("run-{}.out", self.count));
+            self.complete("completed");
+            return;
+        }
         if text == "bad-ack" {
             self.reply(id, json!({"turn":{"status":"inProgress"}}));
             return;

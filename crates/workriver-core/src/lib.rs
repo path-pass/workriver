@@ -17,6 +17,7 @@ pub use access::*;
 pub use choices::*;
 pub use conversations::*;
 pub use planning::*;
+pub use hosted::HostedAgent;
 pub use records::*;
 pub use runtime::RuntimeRef;
 pub use work::*;

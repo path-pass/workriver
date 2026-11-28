@@ -234,6 +234,11 @@ pub trait WorkStore: Send {
         Ok(self.recorded()?.seat_of(session).cloned())
     }
 
+    /// The hosted agent a session was started as, if any (`State::hosted_by_session`).
+    fn hosted_by_session(&self, session: &str) -> Result<Option<crate::hosted::HostedAgent>, DataError> {
+        Ok(self.recorded()?.hosted_by_session(session).cloned())
+    }
+
     /// Whether `session` holds the seat of any workspace.
     fn manages(&self, session: &str) -> Result<bool, DataError> {
         Ok(self.seat_of(session)?.is_some())
