@@ -1,6 +1,19 @@
+use std::cell::Cell;
 use std::os::unix::net::UnixListener;
+use std::sync::{TryLockError, mpsc};
+use std::thread;
 
 use super::*;
+
+thread_local! {
+    static BEFORE_CANCEL_WRITE: Cell<Option<Box<dyn FnOnce()>>> = const { Cell::new(None) };
+}
+
+pub(super) fn before_cancel_write(method: &str) {
+    if method == "cancel" && let Some(pause) = BEFORE_CANCEL_WRITE.take() {
+        pause();
+    }
+}
 
 fn request(stream: &mut BufReader<UnixStream>, method: &str) -> Value {
     let mut line = String::new();
@@ -12,6 +25,55 @@ fn request(stream: &mut BufReader<UnixStream>, method: &str) -> Value {
 
 fn reply(stream: &mut BufReader<UnixStream>, id: Value, result: Value) {
     writeln!(stream.get_mut(), "{}", json!({"jsonrpc":"2.0", "id":id, "result":result})).unwrap();
+}
+
+#[test]
+fn cancel_orders_the_recheck_and_host_write_against_reseating() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hosts = Hosts::new(tmp.path());
+    let agent = "a1";
+    let (stream, peer) = UnixStream::pair().unwrap();
+    let wait = Duration::from_secs(5);
+    peer.set_read_timeout(Some(wait)).unwrap();
+    hosts.track(agent, 0, 0);
+    let connection = hosts.connection(agent).unwrap();
+    *connection.conn.lock().unwrap() = Some(Conn { stream: BufReader::new(stream), next: 0, epoch: 1 });
+
+    let order = &Mutex::new(());
+    let (at_write, writing) = mpsc::channel();
+    let (allow_write, resume) = mpsc::channel();
+    thread::scope(|scope| {
+        let cancel = scope.spawn(move || {
+            BEFORE_CANCEL_WRITE.set(Some(Box::new(move || {
+                at_write.send(()).unwrap();
+                resume.recv_timeout(wait).expect("cancel write was never released");
+            })));
+            let mut checked_under_order = None;
+            let result = hosts.cancel(agent, order, || {
+                checked_under_order = Some(matches!(order.try_lock(), Err(TryLockError::WouldBlock)));
+                Ok(7)
+            }, |error| error);
+            (checked_under_order, result)
+        });
+
+        writing.recv_timeout(wait).expect("cancel did not reach the host write");
+        // Reseating needs the same lock before it can commit a seat change.
+        let reseat_blocked = matches!(order.try_lock(), Err(TryLockError::WouldBlock));
+        allow_write.send(()).unwrap();
+
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let frame: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(frame["method"], "cancel");
+        assert_eq!(frame["params"], json!({"generation": 7}));
+        reply(&mut peer, frame["id"].clone(), json!({"state": "cancelled"}));
+
+        let (checked_under_order, result) = cancel.join().unwrap();
+        assert!(reseat_blocked, "reseating could acquire the ordering lock before the cancel write");
+        assert_eq!(checked_under_order, Some(true), "the recheck must hold the ordering lock");
+        assert_eq!(result.unwrap(), "cancelled");
+    });
 }
 
 #[test]
