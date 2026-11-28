@@ -1,0 +1,11 @@
+{
+  "session": "root-thread",
+  "subagent": "child-thread",
+  "prompt": "Review the fixture.",
+  "earlyText": "I started before the turn receipt.",
+  "thought": "Check both tool results.",
+  "plan": "Inspect the fixture",
+  "command": "printf 'fixture\\n'",
+  "usage": {"used": 26, "size": 4096},
+  "compaction": "compact-1"
+}

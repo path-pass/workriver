@@ -37,7 +37,7 @@ pub fn chain(pid: u32) -> Chain {
 
 /// What `ps` itself reads (`sysctl kern.proc.pid`): it answers for every account's processes.
 #[cfg(target_os = "macos")]
-fn one(pid: u32) -> Option<Proc> {
+pub(crate) fn one(pid: u32) -> Option<Proc> {
     let k = libproc::libproc::proc_pid::kproc_info_raw(pid as i32).ok()?;
     // An id nobody has answers with an empty record.
     if k.kp_proc.p_pid as u32 != pid {
@@ -55,13 +55,13 @@ fn one(pid: u32) -> Option<Proc> {
 }
 
 #[cfg(target_os = "linux")]
-fn one(pid: u32) -> Option<Proc> {
+pub(crate) fn one(pid: u32) -> Option<Proc> {
     let s = procfs::process::Process::new(pid as i32).ok()?.stat().ok()?;
     Some(Proc { pid, parent: s.ppid.max(0) as u32, tty: (s.tty_nr != 0).then(|| s.tty_nr.to_string()), start: s.starttime * 1_000_000 / procfs::ticks_per_second(), name: s.comm })
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn one(_: u32) -> Option<Proc> {
+pub(crate) fn one(_: u32) -> Option<Proc> {
     None
 }
 

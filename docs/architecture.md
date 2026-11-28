@@ -5,9 +5,9 @@
 A short map for people who want to find their way around workriver's source. The full
 tree, with a line for each file, is in `design/layout.md` (for agents, in English).
 
-workriver is one Rust program (the service and the CLI in one binary) and one web page
-built to static files that the service serves. Each part is cut by domain: the same thing
-has the same folder name in every layer (planning, work, conversations, …).
+workriver is one Rust binary with entry points for the service, the CLI and the internal
+per-agent host. The service serves the web page as static files. Domains such as planning,
+work and conversations have the same folder names across layers.
 
 ## The parts
 
@@ -18,8 +18,9 @@ has the same folder name in every layer (planning, work, conversations, …).
 | `crates/workriver-scan/` | Reads git and the file tree, here or over ssh: `runner.rs`, `history/`, `files/` |
 | `crates/workriver/src/cli/` | The `workriver` command: parses, proves who calls, asks the service, prints |
 | `crates/workriver/src/server/` | The service: `app/` (start-up, recording, the poll), `access/` (who calls and what they may do and see), `http/` (routes and the request guard), `schedule/` (jobs by the clock: their timers, one run at a time, the last result), then a folder per domain (`planning/` (with the templates' YAML), `work/`, `conversations/`, `commands/`, `terminals/` (an agent's terminal from the page: its screen, keys, view), `machines/`, `files/`, `views/`, `delivery/`) |
-| `crates/workriver/src/runtime/` | The agent runtime behind one facade: `follow.rs` (several machines as one), `ssh.rs` (tunnels), and one folder per runtime; today only `herdr/` ([the Herdr runtime](runtimes/herdr.md)) |
+| `crates/workriver/src/runtime/` | The agent runtime facade includes `follow.rs` (several machines as one), `ssh.rs` (tunnels), `herdr/` (the [Herdr runtime adapter](runtimes/herdr.md)) and `acp/` (the [hosted Codex process and journal](design/hosted-agent.md)) |
 | `crates/workriver/src/common/` | What the service and the CLI share: settings (`config/`), the data directory's files (`home.rs`), processes, and the JSON shapes both sides and the page agree on (`wire/`) |
+| `crates/workriver/tests/hosted.rs` | Process-boundary tests for the host with a scripted Codex app-server in `tests/__fixtures__/hosted_app_server.rs` |
 | `frontend/web/src/` | The page: `app/` (the shell), `api/` (the only way to the service), `workspace/` (loading the snapshot), a folder per domain (`planning/`, `work/`, `attention/`, `agents/`, `conversations/`, `code/`, `attachments/`, `commands/`, `machines/`, `session/`), then shared parts (`content/`, `ui/`, `lib/`, `config/`, `i18n/`) and `mock/` (sample data) |
 | `skills/` | What agents read, built into the binary (`workriver guide`): the manager's role, one recipe per situation (grouped in `workriver-howto/references/`), the backlog import |
 | `docs/` | Documents for people (this one, getting started, security, the runtime) and, in `design/`, the specifications agents work from |
@@ -33,8 +34,9 @@ workriver (the binary) ──► workriver-core
 workriver-core and workriver-scan depend on no crate of ours.
 
 inside the binary:
-  cli/    ──► runtime/ (the facade) ──► runtime/herdr/   (only runtime/ sees herdr/)
+  cli/    ──► runtime/ (the facade) ──► runtime/herdr/
   server/ ──► runtime/
+  main.rs (host command) ──► runtime/ ──► runtime/acp/
   cli/, server/, runtime/ ──► common/
   cli/ and server/ never import each other (the service's tests use the CLI's client);
   runtime/ imports neither;

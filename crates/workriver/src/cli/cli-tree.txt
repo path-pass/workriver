@@ -181,6 +181,7 @@ workriver help gate
 workriver help gate submit
 workriver help guide
 workriver help help
+workriver help host  hidden
 workriver help intent
 workriver help intent add
 workriver help intent done
@@ -241,6 +242,9 @@ workriver help workspace list
 workriver help workspace manager
 workriver help workspace open
 workriver help workspace rename
+workriver host  hidden
+workriver host  arg dir index=1 value=["DIR"] num=1 action=Set required
+workriver host  arg help --help -h num=0 action=Help
 workriver intent
 workriver intent  arg help --help -h num=0 action=Help
 workriver intent add
