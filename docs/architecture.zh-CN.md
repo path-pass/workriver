@@ -5,9 +5,8 @@
 给想在 workriver 源码里找路的人的一张简短地图。完整的目录树（每个文件一行）在
 `design/layout.md`（写给 agent 的，英文）。
 
-workriver 是一个 Rust 程序（服务和 CLI 在同一个可执行文件里）加一个网页；网页构建成静态文件，
-由服务提供。每一部分都按领域切分：同一件事在每一层用同一个文件夹名（planning、work、
-conversations……）。
+workriver 的服务、CLI 和每个 agent 的内部宿主进程使用同一个 Rust 可执行文件。网页构建成
+静态文件，由服务提供。planning、work、conversations 等领域在各层使用相同的文件夹名。
 
 ## 各部分
 
@@ -18,8 +17,9 @@ conversations……）。
 | `crates/workriver-scan/` | 读 git 和文件树，本机或经 ssh：`runner.rs`、`history/`、`files/` |
 | `crates/workriver/src/cli/` | `workriver` 命令：解析参数、证明调用者是谁、请求服务、打印结果 |
 | `crates/workriver/src/server/` | 服务：`app/`（启动、记录、轮询）、`access/`（调用者是谁、能做什么、能看什么）、`http/`（路由和请求守卫）、`schedule/`（按时钟运行的 job：各自的定时器、一次只跑一个、上次结果），然后每个领域一个文件夹（`planning/`（包括模板的 YAML）、`work/`、`conversations/`、`commands/`、`terminals/`（在页面上读 agent 的终端、按键、看终端视图）、`machines/`、`files/`、`views/`、`delivery/`） |
-| `crates/workriver/src/runtime/` | agent 运行时，藏在一个门面后面：`follow.rs`（把多台机器当成一个）、`ssh.rs`（隧道），每种运行时一个文件夹；目前只有 `herdr/`（[Herdr 运行时](runtimes/herdr.zh-CN.md)） |
+| `crates/workriver/src/runtime/` | agent 运行时的门面包括 `follow.rs`（把多台机器当成一个）、`ssh.rs`（隧道）、`herdr/`（[Herdr 运行时适配器](runtimes/herdr.zh-CN.md)）和 `acp/`（[Codex 宿主进程及其日志](design/hosted-agent.md)，英文） |
 | `crates/workriver/src/common/` | 服务和 CLI 共用的东西：设置（`config/`）、数据目录里的文件（`home.rs`）、进程，以及服务、CLI 和网页共同认定的 JSON 结构（`wire/`） |
+| `crates/workriver/tests/hosted.rs` | 宿主进程的跨进程测试，使用 `tests/__fixtures__/hosted_app_server.rs` 模拟 Codex app-server |
 | `frontend/web/src/` | 网页：`app/`（外壳）、`api/`（通往服务的唯一出口）、`workspace/`（载入快照），每个领域一个文件夹（`planning/`、`work/`、`attention/`、`agents/`、`conversations/`、`code/`、`attachments/`、`commands/`、`machines/`、`session/`），然后是共用部分（`content/`、`ui/`、`lib/`、`config/`、`i18n/`）和 `mock/`（示例数据） |
 | `skills/` | agent 读的东西，编进可执行文件（`workriver guide`）：管理者的职责、每种情况一个做法（分组放在 `workriver-howto/references/`）、待办导入 |
 | `docs/` | 给人看的文档（本文、上手、安全、运行时），以及 `design/` 里 agent 照着做的规格 |
@@ -33,8 +33,9 @@ workriver（可执行文件） ──► workriver-core
 workriver-core 和 workriver-scan 不依赖我们自己的任何 crate。
 
 可执行文件内部：
-  cli/    ──► runtime/（门面） ──► runtime/herdr/   （只有 runtime/ 看得到 herdr/）
+  cli/    ──► runtime/（门面） ──► runtime/herdr/
   server/ ──► runtime/
+  main.rs（host 命令） ──► runtime/ ──► runtime/acp/
   cli/、server/、runtime/ ──► common/
   cli/ 和 server/ 互不引用（服务的测试借用 CLI 的客户端）；
   runtime/ 两者都不引用；

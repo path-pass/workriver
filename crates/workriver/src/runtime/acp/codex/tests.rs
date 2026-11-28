@@ -10,7 +10,7 @@ fn receive(adapter: &mut Adapter, method: &str, params: Value) -> Vec<Event> {
 
 fn send(events: &[Event], method: &str) -> Value {
     events.iter().find_map(|event| match event {
-        Event::Send(frame) if frame["method"] == method => Some(frame.clone()),
+        Event::Send(frame) | Event::SessionNew(frame) | Event::Control(frame) if frame["method"] == method => Some(frame.clone()),
         _ => None,
     }).unwrap_or_else(|| panic!("missing send for {method}"))
 }
@@ -143,6 +143,35 @@ fn streams_before_turn_receipt_and_only_root_completion_ends_the_prompt() {
     assert!(matches!(closed.last(), Some(Event::Closed)));
 }
 
+#[test]
+fn a_bad_early_completion_fails_only_the_turn_named_in_the_receipt() {
+    for (late_id, should_fail) in [("previous-turn", false), ("next-turn", true)] {
+        let mut adapter = ready();
+        let start = adapter.prompt("hello");
+        let result = receive(&mut adapter, "turn/completed", json!({
+            "threadId":"root","turn":{"id":late_id,"status":"unknown"}
+        }));
+        assert!(matches!(result.as_slice(), [Event::Skipped { .. }]));
+        let result = adapter.receive(answer(&start, json!({"turn":{"id":"next-turn"}}))).unwrap();
+        if should_fail {
+            assert!(matches!(result.as_slice(), [Event::TurnEnded(frame)] if frame["error"].is_object()));
+        } else {
+            assert!(result.is_empty());
+            let end = receive(&mut adapter, "turn/completed", json!({
+                "threadId":"root","turn":{"id":"next-turn","status":"completed"}
+            }));
+            assert!(matches!(end.as_slice(), [Event::TurnEnded(frame)] if frame["result"]["stopReason"] == "end_turn"));
+        }
+    }
+}
+
+#[test]
+fn a_missing_bootstrap_result_fails_startup() {
+    let (mut adapter, config) = to_config();
+    let error = adapter.receive(json!({"id":config["id"]})).err().unwrap();
+    assert_eq!(error.to_string(), "Codex config/read response has no result");
+}
+
 fn approval(adapter: &mut Adapter, method: &str, id: Value, params: Value) -> (Value, Value) {
     let frame = json!({"id": id, "method":method, "params": params});
     let events = adapter.receive(frame.clone()).unwrap();
@@ -245,7 +274,7 @@ fn unknown_requests_are_journaled_before_the_method_not_found_reply() {
     let native = json!({"id":"ask","method":"item/tool/requestUserInput","params":{}});
     let events = adapter.receive(native.clone()).unwrap();
     assert!(matches!(&events[0], Event::Unmapped(frame) if frame == &native));
-    assert!(matches!(&events[1], Event::Send(frame) if frame["id"] == "ask" && frame["error"]["code"] == -32601));
+    assert!(matches!(&events[1], Event::RequestError(frame) if frame["id"] == "ask" && frame["error"]["code"] == -32601));
 }
 
 #[test]
@@ -257,7 +286,7 @@ fn unsupported_auth_payloads_and_unsolicited_response_bodies_are_not_journaled()
     assert!(matches!(&events[0], Event::Unmapped(frame) if frame == &json!({
         "id":"auth", "method":"account/chatgptAuthTokens/refresh", "redacted":true
     })));
-    assert!(matches!(&events[1], Event::Send(frame) if frame["id"] == "auth"));
+    assert!(matches!(&events[1], Event::RequestError(frame) if frame["id"] == "auth"));
     let events = adapter.receive(json!({"id":8749,"result":chatgpt()})).unwrap();
     assert!(matches!(&events[0], Event::Unmapped(frame) if frame == &json!({"id":8749,"redacted":true})));
 }

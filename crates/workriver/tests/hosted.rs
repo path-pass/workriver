@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,10 @@ struct Host {
 
 impl Host {
     fn spawn(options: Value) -> Self {
+        Self::spawn_with(options, |_, _| {})
+    }
+
+    fn spawn_with(options: Value, configure: impl FnOnce(&Path, &mut Command)) -> Self {
         // Darwin's Unix-domain socket addresses are shorter than $TMPDIR on some Macs.
         let temp = tempfile::Builder::new().prefix("wr-host-test-").tempdir_in("/tmp").unwrap();
         let root = temp.path();
@@ -50,7 +55,9 @@ impl Host {
         );
         fs::write(root.join("bin/codex"), shim).unwrap();
         private(&root.join("bin/codex"), 0o700);
-        let child = Self::command(root, &dir).spawn().unwrap();
+        let mut command = Self::command(root, &dir);
+        configure(root, &mut command);
+        let child = command.spawn().unwrap();
         Self { child, dir, _temp: temp }
     }
 
@@ -216,7 +223,7 @@ impl Wire {
 }
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!("../src/runtime/acp/__fixtures__/conversation.json")).unwrap()
+    serde_json::from_str(include_str!("__fixtures__/acp/conversation.json")).unwrap()
 }
 
 #[test]
@@ -277,7 +284,7 @@ fn allows(entry: &Value) -> bool {
 }
 
 fn validate_frames(entries: &[Value]) {
-    let schema: Value = serde_json::from_str(include_str!("../src/runtime/acp/__fixtures__/acp-v1-schema.json")).unwrap();
+    let schema: Value = serde_json::from_str(include_str!("__fixtures__/acp/acp-v1-schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     let schema_uri = "https://example.invalid/acp-v1-schema.json";
     let registry = jsonschema::Registry::new().add(schema_uri, schema).unwrap().prepare().unwrap();
@@ -329,9 +336,9 @@ fn native_outcome(host: &Host, id: Value, expected: Value, schema: &str) {
     validator.validate(&matches[0]["result"]).unwrap();
 }
 
-const COMMAND_RESPONSE: &str = include_str!("../src/runtime/acp/codex/__fixtures__/CommandExecutionRequestApprovalResponse.json");
-const FILE_RESPONSE: &str = include_str!("../src/runtime/acp/codex/__fixtures__/FileChangeRequestApprovalResponse.json");
-const PERMISSIONS_RESPONSE: &str = include_str!("../src/runtime/acp/codex/__fixtures__/PermissionsRequestApprovalResponse.json");
+const COMMAND_RESPONSE: &str = include_str!("__fixtures__/codex/CommandExecutionRequestApprovalResponse.json");
+const FILE_RESPONSE: &str = include_str!("__fixtures__/codex/FileChangeRequestApprovalResponse.json");
+const PERMISSIONS_RESPONSE: &str = include_str!("__fixtures__/codex/PermissionsRequestApprovalResponse.json");
 
 #[test]
 fn streams_acp_and_settles_each_typed_native_approval_once() {
@@ -655,7 +662,147 @@ fn close_drains_final_native_output_before_its_receipt() {
     assert_eq!(observed, 128, "buffered updates must precede the only close receipt");
 }
 
+#[test]
+fn host_runs_with_no_service_data_and_an_unavailable_http_port() {
+    let port = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let mut host = Host::spawn_with(json!({}), |root, command| {
+        private(&root.join("os-home"), 0o555);
+        command.env("WORKRIVER_HOME", root.join("os-home/no-service-data"))
+            .env("WORKRIVER_PORT", port.local_addr().unwrap().port().to_string())
+            .env("WORKRIVER_PERF", "detail");
+    });
+    let (mut wire, _) = host.ready();
+    wire.result("prompt", prompt(GENERATION, "lean", "finish"));
+    until("turn ends", || (wire.result("status", json!({}))["state"] == "idle").then_some(()));
+    wire.result("close", json!({"generation":GENERATION}));
+    host.ended();
+    let home = host.root().join("os-home");
+    assert!(fs::read_dir(&home).unwrap().next().is_none());
+    assert!(fs::read_dir(host.root().join("workriver-home")).unwrap().next().is_none());
+    private(&home, 0o700);
+    assert_eq!(host.journal().last().unwrap()["outcome"], "ended");
+}
+
+#[test]
+fn bad_native_frames_do_not_end_the_agent() {
+    let mut host = Host::spawn(json!({}));
+    let (mut wire, _) = host.ready();
+    wire.result("prompt", prompt(GENERATION, "optional", "bad-optional"));
+    until("valid completion after skipped frames", || (wire.result("status", json!({}))["state"] == "idle").then_some(()));
+    wire.result("prompt", prompt(GENERATION, "terminal", "bad-terminal"));
+    until("failed turn ends", || (wire.result("status", json!({}))["state"] == "idle").then_some(()));
+    wire.result("prompt", prompt(GENERATION, "ack", "bad-ack"));
+    until("malformed acknowledgement ends the turn", || (wire.result("status", json!({}))["state"] == "idle").then_some(()));
+    wire.result("prompt", prompt(GENERATION, "recovered", "finish"));
+    until("next turn ends", || (wire.result("status", json!({}))["state"] == "idle").then_some(()));
+
+    let journal = host.journal();
+    let skipped = journal.iter().filter(|entry| entry["kind"] == "native" && entry["reason"].is_string()).collect::<Vec<_>>();
+    assert_eq!(skipped.len(), 7, "{skipped:?}");
+    assert!(skipped.iter().any(|entry| entry["cut"].as_u64().is_some_and(|size| size > 8 * 1024 * 1024)));
+    assert!(journal.iter().any(|entry| entry["msg"]["params"]["update"]["content"]["text"] == "after bad frames"));
+    let replies = journal.iter().filter(|entry| entry["kind"] == "acp" && entry["dir"] == "in" && entry["msg"]["id"] == 3).collect::<Vec<_>>();
+    assert_eq!(replies.len(), 4, "{replies:?}");
+    assert_eq!(replies[0]["msg"]["result"]["stopReason"], "end_turn");
+    assert!(replies[1]["msg"]["error"]["message"].as_str().unwrap().contains("terminal turn status"));
+    assert!(replies[2]["msg"]["error"]["message"].as_str().unwrap().contains("response needs a string id"));
+    assert_eq!(replies[3]["msg"]["result"]["stopReason"], "end_turn");
+    until("fake receives both safe cancellations", || {
+        let frames = host.native();
+        ["malformed", "failed-turn"].into_iter().all(|id| frames.iter().any(|frame| {
+            frame["id"] == id && frame["result"]["decision"] == "cancel"
+        })).then_some(())
+    });
+    wire.result("close", json!({"generation":GENERATION}));
+    host.ended();
+}
+
+#[test]
+fn a_duplicate_native_approval_keeps_the_original_request_answerable() {
+    let mut host = Host::spawn(json!({}));
+    let (mut wire, _) = host.ready();
+    wire.result("prompt", prompt(GENERATION, "duplicates", "duplicate-approval"));
+    until("host reads past the duplicate", || host.journal().iter().any(|entry| {
+        entry["msg"]["params"]["update"]["content"]["text"] == "past duplicate"
+    }).then_some(()));
+    let pending = wire.pendings(1);
+    let (key, original) = pending_for(&pending, json!("same"));
+    assert_eq!(original["acp"]["params"]["toolCall"]["toolCallId"], "first");
+    assert_eq!(wire.result("answer", answer(key, "reject"))["replied"], true);
+    let journal = host.journal();
+    assert_eq!(journal.iter().filter(|entry| entry["msg"]["method"] == "session/request_permission").count(), 1);
+    assert!(journal.iter().any(|entry| entry["reason"] == "duplicate active request id"));
+    wire.result("cancel", json!({"generation":GENERATION}));
+    wire.result("close", json!({"generation":GENERATION}));
+    host.ended();
+}
+
+#[test]
+fn only_the_latest_aggregate_diff_is_journaled_when_the_turn_ends() {
+    let mut host = Host::spawn(json!({}));
+    let (mut wire, _) = host.ready();
+    wire.result("prompt", prompt(GENERATION, "diff", "diff"));
+    // A marker after the diffs proves all preceding frames have reached the host.
+    until("host reads past the diffs", || host.journal().iter().any(|entry| {
+        entry["msg"]["params"]["update"]["content"]["text"] == "diffs sent"
+    }).then_some(()));
+    assert!(!host.journal().iter().any(|entry| entry["msg"]["method"] == "turn/diff/updated"));
+    wire.result("cancel", json!({"generation":GENERATION}));
+    let journal = host.journal();
+    let diffs = journal.iter().filter(|entry| entry["msg"]["method"] == "turn/diff/updated").collect::<Vec<_>>();
+    assert_eq!(diffs.len(), 1, "{diffs:?}");
+    assert_eq!(diffs[0]["msg"]["params"]["diff"], "second version");
+    assert!(journal.iter().any(|entry| entry["seq"].as_u64().unwrap() > diffs[0]["seq"].as_u64().unwrap() &&
+        entry["msg"]["id"] == 3 && entry["msg"]["result"]["stopReason"] == "cancelled"));
+    wire.result("close", json!({"generation":GENERATION}));
+    host.ended();
+}
+
 fn process_state(pid: libc::pid_t) -> Option<String> {
     let ps = Command::new("/bin/ps").env_clear().args(["-o", "stat=", "-p", &pid.to_string()]).output().unwrap();
     ps.status.success().then(|| String::from_utf8(ps.stdout).unwrap().trim().to_owned())
+}
+
+#[test]
+fn the_socket_refuses_a_child_of_another_host_before_hello() {
+    let mut target = Host::spawn(json!({}));
+    let (mut target_wire, _) = target.ready();
+    let mut other = Host::spawn(json!({"probe_socket":target.dir.join("host.sock")}));
+    let (mut other_wire, _) = other.ready();
+
+    let verdict = fs::read_to_string(other.root().join("cwd/probe-result")).unwrap();
+    assert_eq!(verdict, "refused");
+    assert_eq!(target_wire.result("status", json!({}))["state"], "idle");
+    target_wire.result("close", json!({"generation":GENERATION}));
+    other_wire.result("close", json!({"generation":GENERATION}));
+    target.ended();
+    other.ended();
+}
+
+#[test]
+fn new_connections_do_not_displace_a_pending_hello() {
+    let mut host = Host::spawn(json!({}));
+    let (mut writer, _) = host.ready();
+    let mut pending = host.connect();
+
+    let socket = host.dir.join("host.sock");
+    thread::scope(|scope| {
+        let (first, progress) = std::sync::mpsc::sync_channel(0);
+        scope.spawn(move || {
+            let reject = || {
+                let mut other = Wire::new(UnixStream::connect(&socket).unwrap());
+                assert_eq!(other.hello(1, "aa".repeat(32))["error"]["message"], "unauthorized");
+            };
+            reject();
+            first.send(()).unwrap();
+            for _ in 0..3 {
+                reject();
+            }
+        });
+        progress.recv().unwrap();
+        assert_eq!(writer.result("status", json!({}))["state"], "idle");
+        assert_eq!(pending.hello(1, "8d".repeat(32))["result"]["generation"], GENERATION);
+    });
+    pending.result("close", json!({"generation":GENERATION}));
+    host.ended();
 }

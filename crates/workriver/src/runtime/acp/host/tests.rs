@@ -1,6 +1,60 @@
 use super::*;
 
 #[test]
+fn host_records_stuck_after_the_deadline_if_members_remain_or_listing_fails() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    for failed in [false, true] {
+        let dir = tempfile::Builder::new().prefix("wr-close-").tempdir_in("/tmp").unwrap();
+        let path = dir.path();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(path.join("host.key"), [0; 32]).unwrap();
+        fs::set_permissions(path.join("host.key"), fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(path.join("instance.json"), json!({
+            "id":"a1","harness":"codex","cwd":path,"auth":"chatgpt","generation":1,"state":"starting"
+        }).to_string()).unwrap();
+        let (directory, instance) = Directory::open(path).unwrap();
+        let child = Command::new("/bin/sh").args(["-c", "exit 0"]).env_clear().process_group(0).spawn().unwrap();
+        let leader = child.id();
+        let start = Instant::now();
+        while !close::exited(leader).unwrap() {
+            assert!(start.elapsed() < Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut host = Host {
+            socket: directory.bind().unwrap(), directory, record: instance.record().unwrap(),
+            journal: Journal::open(path, 1).unwrap(), adapter: Adapter::new(path, None, "chatgpt", "fake").unwrap(),
+            child, input: None, output: None, generation: 1, client: None,
+            challengers: [const { None }; CHALLENGE_SLOTS], client_epoch: 0,
+            pending: BTreeMap::new(), billing: Value::Null, working: false, cancelling: None,
+            closing: Some(Closing::new(start, false, true)), reaped: false,
+        };
+        let remaining = u32::MAX;
+        let listing = |group| {
+            assert_eq!(group, leader);
+            if failed { Err(io::Error::other("test listing failure")) } else { Ok(vec![leader, remaining]) }
+        };
+        // Once expired, each poll advances one phase against the same deadline.
+        let deadline = host.closing.as_ref().unwrap().deadline;
+        for _ in 0..4 {
+            assert!(!host.progress_close(deadline, listing).unwrap());
+        }
+        assert!(host.progress_close(deadline, listing).unwrap());
+        let page = host.journal.read(0, 10).unwrap();
+        let entries = page["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["event"], "closed");
+        assert_eq!(entries[0]["outcome"], "stuck");
+        assert_eq!(entries[0]["pids"], if failed { json!([]) } else { json!([remaining]) });
+        assert_eq!(entries[0]["listingError"], if failed { json!("test listing failure") } else { Value::Null });
+        assert_eq!(host.record["state"], "closed");
+    }
+}
+
+#[test]
 fn close_keeps_the_live_leader_and_shares_one_deadline() {
     let start = Instant::now();
     let mut closing = Closing::new(start, true, true);

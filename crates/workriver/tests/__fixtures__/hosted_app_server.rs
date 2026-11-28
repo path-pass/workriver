@@ -24,6 +24,13 @@ fn fake_codex_app_server() {
         sent, received, options, fixture: super::fixture(),
         account: "chatgpt".into(), turn: String::new(), count: 0, first_approvals: 0, pending: HashMap::new(),
     };
+    if let Some(path) = fake.options["probe_socket"].as_str() {
+        let probe = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "fake::probe_host_socket", "--ignored"])
+            .env("HOSTED_TEST_PROBE_SOCKET", path)
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
+        fs::write("probe-result", if probe.success() { "refused" } else { "open" }).unwrap();
+    }
     if fake.options["ignore_term"] == true {
         // The real workriver host must terminate and reap this uniquely owned fake.
         unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN); }
@@ -80,6 +87,18 @@ fn fake_codex_app_server() {
         // Escape timeout if the test itself crashes before closing the fake.
         thread::sleep(Duration::from_secs(17));
     }
+}
+
+#[test]
+#[ignore = "launched as the fake app-server's child"]
+fn probe_host_socket() {
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+
+    let Some(path) = std::env::var_os("HOSTED_TEST_PROBE_SOCKET") else { return };
+    let mut socket = UnixStream::connect(path).unwrap();
+    socket.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+    assert_eq!(socket.read(&mut [0]).unwrap(), 0, "the host must close without waiting for hello");
 }
 
 struct Fake {
@@ -195,6 +214,10 @@ impl Fake {
     fn prompt(&mut self, id: &Value, text: &str) {
         self.count += 1;
         self.turn = format!("turn-{}", self.count);
+        if text == "bad-ack" {
+            self.reply(id, json!({"turn":{"status":"inProgress"}}));
+            return;
+        }
         if text == self.fixture["prompt"] {
             self.notify("item/agentMessage/delta", json!({
                 "threadId":self.fixture["session"], "turnId":self.turn, "itemId":"agent-message",
@@ -208,6 +231,45 @@ impl Fake {
             self.large();
         } else if text == "finish" {
             self.complete("completed");
+        } else if text == "bad-optional" {
+            writeln!(self.sent, "{{malformed").unwrap();
+            self.sent.flush().unwrap();
+            self.notify("item/agentMessage/delta", json!({
+                "threadId":self.fixture["session"], "delta":"a".repeat(9 * 1024 * 1024),
+            }));
+            self.notify("turn/plan/updated", json!({
+                "threadId":self.fixture["session"], "plan":[{"step":"Check","status":"skipped"}],
+            }));
+            self.notify("item/agentMessage/delta", json!({"threadId":self.fixture["session"]}));
+            let session = self.fixture["session"].clone();
+            self.pending.insert(json!("malformed"), session.clone());
+            self.emit(json!({"id":"malformed","method":"item/commandExecution/requestApproval","params":{
+                "threadId":session, "turnId":self.turn, "command":"pwd",
+            }}));
+            self.notify("item/agentMessage/delta", json!({
+                "threadId":self.fixture["session"], "delta":"after bad frames",
+            }));
+            self.complete("completed");
+        } else if text == "bad-terminal" {
+            let session = self.fixture["session"].clone();
+            self.request("commandExecution", json!("failed-turn"), &session, "tool", json!({"command":"pwd"}));
+            self.complete("some-future-terminal-status");
+        } else if text == "duplicate-approval" {
+            let session = self.fixture["session"].clone();
+            self.request("commandExecution", json!("same"), &session, "first", json!({"command":"pwd"}));
+            self.emit(json!({"id":"same","method":"item/commandExecution/requestApproval","params":{
+                "threadId":session, "turnId":self.turn, "itemId":"second", "command":"pwd",
+            }}));
+            self.notify("item/agentMessage/delta", json!({"threadId":session, "delta":"past duplicate"}));
+        } else if text == "diff" {
+            for diff in ["first version", "second version"] {
+                self.notify("turn/diff/updated", json!({
+                    "threadId":self.fixture["session"], "turnId":self.turn, "diff":diff,
+                }));
+            }
+            self.notify("item/agentMessage/delta", json!({
+                "threadId":self.fixture["session"], "delta":"diffs sent",
+            }));
         } else {
             assert_eq!(text, "quiet");
         }

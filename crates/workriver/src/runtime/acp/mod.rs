@@ -2,5 +2,6 @@
 mod codex;
 mod host;
 mod journal;
+mod wire;
 
 pub(super) use host::run;

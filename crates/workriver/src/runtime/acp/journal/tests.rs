@@ -128,26 +128,24 @@ fn oversized_text_and_approval_are_marked_and_bounded_on_disk() {
 }
 
 #[test]
-fn an_oversized_existing_line_cannot_block_cursor_progress() {
+fn sparse_offsets_seek_across_blocks_after_reopening() {
     let dir = tempdir().unwrap();
     let mut journal = Journal::open(dir.path(), 1).unwrap();
-    journal.append(prompt("later", "one"), true).unwrap();
+    for seq in 1..=512 {
+        journal.append(json!({"kind": "acp", "msg": "山".repeat(seq % 31)}), false).unwrap();
+    }
+    assert_eq!(journal.offsets.len(), 2);
+    assert_eq!(journal.read(255, 2).unwrap()["entries"][1]["seq"], 257);
     drop(journal);
-    let mut old = approval("x".repeat(3 * 1024 * 1024));
-    old["seq"] = json!(2);
-    old["gen"] = json!(1);
-    old["at"] = json!("2026-11-28T00:00:00Z");
-    let path = dir.path().join("journal.jsonl");
-    let mut file = OpenOptions::new().append(true).open(path).unwrap();
-    serde_json::to_writer(&mut file, &old).unwrap();
-    file.write_all(b"\n").unwrap();
-    drop(file);
-    let mut journal = Journal::open(dir.path(), 2).unwrap();
-    journal.append(prompt("after old", "three"), true).unwrap();
 
-    let page = journal.read(1, 1).unwrap();
-    assert!(serde_json::to_vec(&page).unwrap().len() <= 2 * 1024 * 1024);
-    assert_eq!(page["entries"][0]["seq"], 2);
-    assert!(page["entries"][0]["cut"].as_u64().unwrap() > 0);
-    assert_eq!(journal.read(2, 1).unwrap()["entries"][0]["seq"], 3);
+    let mut journal = Journal::open(dir.path(), 2).unwrap();
+    assert_eq!(journal.offsets.len(), 2);
+    assert_eq!(journal.head(), 512);
+    assert_eq!(journal.append(prompt("delivery", "next block"), true).unwrap(), 513);
+    for (after, want) in [(0, 1), (255, 256), (256, 257), (257, 258), (511, 512), (512, 513)] {
+        let page = journal.read(after, 1).unwrap();
+        assert_eq!(page["head"], 513);
+        assert_eq!(page["entries"][0]["seq"], want);
+    }
+    assert_eq!(journal.read(u64::MAX, 1).unwrap(), json!({"entries": [], "head": 513}));
 }

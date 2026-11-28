@@ -1,11 +1,9 @@
-use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context, ensure};
 use serde::Deserialize;
@@ -101,20 +99,5 @@ impl Instance {
             "auth":self.auth, "generation":self.generation, "state":"starting",
             "host":{"pid":pid,"start":host.start}
         }))
-    }
-
-    pub fn codex(&self) -> Command {
-        let names = ["HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "TMPDIR", "TERM", "CODEX_HOME", "WORKRIVER_HOME", "WORKRIVER_PORT"];
-        let mut command = Command::new("codex");
-        command.current_dir(&self.cwd).env_clear().envs(std::env::vars_os().filter(|(key, _)| {
-            names.iter().any(|name| key == OsStr::new(name)) || key.as_encoded_bytes().starts_with(b"LC_")
-        }));
-        if self.auth == "api_key" {
-            if let Some(key) = std::env::var_os("OPENAI_API_KEY") {
-                command.env("OPENAI_API_KEY", key);
-            }
-        }
-        command.env("WORKRIVER_PLACE", OsString::from(format!("acp:{}/{}", self.id, self.generation)));
-        command
     }
 }

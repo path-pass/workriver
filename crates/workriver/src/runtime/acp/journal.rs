@@ -8,10 +8,13 @@ use std::time::SystemTime;
 use anyhow::{Context, Result, anyhow, ensure};
 use serde_json::{Value, json};
 
+const INDEX_STRIDE: u64 = 256;
+
 pub(super) struct Journal {
     path: PathBuf,
     file: File,
     generation: u64,
+    head: u64,
     offsets: Vec<u64>,
     end: u64,
     deliveries: HashMap<String, u64>,
@@ -28,6 +31,7 @@ impl Journal {
         let mut reader = BufReader::new(&file);
         let mut offsets = Vec::new();
         let mut deliveries = HashMap::new();
+        let mut head = 0;
         let mut end = 0;
         let mut line = Vec::new();
         while reader.read_until(b'\n', &mut line)? != 0 {
@@ -37,18 +41,21 @@ impl Journal {
                 file.sync_all()?;
                 break;
             }
-            let seq = offsets.len() as u64 + 1;
+            let seq = head + 1;
             let entry: Value = serde_json::from_slice(&line).with_context(|| format!("invalid journal line {seq}"))?;
             ensure!(entry["seq"].as_u64() == Some(seq), "unexpected sequence at journal line {seq}");
             if let Some(key) = delivery_key(&entry) {
                 deliveries.entry(key.to_owned()).or_insert(seq);
             }
-            offsets.push(end);
+            if head.is_multiple_of(INDEX_STRIDE) {
+                offsets.push(end);
+            }
+            head = seq;
             end += line.len() as u64;
             line.clear();
         }
         drop(reader);
-        Ok(Self { path, file, generation, offsets, end, deliveries, append_failed: false })
+        Ok(Self { path, file, generation, head, offsets, end, deliveries, append_failed: false })
     }
 
     pub(super) fn append(&mut self, mut entry: Value, durable: bool) -> Result<u64> {
@@ -62,7 +69,6 @@ impl Journal {
         let key = delivery_key(&entry).map(str::to_owned);
         if let Some(key) = &key {
             ensure!(!self.deliveries.contains_key(key), "delivery key has already been journaled");
-            ensure!(key.len() <= 1024, "delivery key is too large");
         }
         let sync = durable || key.is_some() || entry["kind"] == "host";
         let mut bytes = encode_entry(&mut entry)?;
@@ -73,7 +79,10 @@ impl Journal {
             self.append_failed = true;
             return Err(error).context("cannot append to the journal");
         }
-        self.offsets.push(self.end);
+        if self.head.is_multiple_of(INDEX_STRIDE) {
+            self.offsets.push(self.end);
+        }
+        self.head = seq;
         self.end += bytes.len() as u64;
         if let Some(key) = key {
             self.deliveries.insert(key, seq);
@@ -82,7 +91,7 @@ impl Journal {
     }
 
     pub(super) fn head(&self) -> u64 {
-        self.offsets.len() as u64
+        self.head
     }
 
     pub(super) fn deliveries(&self) -> &HashMap<String, u64> {
@@ -90,25 +99,30 @@ impl Journal {
     }
 
     pub(super) fn read(&self, after: u64, limit: usize) -> Result<Value> {
-        let start = usize::try_from(after).unwrap_or(usize::MAX);
         let mut page = json!({"entries": [], "head": self.head()});
-        let Some(&offset) = self.offsets.get(start) else { return Ok(page) };
+        if after >= self.head || limit == 0 {
+            return Ok(page);
+        }
+        let offset = self.offsets[(after / INDEX_STRIDE) as usize];
         let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&self.path)?;
         file.seek(SeekFrom::Start(offset))?;
         let mut reader = BufReader::new(file);
+        for _ in 0..after % INDEX_STRIDE {
+            reader.skip_until(b'\n')?;
+        }
         let mut line = Vec::new();
         let mut size = serde_json::to_vec(&page)?.len();
         let entries = page["entries"].as_array_mut().unwrap();
         // Reserve room for the host protocol's JSON-RPC envelope.
         let budget = 2 * 1024 * 1024 - 128;
-        for _ in self.offsets[start..].iter().take(limit.min(1000)) {
+        for _ in 0..(self.head - after).min(limit.min(1000) as u64) {
             reader.read_until(b'\n', &mut line)?;
-            let mut entry = serde_json::from_slice(&line).context("cannot read journal entry")?;
-            size += encode_entry(&mut entry)?.len() + usize::from(!entries.is_empty());
+            let bytes = line.strip_suffix(b"\n").context("incomplete journal entry")?;
+            size += bytes.len() + usize::from(!entries.is_empty());
             if size > budget {
                 break;
             }
-            entries.push(entry);
+            entries.push(serde_json::from_slice(bytes).context("cannot read journal entry")?);
             line.clear();
         }
         Ok(page)
@@ -170,7 +184,7 @@ fn encode_entry(entry: &mut Value) -> Result<Vec<u8>> {
     let mut kept = serde_json::to_vec(entry)?.len();
     if kept > budget {
         let mut reduced = json!({});
-        for name in ["seq", "gen", "at", "kind", "event", "dir", "key", "request", "outcome", "by", "optionKind", "source"] {
+        for name in ["seq", "gen", "at", "kind", "event", "dir", "key", "request", "outcome", "by", "optionKind", "source", "reason"] {
             if let Some(value) = entry.get(name).filter(|v| v.is_u64() || v.as_str().is_some_and(|s| s.len() <= 1024)) {
                 reduced[name] = value.clone();
             }

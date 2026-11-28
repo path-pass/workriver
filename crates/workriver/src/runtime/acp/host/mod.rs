@@ -1,6 +1,6 @@
 mod close;
 mod instance;
-mod wire;
+mod peer;
 
 #[cfg(test)]
 mod tests;
@@ -9,21 +9,22 @@ use std::collections::BTreeMap;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use serde_json::{Value, json};
 
-use super::codex::{Adapter, Event};
+use super::codex::{self, Adapter, Event};
 use super::journal::Journal;
+use super::wire::{self, ACP_CLOSE, ACP_INITIALIZE, ACP_PROMPT, ACP_SESSION_NEW, Line, Lines, error, notification, reply, request};
 use close::{Closing, Step, outcome};
 use instance::{Directory, Socket};
-use wire::{Lines, error, notification, reply, request};
 
 const PROTOCOL_VERSION: u64 = 1;
+const CHALLENGE_SLOTS: usize = 4;
 const APPROVAL_BYTES: usize = 24 * 1024;
 const STATUS_BYTES: usize = 512 * 1024;
 
@@ -41,26 +42,17 @@ pub(crate) fn run(path: &Path) -> anyhow::Result<()> {
     let journal = Journal::open(path, instance.generation)?;
     let socket = directory.bind()?;
     directory.save(&record)?;
-    let version = crate::common::process::output_within({
-        let mut command = instance.codex();
-        command.arg("--version");
-        command
-    }, Duration::from_secs(5))?;
-    ensure!(version.status.success(), "cannot read the Codex version");
-    let version = String::from_utf8(version.stdout)?;
-    let mut adapter = Adapter::new(&instance.cwd, instance.model.as_deref(), &instance.auth, version.trim())?;
+    let place = format!("acp:{}/{}", instance.id, instance.generation);
+    let (mut adapter, mut child) = codex::launch(&instance.cwd, instance.model.as_deref(), &instance.auth, &place)?;
     let initialize = adapter.start();
-    let mut child = instance.codex().args(["app-server", "--listen", "stdio://"])
-        .process_group(0).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
     let input = child.stdin.take().expect("piped stdin");
     let output = child.stdout.take().expect("piped stdout");
     record["agentGroup"] = json!(child.id());
     let mut host = Host {
         directory, socket, record, journal, adapter, child, input: Some(input), output: Some(Lines::new(output)),
-        generation: instance.generation, client: None, challenger: None, client_epoch: 0,
+        generation: instance.generation, client: None, challengers: [const { None }; CHALLENGE_SLOTS], client_epoch: 0,
         pending: BTreeMap::new(), billing: json!({"verified":false}), working: false,
         cancelling: None, closing: None, reaped: false,
-        startup_until: Instant::now() + Duration::from_secs(60),
     };
 
     let result = host.serve(&initialize);
@@ -100,7 +92,7 @@ struct Host {
     output: Option<Lines<ChildStdout>>,
     generation: u64,
     client: Option<Client>,
-    challenger: Option<Client>,
+    challengers: [Option<Client>; CHALLENGE_SLOTS],
     client_epoch: u64,
     pending: BTreeMap<u64, Pending>,
     billing: Value,
@@ -108,7 +100,6 @@ struct Host {
     cancelling: Option<Cancel>,
     closing: Option<Closing>,
     reaped: bool,
-    startup_until: Instant,
 }
 
 impl Host {
@@ -116,7 +107,7 @@ impl Host {
         wire::nonblocking(self.input.as_ref().unwrap().as_raw_fd())?;
         wire::nonblocking(self.output.as_ref().unwrap().io.as_raw_fd())?;
         self.directory.save(&self.record)?;
-        self.acp("out", request(1, "initialize", json!({
+        self.acp("out", request(ACP_INITIALIZE, "initialize", json!({
             "protocolVersion":1,
             "clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false,"session":{"compaction":{}}},
             "clientInfo":{"name":"workriver","version":env!("CARGO_PKG_VERSION")}
@@ -128,7 +119,7 @@ impl Host {
             activity |= self.authenticate();
             activity |= self.agent_message()?;
             self.finish_cancel(None);
-            if self.progress_close()? {
+            if self.progress_close(Instant::now(), close::members)? {
                 return Ok(());
             }
             activity |= self.command()?;
@@ -144,8 +135,13 @@ impl Host {
     fn accept(&mut self) -> anyhow::Result<bool> {
         match self.socket.listener.accept() {
             Ok((stream, _)) => {
-                stream.set_nonblocking(true)?;
-                self.challenger = Some(Client { stream: Lines::new(stream), expires: Instant::now() + Duration::from_secs(2) });
+                let now = Instant::now();
+                if let Some(slot) = self.challengers.iter_mut().find(|slot| slot.as_ref().is_none_or(|client| client.expires <= now))
+                    && peer::allowed(&stream)
+                    && stream.set_nonblocking(true).is_ok()
+                {
+                    *slot = Some(Client { stream: Lines::new(stream), expires: now + Duration::from_secs(2) });
+                }
                 Ok(true)
             }
             Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => Ok(false),
@@ -154,32 +150,41 @@ impl Host {
     }
 
     fn authenticate(&mut self) -> bool {
-        let Some(mut candidate) = self.challenger.take() else { return false };
-        let frame = match candidate.stream.next(4096) {
-            Ok(Some(frame)) => frame,
-            Ok(None) if Instant::now() < candidate.expires => {
-                self.challenger = Some(candidate);
-                return false;
+        let mut activity = false;
+        for index in 0..self.challengers.len() {
+            let Some(mut candidate) = self.challengers[index].take() else { continue };
+            if Instant::now() >= candidate.expires {
+                continue;
             }
-            _ => return false,
-        };
-        let id = frame["id"].clone();
-        let params = &frame["params"];
-        let proof = params["proof"].as_str().unwrap_or_default().as_bytes();
-        let accepted = valid_request(&frame) && frame["method"] == "hello" && proves(proof, &self.directory.proof);
-        let result = if !accepted {
-            error(id, -32000, "unauthorized")
-        } else if params["protocolVersion"] != PROTOCOL_VERSION {
-            error(id, -32000, "incompatible")
-        } else {
-            reply(id, self.hello())
-        };
-        let sent = wire::write(&mut candidate.stream.io, &result, self.client_write_until()).is_ok();
-        if accepted && params["protocolVersion"] == PROTOCOL_VERSION && sent {
-            self.client_epoch += 1;
-            self.client = Some(candidate);
+            let frame = match candidate.stream.next(4096) {
+                Ok(Some(frame)) => frame,
+                Ok(None) => {
+                    self.challengers[index] = Some(candidate);
+                    continue;
+                }
+                Err(_) => continue,
+            };
+            let id = frame["id"].clone();
+            let params = &frame["params"];
+            let proof = params["proof"].as_str().unwrap_or_default().as_bytes();
+            let accepted = valid_request(&frame) && frame["method"] == "hello" && proves(proof, &self.directory.proof);
+            let compatible = params["protocolVersion"] == PROTOCOL_VERSION;
+            let result = if !accepted {
+                error(id, -32000, "unauthorized")
+            } else if !compatible {
+                error(id, -32000, "incompatible")
+            } else {
+                reply(id, self.hello())
+            };
+            let until = candidate.expires.min(self.client_write_until());
+            let sent = wire::write(&mut candidate.stream.io, &result, until).is_ok();
+            if accepted && compatible && sent {
+                self.client_epoch += 1;
+                self.client = Some(candidate);
+            }
+            activity = true;
         }
-        true
+        activity
     }
 
     fn command(&mut self) -> anyhow::Result<bool> {
@@ -306,7 +311,7 @@ impl Host {
             return Ok(Err("billing"));
         }
 
-        let msg = request(3, "session/prompt", json!({"sessionId":self.record["session"],"prompt":[{"type":"text","text":text}]}));
+        let msg = request(ACP_PROMPT, "session/prompt", json!({"sessionId":self.record["session"],"prompt":[{"type":"text","text":text}]}));
         // A durable key records acceptance. Even a crash before the write must never
         // inject the same prompt a second time.
         let seq = self.journal.append(json!({"kind":"acp","dir":"out","key":key,"msg":msg}), true)?;
@@ -343,8 +348,12 @@ impl Host {
 
     fn agent_message(&mut self) -> anyhow::Result<bool> {
         let Some(output) = &mut self.output else { return Ok(false) };
-        let next = match output.next(8 * 1024 * 1024) {
-            Ok(Some(frame)) => frame,
+        let next = match output.next_line(8 * 1024 * 1024) {
+            Ok(Some(Line::Frame(frame))) => frame,
+            Ok(Some(Line::Skipped { reason, bytes })) => {
+                self.journal.append(json!({"kind":"native","dir":"in","reason":reason,"cut":bytes}), false)?;
+                return Ok(true);
+            }
             Ok(None) => return Ok(false),
             Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 self.output = None;
@@ -358,17 +367,24 @@ impl Host {
         };
         for event in events {
             match event {
-                Event::Send(frame) => {
-                    if frame["method"] == "thread/start" {
-                        if self.closing.is_some() {
-                            continue;
-                        }
-                        self.acp("out", request(2, "session/new", json!({"cwd":self.record["cwd"],"mcpServers":[]})))?;
-                    }
-                    if self.input.is_some() && (self.closing.is_none() || frame["method"] == "turn/interrupt" || frame.get("method").is_none()) {
+                Event::Send(frame) if self.closing.is_none() => {
+                    self.send_control(&frame)?;
+                }
+                Event::SessionNew(frame) if self.closing.is_none() => {
+                    self.acp("out", request(ACP_SESSION_NEW, "session/new", json!({"cwd":self.record["cwd"],"mcpServers":[]})))?;
+                    self.send_control(&frame)?;
+                }
+                Event::Control(frame) => {
+                    if self.input.is_some() {
                         self.send_control(&frame)?;
                     }
                 }
+                Event::RequestError(frame) => {
+                    if self.input.is_some() && !self.has_request(&frame["id"]) {
+                        self.send_control(&frame)?;
+                    }
+                }
+                Event::Send(_) | Event::SessionNew(_) => {}
                 Event::Acp(frame) => { self.acp("in", frame)?; }
                 Event::Ready { session, meta } => {
                     if self.closing.is_none() {
@@ -377,7 +393,7 @@ impl Host {
                         self.record["model"] = meta["model"].clone();
                         self.record["approvals"] = meta["approvals"].clone();
                         self.record["billing"] = self.billing.clone();
-                        self.acp("in", reply(json!(2), json!({"sessionId":session,"_meta":{"workriver":meta}})))?;
+                        self.acp("in", reply(json!(ACP_SESSION_NEW), json!({"sessionId":session,"_meta":{"workriver":meta}})))?;
                         self.host_line("started", json!({"host":self.record["host"],"agentGroup":self.child.id(),"versions":self.record["versions"]}))?;
                         self.directory.save(&self.record)?;
                     }
@@ -388,6 +404,7 @@ impl Host {
                 }
                 Event::Usage(usage) => { self.host_line("usage", usage)?; }
                 Event::Unmapped(frame) => { self.journal.append(json!({"kind":"native","dir":"in","msg":frame}), false)?; }
+                Event::Skipped { frame, reason } => { self.journal.append(json!({"kind":"native","dir":"in","msg":frame,"reason":reason}), false)?; }
                 Event::Approval { native, acp } => self.add_approval(native, acp)?,
                 Event::Resolved(id) => {
                     if let Some(key) = self.pending.iter().find_map(|(&key, item)| (item.id == id).then_some(key)) {
@@ -396,8 +413,14 @@ impl Host {
                 }
                 Event::TurnEnded(frame) => {
                     let cancelled = frame["result"]["stopReason"] == "cancelled";
+                    let failed = frame.get("error").is_some();
                     self.acp("in", frame)?;
                     self.working = false;
+                    if failed {
+                        while let Some((&key, _)) = self.pending.first_key_value() {
+                            self.settle(key, "turn", self.input.is_some())?;
+                        }
+                    }
                     self.finish_cancel(Some(if cancelled {"cancelled"} else {"ended"}));
                 }
                 Event::Closed => {
@@ -412,7 +435,7 @@ impl Host {
 
     fn agent_protocol_error(&mut self, failure: anyhow::Error) -> anyhow::Result<bool> {
         if self.working {
-            self.acp("in", error(json!(3), -32603, "Codex protocol failed"))?;
+            self.acp("in", error(json!(ACP_PROMPT), -32603, "Agent protocol failed"))?;
             self.working = false;
         }
         if self.closing.is_none() {
@@ -425,14 +448,17 @@ impl Host {
     }
 
     fn add_approval(&mut self, native: Value, mut acp: Value) -> anyhow::Result<()> {
+        let id = native["id"].clone();
+        // Only the existing request can safely receive a reply for this id.
+        if self.has_request(&id) {
+            self.journal.append(json!({"kind":"native","dir":"in","msg":native,"reason":"duplicate active request id"}), false)?;
+            return Ok(());
+        }
         let view = approval_view(&native, &acp);
         if !view["cut"].is_null() {
             acp["params"]["options"] = view["acp"]["params"]["options"].clone();
         }
         let key = self.acp("in", acp)?;
-        let id = native["id"].clone();
-        // A duplicate active RPC id makes replies ambiguous. Do not send one.
-        ensure!(!self.pending.values().any(|pending| pending.id == id), "duplicate active Codex request id");
         let bytes = encoded_len(&view) + 32;
         let projected = self.pending.values().map(|item| item.bytes).sum::<usize>() + bytes + 512;
         let native = json!({"id":id,"method":native["method"]});
@@ -442,6 +468,10 @@ impl Host {
             self.settle(key, by, self.input.is_some())?;
         }
         Ok(())
+    }
+
+    fn has_request(&self, id: &Value) -> bool {
+        self.pending.values().any(|pending| &pending.id == id)
     }
 
     fn settle(&mut self, key: u64, by: &str, send: bool) -> anyhow::Result<()> {
@@ -498,7 +528,7 @@ impl Host {
     }
 
     fn acp(&mut self, dir: &str, frame: Value) -> anyhow::Result<u64> {
-        if dir == "in" && frame["id"] == 1 && frame["result"]["protocolVersion"] == 1 {
+        if dir == "in" && frame["id"] == ACP_INITIALIZE && frame["result"]["protocolVersion"] == 1 {
             self.record["versions"] = frame["result"]["_meta"]["workriver"].clone();
         }
         self.journal.append(json!({"kind":"acp","dir":dir,"msg":frame}), false)
@@ -511,11 +541,10 @@ impl Host {
     }
 
     fn wait(&self) -> io::Result<()> {
-        let mut fds = [wire::interested(-1, libc::POLLIN); 4];
+        let mut fds = [wire::interested(-1, libc::POLLIN); 3 + CHALLENGE_SLOTS];
         fds[0].fd = self.socket.listener.as_raw_fd();
         if let Some(output) = &self.output { fds[1].fd = output.io.as_raw_fd(); }
         if let Some(client) = &self.client { fds[2].fd = client.stream.io.as_raw_fd(); }
-        if let Some(client) = &self.challenger { fds[3].fd = client.stream.io.as_raw_fd(); }
         let now = Instant::now();
         let mut until = now + Duration::from_secs(1);
         if let Some(close) = &self.closing {
@@ -524,31 +553,31 @@ impl Host {
         if let Some(cancel) = &self.cancelling {
             until = until.min(cancel.until);
         }
-        if let Some(client) = &self.challenger {
-            until = until.min(client.expires);
+        for (fd, candidate) in fds[3..].iter_mut().zip(&self.challengers) {
+            if let Some(candidate) = candidate {
+                fd.fd = candidate.stream.io.as_raw_fd();
+                until = until.min(candidate.expires);
+            }
         }
         wire::poll(&mut fds, Some(until.saturating_duration_since(now)))
     }
 
-    fn progress_close(&mut self) -> anyhow::Result<bool> {
+    fn progress_close(&mut self, now: Instant, list_members: impl FnOnce(u32) -> io::Result<Vec<u32>>) -> anyhow::Result<bool> {
         let leader = self.child.id();
         let exited = close::exited(leader).context("cannot observe app-server exit")?;
         if self.closing.is_none() {
             if exited || self.output.is_none() {
-                self.closing = Some(Closing::new(Instant::now(), false, false));
+                self.closing = Some(Closing::new(now, false, false));
                 self.input.take();
-            } else if self.record["state"] == "starting" && Instant::now() >= self.startup_until {
-                anyhow::bail!("Codex startup timed out");
             } else {
                 return Ok(false);
             }
         }
 
         let close = self.closing.as_mut().unwrap();
-        let members = if close.checks_group() { close::members(leader) } else { Ok(Vec::new()) };
+        let members = if close.checks_group() { list_members(leader) } else { Ok(Vec::new()) };
         let (pids, listing_error) = close::remaining(leader, exited, members);
         let group_empty = listing_error.is_none() && pids.is_empty();
-        let now = Instant::now();
         let Some(step) = close.advance(now, !self.working, exited, group_empty) else {
             return Ok(false);
         };
@@ -556,7 +585,7 @@ impl Host {
             Step::Unsubscribe => {
                 if close.requested {
                     if let Some(frame) = self.adapter.close().filter(|_| !exited && self.input.is_some() && !self.record["session"].is_null()) {
-                        self.acp("out", request(4, "session/close", json!({"sessionId":self.record["session"]})))?;
+                        self.acp("out", request(ACP_CLOSE, "session/close", json!({"sessionId":self.record["session"]})))?;
                         if !self.send_control(&frame)? {
                             self.closing.as_mut().unwrap().unsubscribed(Instant::now());
                         }

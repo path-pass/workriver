@@ -237,6 +237,8 @@ sides. `main.rs` alone puts them together.
   client).
 - `runtime/` → `core::runtime`, scan's runner, `common/`; **never** `cli/` or `server/`.
   `runtime/herdr/` is imported by `runtime/` alone (it is a private module of the facade).
+  `runtime/acp/` is also private to the facade. The internal `host` command enters it
+  through `runtime::host` before service setup.
 - `common/` → core types, scan's runner (to read a process chain on another machine), std and
   installed libraries; **never** `cli/`, `server/` or `runtime/`. `common/wire/` may also name
   the value types of scan that the page's shapes carry (`FileChange`, `Module`), and nothing
@@ -247,7 +249,7 @@ sides. `main.rs` alone puts them together.
 crates/workriver/
 ├── build.rs                          # Build revision metadata.
 ├── src/
-│   ├── main.rs                       # Declares the four groups; enters cli or starts server.
+│   ├── main.rs                       # Declares the four groups and enters the CLI, server or host.
 │   ├── cli/                          # The CLI process: parse, fetch the caller proof, call the API, print.
 │   │   ├── mod.rs                    # The clap tree (Cli, Cmd), the shared context (Cx), status,
 │   │   │                             # open, board, link, guide, perf; one dispatch per domain.
@@ -402,7 +404,7 @@ crates/workriver/
 │   │       └── ownership.rs          # Who sets an intent's project, workspace and manager.
 │   ├── runtime/                      # Adapting outside programs: the facade and composition.
 │   │   ├── mod.rs                    # Neutral construction/context/wording facade (connect,
-│   │   │                             # caller_place, words, remote_ref, Settings); picks the adapter.
+│   │   │                             # caller_place, words, remote_ref, Settings) and host entry.
 │   │   ├── follow.rs                 # Several machines as one Runtime; routing by machine; each
 │   │   │                             # machine's change stream (watch) beside its reads.
 │   │   ├── ssh.rs                    # Tunnel supervision, publication, reconnect timing.
@@ -411,11 +413,16 @@ crates/workriver/
 │   │   │   ├── host/                 # Socket protocol, pending approvals and lifecycle.
 │   │   │   │   ├── mod.rs            # The host's polling loop and effects.
 │   │   │   │   ├── close.rs          # Group ownership, signals, waits and close outcomes.
-│   │   │   │   ├── instance.rs       # Instance files, lock, socket, and child environment.
-│   │   │   │   └── wire.rs           # Bounded JSON-RPC frames over sockets and pipes.
-│   │   │   ├── codex/                # Codex app-server translation and pinned schema fixtures.
+│   │   │   │   ├── instance.rs       # Instance files, lock and socket.
+│   │   │   │   ├── peer.rs           # Kernel peer identity and host ancestry checks.
+│   │   │   │   └── tests.rs          # Close deadline, approval durability and truncation.
+│   │   │   ├── codex/                # Codex app-server translation.
+│   │   │   │   ├── mod.rs            # Native launch and environment, account checks and ACP projection.
+│   │   │   │   ├── tests.rs          # Translation and native approval replies.
+│   │   │   │   └── VERSION           # Codex version used for protocol testing.
 │   │   │   ├── journal.rs            # Durable receipts, delivery keys and bounded reads.
-│   │   │   └── __fixtures__/         # Pinned ACP v1 schema and shared conversation.
+│   │   │   ├── journal/tests.rs      # Journal recovery, indexing and read budgets.
+│   │   │   └── wire.rs               # ACP frame builders and bounded JSON-RPC I/O.
 │   │   └── herdr/                    # Private to runtime/.
 │   │       ├── mod.rs                # Herdr implements Runtime; protocol values to workriver values.
 │   │       ├── protocol.rs           # Socket discovery, protocol version, framing, checked RPC.
@@ -460,7 +467,12 @@ crates/workriver/
     ├── caller.rs                     # Real CLI/socket/processes against a stand-in runtime socket.
     ├── boundaries.rs                 # The runtime-name ratchet over the repository (guards.md).
     ├── cli.rs                        # The CLI's text and the user's machine changes (guards.md).
-    └── output.rs                     # serve prints nothing that signs anyone in.
+    ├── hosted.rs                     # Real host, Unix socket, journal and protocol schema checks.
+    ├── output.rs                     # serve prints nothing that signs anyone in.
+    └── __fixtures__/
+        ├── acp/                      # Pinned ACP v1 schema, license and shared conversation.
+        ├── codex/                    # Pinned Codex approval response schemas and source.
+        └── hosted_app_server.rs      # Scripted Codex app-server used by hosted.rs.
 ```
 
 **Visibility in `server/`.** Nothing under `server/` is bare `pub`. A folder's `mod.rs`
@@ -588,6 +600,7 @@ docs/
     ├── layout.md                             # This file.
     ├── guards.md                             # The tests that hold behaviour and layout.
     ├── caller-identity.md                    # Who a call comes from: the rules.
+    ├── hosted-agent.md                       # The hosted process, socket, journal and close rules.
     └── ui/ navigation, activity, code, conversations, operations, attachments, templates, presentation (.md)
 ```
 

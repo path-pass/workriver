@@ -1,9 +1,15 @@
 //! Codex app-server's stable stdio protocol, projected onto the host's ACP subset.
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
+
+use super::wire::{ACP_CLOSE, ACP_INITIALIZE, ACP_PROMPT, error, notification, reply};
 
 #[cfg(test)]
 mod tests;
@@ -12,8 +18,12 @@ pub const TESTED_VERSION: &str = include_str!("VERSION");
 
 pub enum Event {
     Send(Value),
+    SessionNew(Value),
+    Control(Value),
+    RequestError(Value),
     Acp(Value),
     Unmapped(Value),
+    Skipped { frame: Value, reason: String },
     Ready { session: String, meta: Value },
     Billing(Value),
     Usage(Value),
@@ -51,7 +61,33 @@ impl Call {
 struct Turn {
     id: Option<String>,
     interrupt: bool,
-    early_completion: Option<Value>,
+    early_completion: Option<(String, Value)>,
+}
+
+pub(super) fn launch(cwd: &Path, model: Option<&str>, auth: &str, place: &str) -> Result<(Adapter, Child)> {
+    let command = || {
+        let names = ["HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "TMPDIR", "TERM", "CODEX_HOME", "WORKRIVER_HOME", "WORKRIVER_PORT"];
+        let mut command = Command::new("codex");
+        command.current_dir(cwd).env_clear().envs(std::env::vars_os().filter(|(key, _)| {
+            names.iter().any(|name| key == OsStr::new(name)) || key.as_encoded_bytes().starts_with(b"LC_")
+        }));
+        if auth == "api_key" && let Some(key) = std::env::var_os("OPENAI_API_KEY") {
+            command.env("OPENAI_API_KEY", key);
+        }
+        command.env("WORKRIVER_PLACE", place);
+        command
+    };
+    let version = crate::common::process::output_within({
+        let mut probe = command();
+        probe.arg("--version");
+        probe
+    }, Duration::from_secs(5))?;
+    ensure!(version.status.success(), "cannot read the Codex version");
+    let version = String::from_utf8(version.stdout)?;
+    let adapter = Adapter::new(cwd, model, auth, version.trim())?;
+    let child = command().args(["app-server", "--listen", "stdio://"])
+        .process_group(0).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+    Ok((adapter, child))
 }
 
 pub struct Adapter {
@@ -66,6 +102,7 @@ pub struct Adapter {
     session: String,
     meta: Value,
     turn: Option<Turn>,
+    diffs: HashMap<(String, String), Value>,
     files: HashMap<(String, String, String), Value>,
     sources: HashMap<String, Value>,
 }
@@ -90,6 +127,7 @@ impl Adapter {
             session: String::new(),
             meta: Value::Null,
             turn: None,
+            diffs: HashMap::new(),
             files: HashMap::new(),
             sources: HashMap::new(),
         })
@@ -150,20 +188,53 @@ impl Adapter {
         let mut events = Vec::new();
         if let Some(method) = frame["method"].as_str() {
             if frame.get("id").is_some() {
-                if let Some(acp) = self.approval(method, &frame)? {
-                    events.push(Event::Approval { native: frame, acp });
-                } else {
-                    let error = json!({"id": frame["id"], "error": {"code": -32601, "message": "Method not found"}});
-                    events.push(unmapped(frame));
-                    events.push(Event::Send(error));
+                match self.approval(method, &frame) {
+                    Ok(Some(acp)) => events.push(Event::Approval { native: frame, acp }),
+                    Ok(None) => {
+                        let response = json!({"id": frame["id"], "error": {"code": -32601, "message": "Method not found"}});
+                        events.push(Event::Unmapped(safe_frame(frame)));
+                        events.push(Event::RequestError(response));
+                    }
+                    Err(reason) => {
+                        let response = rpc_id(&frame, "id").ok().map(|_| self.reply(&frame, None));
+                        events.push(skipped(frame, &reason.to_string()));
+                        if let Some(response) = response {
+                            events.push(Event::RequestError(response));
+                        }
+                    }
                 }
-            } else if !self.notification(method, &frame["params"], &mut events)? {
-                events.push(unmapped(frame));
+            } else if method == "turn/diff/updated" {
+                if let Some(skipped) = self.remember_diff(frame) {
+                    events.push(skipped);
+                }
+            } else {
+                let params = &frame["params"];
+                match self.notification(method, params, &mut events) {
+                    Ok(true) => {}
+                    Ok(false) => events.push(Event::Unmapped(safe_frame(frame))),
+                    Err(reason) => {
+                        let main_completion = method == "turn/completed"
+                            && params["threadId"].as_str().unwrap_or(&self.session) == self.session;
+                        let reported_id = params["turn"]["id"].as_str().map(str::to_owned);
+                        let reason = reason.to_string();
+                        events.push(skipped(frame, &reason));
+                        if main_completion && let Some(turn) = &mut self.turn {
+                            let failed = error(json!(ACP_PROMPT), -32603, &reason);
+                            match (turn.id.as_deref(), reported_id) {
+                                (None, Some(id)) => turn.early_completion = Some((id, failed)),
+                                (Some(active), Some(id)) if active != id => {}
+                                _ => self.end_turn(failed, &mut events),
+                            }
+                        }
+                    }
+                }
             }
             return Ok(events);
         }
 
-        let id = frame["id"].as_u64().context("Codex response has no request id")?;
+        let Some(id) = frame["id"].as_u64() else {
+            return Ok(vec![skipped(frame, "Codex response has no request id")]);
+        };
         let Some(call) = self.calls.remove(&id) else {
             events.push(Event::Unmapped(json!({"id": id, "redacted": true})));
             return Ok(events);
@@ -174,11 +245,10 @@ impl Adapter {
         if let Some(error) = frame.get("error") {
             match call {
                 Call::Prompt => {
-                    self.turn = None;
-                    events.push(Event::TurnEnded(acp_error(3, error)));
+                    self.end_turn(acp_error(ACP_PROMPT, error), &mut events);
                 }
                 Call::Close => {
-                    events.extend([Event::Acp(acp_error(4, error)), Event::Closed]);
+                    events.extend([Event::Acp(acp_error(ACP_CLOSE, error)), Event::Closed]);
                 }
                 Call::Account if self.ready => {
                     events.push(Event::Billing(json!({"verified": false, "provider": "openai", "reason": "account read failed"})));
@@ -188,12 +258,22 @@ impl Adapter {
             }
             return Ok(events);
         }
-        let result = frame.get("result").context("Codex response has no result")?;
+        let Some(result) = frame.get("result") else {
+            if matches!(call, Call::Initialize | Call::Config | Call::Thread) || (call == Call::Account && !self.ready) {
+                bail!("Codex {} response has no result", call.method());
+            }
+            let reason = "Codex response has no result";
+            events.push(skipped(frame, reason));
+            if call == Call::Prompt {
+                self.end_turn(error(json!(ACP_PROMPT), -32603, reason), &mut events);
+            }
+            return Ok(events);
+        };
         match call {
             Call::Initialize => {
                 let output = self.version.trim();
                 let version = output.strip_prefix("codex-cli ").unwrap_or(output);
-                events.push(Event::Acp(acp_result(1, json!({
+                events.push(Event::Acp(reply(json!(ACP_INITIALIZE), json!({
                     "protocolVersion": 1,
                     "agentCapabilities": {"sessionCapabilities": {"close": {}}},
                     "agentInfo": {"name": "codex", "title": "Codex", "version": version},
@@ -213,7 +293,7 @@ impl Adapter {
                 if let Some(model) = &self.model {
                     params["model"] = json!(model);
                 }
-                events.push(Event::Send(self.request(Call::Thread, params)));
+                events.push(Event::SessionNew(self.request(Call::Thread, params)));
             }
             Call::Thread => {
                 ensure!(result["modelProvider"] == "openai", "Codex reported a model provider other than openai");
@@ -231,17 +311,22 @@ impl Adapter {
             }
             Call::Account => self.account(result, &mut events)?,
             Call::Prompt => {
-                let turn_id = field(&result["turn"], "id")?;
-                let turn = self.turn.as_mut().context("Codex acknowledged a turn with no prompt")?;
+                let Some(turn) = self.turn.as_mut() else { return Ok(events) };
+                let Ok(turn_id) = field(&result["turn"], "id") else {
+                    let reason = "Codex turn response needs a string id";
+                    events.push(skipped(frame, reason));
+                    self.end_turn(error(json!(ACP_PROMPT), -32603, reason), &mut events);
+                    return Ok(events);
+                };
                 turn.id = Some(turn_id.into());
-                if let Some(early) = turn.early_completion.take().filter(|early| early["id"] == turn_id) {
-                    self.finish_turn(&early, &mut events)?;
+                if let Some((_, early)) = turn.early_completion.take().filter(|(id, _)| id == turn_id) {
+                    self.end_turn(early, &mut events);
                 } else if turn.interrupt {
                     let params = json!({"threadId": self.session, "turnId": turn_id});
-                    events.push(Event::Send(self.request(Call::Interrupt, params)));
+                    events.push(Event::Control(self.request(Call::Interrupt, params)));
                 }
             }
-            Call::Close => events.extend([Event::Acp(acp_result(4, json!({}))), Event::Closed]),
+            Call::Close => events.extend([Event::Acp(reply(json!(ACP_CLOSE), json!({}))), Event::Closed]),
             Call::Interrupt => {}
         }
         Ok(events)
@@ -309,10 +394,13 @@ impl Adapter {
                 let ended = &params["turn"];
                 let id = field(ended, "id")?;
                 self.files.retain(|(source, turn, _), _| source != &thread || turn != id);
+                if let Some(diff) = self.diffs.remove(&(thread.clone(), id.into())) {
+                    events.push(Event::Unmapped(diff));
+                }
                 let Some(turn) = self.turn.as_mut().filter(|_| thread == self.session) else { return Ok(false) };
                 match turn.id.as_deref() {
-                    Some(active) if id == active => self.finish_turn(ended, events)?,
-                    None => turn.early_completion = Some(ended.clone()),
+                    Some(active) if id == active => self.end_turn(turn_result(ended)?, events),
+                    None => turn.early_completion = Some((id.into(), turn_result(ended)?)),
                     _ => return Ok(false),
                 }
             }
@@ -466,27 +554,48 @@ impl Adapter {
         self.tag(thread, &mut tool);
         let mut args = json!({"sessionId": self.session, "toolCall": tool, "options": options});
         self.tag(thread, &mut args);
-        Ok(Some(json!({"jsonrpc": "2.0", "id": id, "method": "session/request_permission", "params": args})))
+        Ok(Some(super::wire::rpc_request(id.clone(), "session/request_permission", args)))
     }
 
     fn update(&self, thread: &str, mut update: Value) -> Event {
         self.tag(thread, &mut update);
         let mut params = json!({"sessionId": self.session, "update": update});
         self.tag(thread, &mut params);
-        Event::Acp(json!({"jsonrpc": "2.0", "method": "session/update", "params": params}))
+        Event::Acp(notification("session/update", params))
     }
 
-    fn finish_turn(&mut self, turn: &Value, events: &mut Vec<Event>) -> Result<()> {
-        let id = field(turn, "id")?;
-        let result = match field(turn, "status")? {
-            "completed" => acp_result(3, json!({"stopReason": "end_turn", "_meta": {"workriver": {"turn": id}}})),
-            "interrupted" => acp_result(3, json!({"stopReason": "cancelled", "_meta": {"workriver": {"turn": id}}})),
-            "failed" => acp_error(3, &json!({"code": -32603, "message": turn["error"]["message"], "data": {"turn": id}})),
-            _ => bail!("Codex reported an invalid terminal turn status"),
+    fn remember_diff(&mut self, frame: Value) -> Option<Event> {
+        let params = &frame["params"];
+        let (Some(thread), Some(id), Some(_)) = (params["threadId"].as_str(), params["turnId"].as_str(), params["diff"].as_str()) else {
+            return Some(skipped(frame, "Codex diff needs a thread id, turn id and diff"));
         };
-        self.turn = None;
+        if thread == self.session {
+            let turn = self.turn.as_ref()?;
+            if turn.id.as_deref().is_some_and(|active| active != id) || turn.early_completion.is_some() {
+                return None;
+            }
+            self.diffs.retain(|(source, previous), _| source != thread || previous == id);
+        }
+        self.diffs.insert((thread.into(), id.into()), frame);
+        None
+    }
+
+    fn end_turn(&mut self, result: Value, events: &mut Vec<Event>) {
+        let turn = self.turn.take();
+        let id = turn.as_ref().and_then(|turn| turn.id.as_deref());
+        let interrupted = result.get("error").is_some() || result["result"]["stopReason"] == "cancelled";
+        self.diffs.retain(|(thread, turn), diff| {
+            if thread != &self.session {
+                return !interrupted;
+            }
+            if id.is_none_or(|id| id == turn) {
+                events.push(Event::Unmapped(std::mem::take(diff)));
+            }
+            false
+        });
+        self.files.retain(|(thread, _, _), _| thread != &self.session);
+        self.calls.retain(|_, call| *call != Call::Prompt);
         events.push(Event::TurnEnded(result));
-        Ok(())
     }
 
     fn remember_source(&mut self, thread: &str, parent: &str, nickname: Option<&str>) {
@@ -519,24 +628,40 @@ fn rpc_id<'a>(value: &'a Value, key: &str) -> Result<&'a Value> {
     Ok(id)
 }
 
-fn unmapped(mut frame: Value) -> Event {
+fn safe_frame(mut frame: Value) -> Value {
     // Authentication payloads can contain account identifiers or credentials.
     if frame["method"].as_str().is_some_and(|method| method.starts_with("account/")) {
         frame.as_object_mut().unwrap().remove("params");
         frame["redacted"] = json!(true);
     }
-    Event::Unmapped(frame)
+    frame
 }
 
-fn acp_result(id: u8, result: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": result})
+fn skipped(frame: Value, reason: &str) -> Event {
+    let frame = if frame["method"].is_string() {
+        safe_frame(frame)
+    } else {
+        // A response body may contain configuration or account details.
+        json!({"id": frame["id"], "redacted": true})
+    };
+    Event::Skipped { frame, reason: reason.into() }
 }
 
-fn acp_error(id: u8, error: &Value) -> Value {
-    let code = error["code"].as_i64().unwrap_or(-32603);
-    let message = error["message"].as_str().unwrap_or("Codex request failed");
-    let mut frame = json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}});
-    if let Some(data) = error.get("data") {
+fn turn_result(turn: &Value) -> Result<Value> {
+    let id = &turn["id"];
+    Ok(match field(turn, "status")? {
+        "completed" => reply(json!(ACP_PROMPT), json!({"stopReason": "end_turn", "_meta": {"workriver": {"turn": id}}})),
+        "interrupted" => reply(json!(ACP_PROMPT), json!({"stopReason": "cancelled", "_meta": {"workriver": {"turn": id}}})),
+        "failed" => acp_error(ACP_PROMPT, &json!({"code": -32603, "message": turn["error"]["message"], "data": {"turn": id}})),
+        _ => bail!("Codex reported an invalid terminal turn status"),
+    })
+}
+
+fn acp_error(id: u64, native: &Value) -> Value {
+    let code = native["code"].as_i64().unwrap_or(-32603);
+    let message = native["message"].as_str().unwrap_or("Codex request failed");
+    let mut frame = error(json!(id), code, message);
+    if let Some(data) = native.get("data") {
         frame["error"]["data"] = data.clone();
     }
     frame

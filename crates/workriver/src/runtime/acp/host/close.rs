@@ -16,7 +16,6 @@ pub(super) struct Closing {
     pub deadline: Instant,
     pub until: Instant,
     next: Step,
-    unsubscribe: bool,
     pub requested: bool,
     pub cancelled: bool,
 }
@@ -27,7 +26,6 @@ impl Closing {
             deadline: now + Duration::from_secs(30),
             until: now + Duration::from_secs(if working { 10 } else { 0 }),
             next: Step::Unsubscribe,
-            unsubscribe: requested,
             requested,
             cancelled: false,
         }
@@ -36,7 +34,7 @@ impl Closing {
     pub fn advance(&mut self, now: Instant, turn_done: bool, leader_exited: bool, group_empty: bool) -> Option<Step> {
         let early = match self.next {
             Step::Unsubscribe => turn_done || leader_exited,
-            Step::Eof => !self.unsubscribe || leader_exited,
+            Step::Eof => !self.requested || leader_exited,
             Step::Terminate => leader_exited,
             Step::Kill | Step::Finish => leader_exited && group_empty,
         };
@@ -45,7 +43,7 @@ impl Closing {
         }
         let step = self.next;
         let (next, seconds) = match step {
-            Step::Unsubscribe => (Step::Eof, if self.unsubscribe { 5 } else { 0 }),
+            Step::Unsubscribe => (Step::Eof, if self.requested { 5 } else { 0 }),
             Step::Eof => (Step::Terminate, if self.requested { 5 } else { 0 }),
             Step::Terminate => (Step::Kill, 5),
             Step::Kill => (Step::Finish, 2),

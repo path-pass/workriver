@@ -4,7 +4,16 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+pub(super) const ACP_INITIALIZE: u64 = 1;
+pub(super) const ACP_SESSION_NEW: u64 = 2;
+pub(super) const ACP_PROMPT: u64 = 3;
+pub(super) const ACP_CLOSE: u64 = 4;
+
 pub(super) fn request(id: u64, method: &str, params: Value) -> Value {
+    rpc_request(json!(id), method, params)
+}
+
+pub(super) fn rpc_request(id: Value, method: &str, params: Value) -> Value {
     json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})
 }
 
@@ -16,40 +25,74 @@ pub(super) fn reply(id: Value, result: Value) -> Value {
     json!({"jsonrpc":"2.0","id":id,"result":result})
 }
 
-pub(super) fn error(id: Value, code: i32, message: &str) -> Value {
+pub(super) fn error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
+}
+
+pub(super) enum Line {
+    Frame(Value),
+    Skipped { reason: &'static str, bytes: usize },
 }
 
 pub(super) struct Lines<T> {
     pub io: T,
     bytes: Vec<u8>,
     scanned: usize,
+    discarded: usize,
 }
 
 impl<T: Read> Lines<T> {
     pub fn new(io: T) -> Self {
-        Self { io, bytes: Vec::new(), scanned: 0 }
+        Self { io, bytes: Vec::new(), scanned: 0, discarded: 0 }
     }
 
     pub fn next(&mut self, max_bytes: usize) -> io::Result<Option<Value>> {
+        match self.read_line(max_bytes, false)? {
+            Some(Line::Frame(frame)) => Ok(Some(frame)),
+            Some(Line::Skipped { reason, .. }) => Err(io::Error::new(io::ErrorKind::InvalidData, reason)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn next_line(&mut self, max_bytes: usize) -> io::Result<Option<Line>> {
+        self.read_line(max_bytes, true)
+    }
+
+    fn read_line(&mut self, max_bytes: usize, resync: bool) -> io::Result<Option<Line>> {
         loop {
             if let Some(end) = self.bytes[self.scanned..].iter().position(|&byte| byte == b'\n') {
                 let end = self.scanned + end;
-                if end > max_bytes {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds wire budget"));
-                }
-                let frame = serde_json::from_slice(&self.bytes[..end]).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid JSON-RPC frame"))?;
+                let bytes = std::mem::take(&mut self.discarded).saturating_add(end);
+                let line = if bytes > max_bytes {
+                    Line::Skipped { reason: "frame exceeds wire budget", bytes }
+                } else {
+                    match serde_json::from_slice(&self.bytes[..end]) {
+                        Ok(frame) => Line::Frame(frame),
+                        Err(_) => Line::Skipped { reason: "invalid JSON-RPC frame", bytes },
+                    }
+                };
                 self.bytes.drain(..=end);
+                if self.bytes.capacity() > 256 * 1024 && self.bytes.len() <= 8192 {
+                    self.bytes.shrink_to(8192);
+                }
                 self.scanned = 0;
-                return Ok(Some(frame));
+                return Ok(Some(line));
             }
             self.scanned = self.bytes.len();
-            if self.bytes.len() > max_bytes {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds wire budget"));
+            if (self.discarded != 0 && !self.bytes.is_empty()) || self.bytes.len() > max_bytes {
+                if !resync {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds wire budget"));
+                }
+                self.discarded = self.discarded.saturating_add(self.bytes.len());
+                self.bytes.clear();
+                self.bytes.shrink_to(8192);
+                self.scanned = 0;
+                // Give socket commands a chance to run while discarding a long line.
+                return Ok(None);
             }
             let mut chunk = [0; 8192];
             match self.io.read(&mut chunk) {
-                Ok(0) if self.bytes.is_empty() => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "stream closed")),
+                Ok(0) if self.bytes.is_empty() && self.discarded == 0 => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "stream closed")),
                 Ok(0) => return Err(io::Error::new(io::ErrorKind::InvalidData, "incomplete JSON-RPC frame")),
                 Ok(len) => self.bytes.extend_from_slice(&chunk[..len]),
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
