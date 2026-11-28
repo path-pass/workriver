@@ -88,6 +88,8 @@ impl App {
         }
         let chain = self.chain_of(caller)?;
         match self.place(caller, &chain)? {
+            // A hosted start not recorded yet: nobody under it is anyone, the user included.
+            Some(root) if root.at.starting => Err(ApiError(StatusCode::FORBIDDEN, starting(&root.place))),
             Some(root) => match &root.at.agent {
                 Some(a) => {
                     self.one_place(machine, &root, a, &chain)?;
@@ -507,6 +509,9 @@ impl App {
         }
         let chain = self.chain_of(caller)?;
         let root = self.place(caller, &chain)?;
+        if let Some(root) = root.as_ref().filter(|r| r.at.starting) {
+            return Err(ApiError(StatusCode::FORBIDDEN, starting(&root.place)));
+        }
         let actor = if let Some(root) = &root
             && let Some(a) = &root.at.agent
         {
@@ -534,6 +539,11 @@ fn seat_answer(session: &str, seat: Option<&str>, machine: Option<&str>, found: 
         Some((m, None)) if m.as_deref() == seat => Err(RuntimeError::NoAgent(session.into())),
         _ => Err(RuntimeError::Unreachable(format!("where the manager {session} runs{} cannot be read now", on(seat)))),
     }
+}
+
+/// What a caller under a hosted agent's place hears before its start is recorded.
+fn starting(place: &str) -> String {
+    format!("the agent at {place} is still starting: its commands are taken once its start is recorded")
 }
 
 /// " on machine m", or nothing for this one.

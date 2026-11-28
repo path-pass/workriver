@@ -84,9 +84,9 @@ fn reads_agents_one_request_per_connection() {
 fn sends_at_the_sessions_pane_and_reports_errors() {
     let error = json!({ "error": { "code": "agent_blocked", "message": "agent is blocked" } });
     let (_dir, herdr, server) = fake(vec![snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } }), snapshot(), error]);
-    herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap();
+    herdr.send_at(None, "w5:p1", "s-1", "k", "hello").unwrap();
     // Blocked is its own error: the message waits rather than fails.
-    let err = herdr.send_at(None, "w5:p1", "s-1", "again").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "k", "again").unwrap_err();
     assert!(matches!(&err, RuntimeError::Blocked(w) if w.contains("agent_blocked") && w.contains("agent is blocked")), "{err}");
     let seen = server.join().unwrap();
     assert_eq!(seen[1]["method"], "agent.prompt");
@@ -99,11 +99,11 @@ fn sends_at_the_sessions_pane_and_reports_errors() {
 #[test]
 fn sends_at_a_pane_only_while_it_shows_the_session() {
     let (_dir, herdr, server) = fake(vec![snapshot(), snapshot(), snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } })]);
-    let err = herdr.send_at(None, "w5:p2", "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p2", "s-1", "k", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::NoAgent(a) if a == "s-1"), "{err}");
-    let err = herdr.send_at(None, "w5:p9", "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p9", "s-1", "k", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::NoAgent(a) if a == "s-1"), "{err}");
-    herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap();
+    herdr.send_at(None, "w5:p1", "s-1", "k", "hello").unwrap();
     let seen = server.join().unwrap();
     assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["session.snapshot", "session.snapshot", "session.snapshot", "agent.prompt"]);
     assert_eq!(seen[3]["params"], json!({ "target": "w5:p1", "text": "hello" }));
@@ -269,12 +269,12 @@ fn dropping(answers: Vec<Option<Value>>) -> (tempfile::TempDir, Herdr, std::thre
 #[test]
 fn a_drop_before_the_prompt_is_unreachable_after_it_failed() {
     let (_dir, herdr, server) = dropping(vec![None]);
-    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "k", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::Unreachable(w) if w.contains("session.snapshot")), "{err:?}");
     assert_eq!(server.join().unwrap(), ["session.snapshot"]);
 
     let (_dir, herdr, server) = dropping(vec![Some(snapshot()), None]);
-    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "k", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::Failed(w) if w.contains("agent.prompt")), "{err:?}");
     assert_eq!(server.join().unwrap(), ["session.snapshot", "agent.prompt"]);
 }
@@ -465,7 +465,7 @@ fn a_panes_screen_keys_and_reason() {
     let s = herdr.screen(None, "w5:p1").unwrap();
     assert_eq!((s.text.as_str(), s.rows, s.cols), ("a\n❯ 1. Yes\n  2. No\n", 3, 8));
     herdr.press(None, "w5:p1", &[Key::Down, Key::Escape, Key::Digit(2), Key::Enter, Key::Tab, Key::Up]).unwrap();
-    herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap();
+    herdr.send_at(None, "w5:p1", "s-1", "k", "hello").unwrap();
     // The rule and the words it matched on; never the screen's text in its evidence.
     assert_eq!(herdr.why_blocked(None, "w5:p1").unwrap().as_deref(), Some("live_blocked_form: esc to cancel"));
     assert_eq!(herdr.why_blocked(None, "w5:p1").unwrap(), None);

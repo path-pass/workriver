@@ -336,7 +336,7 @@ impl Fake {
     /// What is at a place: its agent, if one.
     fn at(&self, place: &str) -> workriver_core::runtime::Place {
         let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
-        workriver_core::runtime::Place { agent }
+        workriver_core::runtime::Place { agent, starting: false }
     }
 
     /// What Herdr's prompt does once the place is known: typed, or refused as Herdr refuses.
@@ -413,7 +413,7 @@ impl workriver_core::runtime::Runtime for Fake {
     }
     /// As Herdr's: only into the place named, while it shows the session, read from the same
     /// list `resolve` reads (so it fails as `resolve` does); then as `take`.
-    fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+    fn send_at(&self, _: Option<&str>, place: &str, session: &str, _key: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         if self.resolve_down.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(workriver_core::runtime::RuntimeError::None);
         }

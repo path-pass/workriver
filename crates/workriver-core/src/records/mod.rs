@@ -93,6 +93,9 @@ pub struct State {
     /// view itself.
     #[serde(skip)]
     pub runs: Vec<CommandRun>,
+    /// The agents workriver holds itself (hosted), in the order their starts were reserved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hosted: Vec<crate::hosted::HostedAgent>,
 }
 
 /// An event's kind, as recorded ("gate.submitted").
@@ -158,6 +161,8 @@ impl State {
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessageRated { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.prepare_messages(who, body),
             DeliveryUpdated { .. } => self.prepare_deliveries(who, body),
             AttachmentAdded { .. } | AttachmentRemoved { .. } | AttachmentRestored { .. } => self.prepare_attachments(who, body),
+            // Hosted agents: hosted/.
+            AgentStartReserved { .. } | AgentStarted { .. } | AgentStartEnded { .. } | AgentAnswered { .. } | AgentClosed { .. } => self.prepare_hosted(who, body),
         }
     }
 
@@ -183,6 +188,7 @@ impl State {
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessageRated { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.apply_messages(e),
             DeliveryUpdated { .. } => self.apply_deliveries(e),
             AttachmentAdded { .. } | AttachmentRemoved { .. } | AttachmentRestored { .. } => self.apply_attachments(e),
+            AgentStartReserved { .. } | AgentStarted { .. } | AgentStartEnded { .. } | AgentAnswered { .. } | AgentClosed { .. } => self.apply_hosted(e),
         }
         self.open_gates(at);
     }

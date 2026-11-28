@@ -79,14 +79,14 @@ impl crate::State {
 impl Body {
     /// What only the person may record: their decisions and results, and what changes
     /// where workriver reaches or who manages (projects, workspaces, a manager's seat, a
-    /// manager's start, the workspace an intent runs in). A new kind that sets a seat, a
+    /// manager's start, a hosted agent's start, the workspace an intent runs in). A new kind that sets a seat, a
     /// workspace or a project is one of these, or `service_only` under a rule of `prepare`
     /// that ties it to one of these (a start's seating, `ManagerStartSeated`).
     pub fn user_only(&self) -> bool {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | WorkspaceManagerStarted { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessageRated { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. } | AgentKeys { .. } | TemplateSet { .. } | TemplateRemoved { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | WorkspaceManagerStarted { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessageRated { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. } | AgentKeys { .. } | TemplateSet { .. } | TemplateRemoved { .. } | AgentStartReserved { .. }
         )
     }
 
@@ -99,11 +99,13 @@ impl Body {
     /// a seated session has its seat back is what the service saw of its terminal. A start's
     /// seating and its end are what the service found of the user's start: the rules accept
     /// them only for that workspace's pending start. That an attachment's bytes left the store,
-    /// or are in it again, is what the service did with them: no agent's word changes it.
+    /// or are in it again, is what the service did with them: no agent's word changes it. A
+    /// hosted agent's start, its end, an answer its host took and its close are what the
+    /// service found of the user's start and of the host: the rules tie each to a reservation.
     pub fn service_only(&self) -> bool {
         matches!(
             self,
-            Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. } | Body::ManagerStartSeated { .. } | Body::ManagerStartEnded { .. } | Body::AttachmentRemoved { .. } | Body::AttachmentRestored { .. }
+            Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. } | Body::ManagerStartSeated { .. } | Body::ManagerStartEnded { .. } | Body::AttachmentRemoved { .. } | Body::AttachmentRestored { .. } | Body::AgentStarted { .. } | Body::AgentStartEnded { .. } | Body::AgentAnswered { .. } | Body::AgentClosed { .. }
         )
     }
 }

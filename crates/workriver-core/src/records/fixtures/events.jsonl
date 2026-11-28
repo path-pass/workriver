@@ -135,3 +135,9 @@
 {"seq":135,"at":"2026-01-10T09:00:01Z","actor":"workriver","kind":"attachment.removed","body":{"ids":["00000000000000f2"],"how":"moved","to":{"kind":"folder","path":"/Users/me/OneDrive/wr"},"rule":{"days":30,"only":"all","minMb":0}}}
 {"seq":136,"at":"2026-01-11T10:00:00Z","actor":"s-i","kind":"attachment.added","body":{"id":"00000000000000f2","name":"report.txt","type":"text/plain","size":512}}
 {"seq":137,"at":"2026-01-11T10:05:00Z","actor":"workriver","kind":"attachment.restored","body":{"id":"00000000000000f1"}}
+{"seq":138,"at":"2026-01-11T11:00:00Z","actor":"user","kind":"agent.start_reserved","body":{"id":"a1","workspace":"ws1","name":"hosted-w","harness":"codex","model":"gpt-5","cwd":"/r/chat","auth":"chatgpt"}}
+{"seq":139,"at":"2026-01-11T11:00:05Z","actor":"workriver","kind":"agent.started","body":{"agent":"a1","session":"s-hosted","model":"gpt-5","host":{"pid":4100,"start":17},"generation":1,"version":"0.172.0","account":"chatgpt","plan":"pro","approvals":"on-request"}}
+{"seq":140,"at":"2026-01-11T11:01:00Z","actor":"workriver","kind":"agent.answered","body":{"agent":"a1","request":12,"decision":"allow"}}
+{"seq":141,"at":"2026-01-11T11:02:00Z","actor":"user","kind":"agent.start_reserved","body":{"id":"a2","workspace":"ws1","name":"late","harness":"codex","cwd":"/r/chat","auth":"api_key"}}
+{"seq":142,"at":"2026-01-11T11:03:01Z","actor":"workriver","kind":"agent.start_ended","body":{"agent":"a2","why":"did not start in time"}}
+{"seq":143,"at":"2026-01-11T11:05:00Z","actor":"workriver","kind":"agent.closed","body":{"agent":"a1","outcome":"stuck","pids":[4120]}}

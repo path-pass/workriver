@@ -65,7 +65,7 @@ impl Runtime for Herdr {
     fn locate(&self, _: Option<&str>, place: &str) -> Result<Place, RuntimeError> {
         let (_, list) = self.read()?;
         let agent = list.into_iter().find(|(p, _)| p == place).map(|(_, a)| a);
-        Ok(Place { agent })
+        Ok(Place { agent, starting: false })
     }
 
     fn focus(&self, session: &str) -> Result<(), RuntimeError> {
@@ -80,7 +80,7 @@ impl Runtime for Herdr {
     /// Into this pane only, while it holds this session, read fresh. A read that fails asked
     /// for no prompt: nothing was typed, so Herdr cannot be reached now (`Unreachable`); only
     /// what fails once the prompt is asked for may have typed it.
-    fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
+    fn send_at(&self, _: Option<&str>, place: &str, session: &str, _key: &str, text: &str) -> Result<(), RuntimeError> {
         let (_, list) = self.read().map_err(|e| match e {
             RuntimeError::Failed(words) => RuntimeError::Unreachable(words),
             e => e,

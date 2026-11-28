@@ -505,7 +505,7 @@ impl Runtime for Machines {
             Some(m) => {
                 let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed; enable it with `workriver machine enable`")))?;
                 let at = on(&e, &|r: &dyn Runtime| r.locate(None, place))?;
-                Ok(Place { agent: at.agent.map(|a| their_agent(a, m)) })
+                Ok(Place { agent: at.agent.map(|a| their_agent(a, m)), starting: at.starting })
             }
         }
     }
@@ -515,8 +515,8 @@ impl Runtime for Machines {
     }
 
     /// Asked of the machine named, at that machine's own place.
-    fn send_at(&self, machine: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
-        self.at(machine, |r| r.send_at(None, place, session, text))
+    fn send_at(&self, machine: Option<&str>, place: &str, session: &str, key: &str, text: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.send_at(None, place, session, key, text))
     }
 
     /// A group of a machine is `<id>@<machine>`: the agent starts there.
@@ -565,7 +565,7 @@ impl Runtime for Machines {
             Some(m) => {
                 let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed; enable it with `workriver machine enable`")))?;
                 let roots = on(&e, &|r: &dyn Runtime| r.roots(None, place))?;
-                Ok(roots.into_iter().map(|r| Root { at: Place { agent: r.at.agent.map(|a| their_agent(a, m)) }, ..r }).collect())
+                Ok(roots.into_iter().map(|r| Root { at: Place { agent: r.at.agent.map(|a| their_agent(a, m)), starting: r.at.starting }, ..r }).collect())
             }
         }
     }

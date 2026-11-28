@@ -5,6 +5,7 @@
 pub mod access;
 pub mod choices;
 pub mod conversations;
+pub mod hosted;
 pub mod planning;
 pub mod ports;
 pub mod records;

@@ -76,6 +76,8 @@ fn seen(state: &State, events: &[Event]) -> Value {
             next(Principal::Service, json!({ "kind": "attachment.removed", "body": { "ids": ["a1"], "how": "deleted", "rule": { "days": 1, "only": "all", "minMb": 0 } } })),
             next(Principal::Agent { session: "s-i".into(), machine: None }, json!({ "kind": "attachment.restored", "body": { "id": "00000000000000f2" } })),
             next(Principal::Service, json!({ "kind": "attachment.restored", "body": { "id": "00000000000000f2" } })),
+            next(Principal::User, json!({ "kind": "agent.start_reserved", "body": { "workspace": "ws1", "name": "late", "harness": "codex", "cwd": "/r/chat", "auth": "chatgpt" } })),
+            next(Principal::Service, json!({ "kind": "agent.answered", "body": { "agent": "a1", "request": 13, "decision": "reject" } })),
         ],
     })
 }

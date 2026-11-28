@@ -26,6 +26,10 @@ pub(in crate::server) struct Held {
     pub(in crate::server) seat: Option<(String, u64)>,
     /// A planned delivery was recorded held (`App::park`, once, before it first waits).
     pub(in crate::server) recorded_held: bool,
+    /// Its delivery key, the same at every try (`fresh_key`); a discussion's question, which a
+    /// restart builds again, has one from its id, so a host that took it before the restart
+    /// takes it no second time.
+    pub(in crate::server) key: String,
 }
 
 impl Held {
@@ -33,13 +37,13 @@ impl Held {
     pub(in crate::server) fn new(all: &core::State, kind: For, question: &str, to: &str, text: String, about: Option<delivery::Plan>) -> Held {
         let seat = all.seat_of(to).filter(|w| !w.closed).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)));
         let name = all.name_of(to).unwrap_or(to).to_string();
-        Held { question: question.into(), kind, to: to.into(), name, text, not_ready: None, about, seat, recorded_held: false }
+        Held { question: question.into(), kind, to: to.into(), name, text, not_ready: None, about, seat, recorded_held: false, key: fresh_key() }
     }
 
     /// For a temporary agent workriver started (a question, a review), by the name it gave
     /// it: it holds no seat.
     pub(in crate::server) fn temporary(kind: For, question: &str, name: String, text: String) -> Held {
-        Held { question: question.into(), kind, to: name.clone(), name, text, not_ready: None, about: None, seat: None, recorded_held: false }
+        Held { question: question.into(), kind, to: name.clone(), name, text, not_ready: None, about: None, seat: None, recorded_held: false, key: fresh_key() }
     }
 
     /// What workriver tells an agent (`For::Notice`).

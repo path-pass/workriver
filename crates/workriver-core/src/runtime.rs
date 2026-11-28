@@ -54,6 +54,9 @@ pub struct RuntimeAgent {
 pub struct Place {
     /// The agent running there, if any (a plain shell has none).
     pub agent: Option<RuntimeAgent>,
+    /// An agent's place that is not its agent's yet: a hosted start whose receipt is not
+    /// recorded. No caller under it is anyone, the user included.
+    pub starting: bool,
 }
 
 /// A place with the processes at its root, as the ids its operating system gives them:
@@ -101,6 +104,13 @@ pub enum RuntimeError {
     /// The agent is starting and takes no message yet; the runtime's words.
     #[error("{0}")]
     NotReady(String),
+    /// The agent is in a turn and takes no message until it ends; nothing was given to it.
+    #[error("{0}")]
+    Busy(String),
+    /// The place names an older generation of the agent, which runs on in a newer one:
+    /// nothing was given; where it is now is resolved again.
+    #[error("{0}")]
+    Moved(String),
     /// A run's shell is no longer there, or its place is no longer a run's shell.
     #[error("{0}")]
     NoPlace(String),
@@ -144,9 +154,10 @@ pub trait Runtime: Send + Sync {
     /// waiting for an answer; only while that place shows exactly this session, read fresh:
     /// `NoAgent` otherwise, whatever other place shows it. Every message workriver types goes
     /// this way, once its place is known: the one place `resolve` gave, or the place a seated
-    /// manager is held to, never wherever its session shows. By default, no runtime can
-    /// (`Unsupported`).
-    fn send_at(&self, _machine: Option<&str>, _place: &str, _session: &str, _text: &str) -> Result<(), RuntimeError> {
+    /// manager is held to, never wherever its session shows. `key` is the message's own,
+    /// the same at every try: a runtime that keeps it takes a message once whatever the
+    /// tries (a terminal's ignores it). By default, no runtime can (`Unsupported`).
+    fn send_at(&self, _machine: Option<&str>, _place: &str, _session: &str, _key: &str, _text: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::Unsupported)
     }
     /// Start a temporary agent of `harness`, named `name`, in a place of its own inside

@@ -143,7 +143,7 @@ impl App {
         let now = w.manager.as_ref();
         if let Some(old) = before.filter(|old| now.is_none_or(|m| m.session != old.session)) {
             let text = delivery::unseated(all, w);
-            if let Err(e) = self.type_at(&old.session, old.machine.as_deref(), &text) {
+            if let Err(e) = self.type_at(&old.session, old.machine.as_deref(), &fresh_key(), &text) {
                 tracing::info!("cannot tell {} that it no longer manages {workspace}: {e}", old.session);
             }
         }

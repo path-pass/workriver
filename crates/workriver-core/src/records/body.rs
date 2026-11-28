@@ -743,6 +743,68 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         option: Option<crate::screens::KeptOption>,
     },
+    /// The user's start of an agent workriver holds (a hosted agent): what they chose. The
+    /// rules give it its id (`a1`), never given again. The user's alone, and recorded only by
+    /// the start action, never through `/api/append`.
+    #[serde(rename = "agent.start_reserved")]
+    AgentStartReserved {
+        #[serde(default)]
+        id: String,
+        workspace: String,
+        /// What it is called; one open hosted agent has it at a time.
+        name: String,
+        harness: String,
+        /// Empty: the harness's own default.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        model: String,
+        /// The folder it works in (absolute).
+        cwd: String,
+        /// How the harness signs in, as the user chose (`chatgpt`, `api_key`).
+        auth: String,
+    },
+    /// The reserved start is up: the session its host reported, and the host's process as
+    /// the service spawned it. workriver's own (`Body::service_only`), for an open
+    /// reservation and a session the records did not know.
+    #[serde(rename = "agent.started")]
+    AgentStarted {
+        agent: String,
+        session: String,
+        /// The model the harness says it runs.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        model: String,
+        /// The host process: the root of the agent's place.
+        host: crate::planning::Shell,
+        generation: u64,
+        /// The harness's version, as its adapter read it.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        version: String,
+        /// The account kind the harness reported (`chatgpt`, `api_key`), and its plan when given;
+        /// never an id or an address.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        account: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        plan: String,
+        /// The harness's approval policy as it reported it.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        approvals: String,
+    },
+    /// A reserved start ended without starting: why. workriver's own, for an open reservation.
+    #[serde(rename = "agent.start_ended")]
+    AgentStartEnded { agent: String, why: String },
+    /// The user answered a hosted agent's approval request and its host took the answer.
+    /// workriver's own: the route asks for the user; a receipt found missing later is recorded
+    /// from the host's journal. `request` is the request's key there; no text of the agent's.
+    #[serde(rename = "agent.answered")]
+    AgentAnswered { agent: String, request: u64, decision: crate::hosted::Answer },
+    /// A hosted agent's close, as its host wrote it: the one outcome.
+    #[serde(rename = "agent.closed")]
+    AgentClosed {
+        agent: String,
+        outcome: crate::hosted::Outcome,
+        /// The processes left in its group when the outcome is `stuck`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pids: Vec<u32>,
+    },
 }
 
 impl Body {
@@ -786,6 +848,7 @@ impl Body {
             CommandRan { unit, .. } => (None, unit.clone(), None),
             CommandEnded { .. } | CommandReviewed { .. } => (None, None, None),
             AgentKeys { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
+            AgentStartReserved { .. } | AgentStarted { .. } | AgentStartEnded { .. } | AgentAnswered { .. } | AgentClosed { .. } => (None, None, None),
         }
     }
 }
