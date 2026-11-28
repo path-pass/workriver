@@ -84,6 +84,8 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Cmd {
+    #[command(hide = true)]
+    Host { dir: std::path::PathBuf },
     #[command(about = runtime::words::HELP_SERVE)]
     Serve {
         /// The terminal app brought to the front when an agent's terminal is opened (macOS);
@@ -275,10 +277,10 @@ pub(crate) enum Cmd {
     },
 }
 
-/// The CLI's commands: everything but `serve`, which `main` starts.
+/// The short-lived commands.
 pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     match &cli.cmd {
-        Cmd::Serve { .. } => unreachable!("main starts the service"),
+        Cmd::Serve { .. } | Cmd::Host { .. } => unreachable!("main starts the service and the host"),
         Cmd::Perf { since, top, bundle } => {
             let home = common::home::data_dir();
             if *bundle {
@@ -305,7 +307,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     let actor = cli.actor.as_deref().unwrap_or_default();
     let cx = Cx { d: &d, actor };
     let out = match cli.cmd {
-        Cmd::Serve { .. } | Cmd::Guide { .. } | Cmd::Perf { .. } => unreachable!(),
+        Cmd::Serve { .. } | Cmd::Host { .. } | Cmd::Guide { .. } | Cmd::Perf { .. } => unreachable!(),
         Cmd::Status => {
             let s = d.get("/api/status")?;
             let theirs = format!("{} ({})", s["version"].as_str().unwrap_or("?"), s["commit"].as_str().unwrap_or("unknown"));

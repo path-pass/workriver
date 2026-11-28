@@ -9,10 +9,12 @@ use std::path::Path;
 use anyhow::Context;
 use clap::Parser;
 
-/// Parses the command line; `serve` is started here (the one place that puts the service
-/// together), every other command is the CLI's.
+/// The service and the per-agent host each start directly here.
 fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
+    if let cli::Cmd::Host { dir } = &cli.cmd {
+        return runtime::host(dir);
+    }
     if let cli::Cmd::Serve { terminal_app, perf_detail } = &cli.cmd {
         common::diagnostics::init(&common::home::data_dir(), *perf_detail || std::env::var("WORKRIVER_PERF").is_ok_and(|v| v == "detail"));
         // A directory or file that cannot be made is the store's error, as when it made them.

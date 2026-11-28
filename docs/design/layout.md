@@ -406,7 +406,17 @@ crates/workriver/
 │   │   ├── follow.rs                 # Several machines as one Runtime; routing by machine; each
 │   │   │                             # machine's change stream (watch) beside its reads.
 │   │   ├── ssh.rs                    # Tunnel supervision, publication, reconnect timing.
-│   │   └── herdr/                    # Private to runtime/. Another runtime goes beside it.
+│   │   ├── acp/                      # Per-agent host and the ACP v1 journal projections.
+│   │   │   ├── mod.rs                # The host command entry point.
+│   │   │   ├── host/                 # Socket protocol, pending approvals and lifecycle.
+│   │   │   │   ├── mod.rs            # The host's polling loop and effects.
+│   │   │   │   ├── close.rs          # Group ownership, signals, waits and close outcomes.
+│   │   │   │   ├── instance.rs       # Instance files, lock, socket, and child environment.
+│   │   │   │   └── wire.rs           # Bounded JSON-RPC frames over sockets and pipes.
+│   │   │   ├── codex/                # Codex app-server translation and pinned schema fixtures.
+│   │   │   ├── journal.rs            # Durable receipts, delivery keys and bounded reads.
+│   │   │   └── __fixtures__/         # Pinned ACP v1 schema and shared conversation.
+│   │   └── herdr/                    # Private to runtime/.
 │   │       ├── mod.rs                # Herdr implements Runtime; protocol values to workriver values.
 │   │       ├── protocol.rs           # Socket discovery, protocol version, framing, checked RPC.
 │   │       ├── agents.rs             # Snapshot normalization, roots, states, names, ids.

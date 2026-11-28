@@ -1,0 +1,5 @@
+Unmodified approval response schemas emitted by Codex CLI 0.172.0:
+codex app-server generate-json-schema --out <directory>
+
+The files are the three same-named, standalone schemas in the output root.
+The command uses the stable method and field set, without --experimental.

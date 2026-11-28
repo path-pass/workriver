@@ -2256,6 +2256,7 @@ dependencies = [
  "clap",
  "http-body",
  "humantime",
+ "jsonschema",
  "libc",
  "libproc",
  "mime_guess",

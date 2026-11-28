@@ -8,8 +8,13 @@ use workriver_core::runtime::Runtime;
 use crate::common::config;
 
 pub mod follow;
+mod acp;
 mod herdr;
 pub mod ssh;
+
+pub(crate) fn host(dir: &std::path::Path) -> anyhow::Result<()> {
+    acp::run(dir)
+}
 
 /// Today's only adapter.
 use herdr as adapter;
