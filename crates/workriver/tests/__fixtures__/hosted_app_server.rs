@@ -31,6 +31,18 @@ fn fake_codex_app_server() {
             .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
         fs::write("probe-result", if probe.success() { "refused" } else { "open" }).unwrap();
     }
+    if fake.options["escape"] == true {
+        // Two of the agent's processes leave its group the way a daemon does (their own
+        // session, then a parent that exits): one this test's own binary, whose environment
+        // macOS lets its account read, and one a system binary, whose environment it withholds.
+        let exe = std::env::current_exe().unwrap();
+        let line = format!("'{}' --exact fake::escaped_sleeper --ignored >/dev/null 2>&1 & echo $! > escaped-pid; /bin/sleep 23 & echo $! > escaped-system-pid", exe.display());
+        let mut sh = Command::new("/bin/sh");
+        sh.args(["-c", &line]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // SAFETY: only setsid between fork and exec.
+        unsafe { std::os::unix::process::CommandExt::pre_exec(&mut sh, || if libc::setsid() == -1 { Err(io::Error::last_os_error()) } else { Ok(()) }) };
+        sh.status().unwrap();
+    }
     if let Some(line) = fake.options["run_at_start"].as_str() {
         // A tool of the agent's, run before its start is recorded.
         run(line, "start-run.out");
@@ -90,6 +102,14 @@ fn fake_codex_app_server() {
     if fake.options["ignore_term"] == true {
         // Escape timeout if the test itself crashes before closing the fake.
         thread::sleep(Duration::from_secs(17));
+    }
+}
+
+#[test]
+#[ignore = "launched by the fake app-server as a process that left the agent's group"]
+fn escaped_sleeper() {
+    if std::env::var_os("WORKRIVER_AGENT").is_some() {
+        thread::sleep(Duration::from_secs(23));
     }
 }
 
@@ -163,6 +183,10 @@ impl Fake {
                 for field in ["approvalPolicy", "approvalsReviewer", "sandbox"] {
                     assert!(params.get(field).is_none(), "host overrides {field}");
                 }
+                // The one setting the host gives the thread: its tools keep the launch's marker.
+                let config = params["config"].as_object().unwrap();
+                assert_eq!(config.keys().collect::<Vec<_>>(), ["shell_environment_policy.set.WORKRIVER_AGENT"]);
+                assert_eq!(config["shell_environment_policy.set.WORKRIVER_AGENT"], std::env::var("WORKRIVER_AGENT").unwrap());
                 json!({
                     "thread":{"id":self.fixture["session"]}, "model":"effective-model",
                     "modelProvider":self.options["provider"].as_str().unwrap_or("openai"),

@@ -228,3 +228,39 @@ host's writer (`journal_page`).
 Missing answers are the set difference of the journal's `decided` lines and the recorded
 answers. A close asked for and not recorded after 40 s shows `unconfirmed`. The service
 never signals a host or its agent.
+
+## Leftover processes
+
+**The marker.** The host gives the agent's process `WORKRIVER_AGENT=<id>/<generation>/<tag>`,
+where the tag is the start of the SHA-256 of the instance's key and its directory (as the
+host was given it): no two instances share a marker, two data directories or two tests
+included, and nothing of the key shows. The Codex adapter also passes the thread one setting,
+`shell_environment_policy.set.WORKRIVER_AGENT`, so the tools' processes keep the marker
+whatever the user's policy (checked with Codex 0.172.0: with `inherit = "core"` the marker is
+dropped without it and kept with it, through `thread/shellCommand`, `setsid` and a double
+fork). Only the marker is ever read of an environment; nothing else of it is kept, logged or
+shown.
+
+**The close sweep.** At the close's SIGTERM step the host lists this account's processes
+carrying its own launch's marker (but the agent's leader). Before every signal each is read
+again: its start, this account's, the marker still there. They are signalled with the group
+(TERM, then KILL) within the one deadline and count with it for `ended`. The `closed` line
+lists each as `processes: [{pid, outcome}]`, `exited` (a zombie counts), `alive` (then the
+outcome is `stuck` with its pid) or `unverifiable`; a scan that could not list the processes
+is `markedError`, never an empty list.
+
+**The service's list.** `/api/hosted/processes` (the user's; `workriver agent processes`)
+scans this account's processes for markers whose tag is one of this service's instances.
+`running`: those of a launch that runs under its live host. `leftover`: its agent closed, its
+start ended, no start reserved it, an older generation, or its host gone; each with pid,
+command name (never its arguments), start time, agent and generation. A marker of another
+data directory is not listed. `/api/hosted/processes/close` (`--close PID`, `--all`) ends
+leftovers on the user's request only: each read again before every signal, TERM, then KILL,
+within seven seconds, with each outcome. Nothing ends a leftover by itself, after a restart of
+the service or the host neither.
+
+**The limit.** A process that clears or replaces its environment carries no marker. macOS
+shows no environment at all of its own platform binaries (`/bin/sh`, `/bin/sleep`, and the
+like) to another process of the same account, `ps -E` included: their marker cannot be read,
+so they are not found once they leave the agent's group (inside it the group's signals still
+reach them). On Linux `/proc/<pid>/environ` reads every process of the account.

@@ -84,6 +84,8 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/here", post(here))
         .route("/api/hosted", get(hosted::list))
         .route("/api/hosted/start", post(hosted::start))
+        .route("/api/hosted/processes", get(hosted::processes))
+        .route("/api/hosted/processes/close", post(hosted::processes_close))
         .route("/api/hosted/{id}", get(hosted::show))
         .route("/api/hosted/{id}/prompt", post(hosted::prompt))
         .route("/api/hosted/{id}/read", get(hosted::read))

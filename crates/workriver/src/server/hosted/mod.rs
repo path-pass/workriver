@@ -19,6 +19,7 @@ use crate::server::app::*;
 use crate::server::delivery::quote;
 use crate::server::http::*;
 
+mod leftovers;
 mod lifecycle;
 
 pub(in crate::server) use lifecycle::Hosting;
@@ -289,6 +290,36 @@ pub(in crate::server) async fn close(State(app): State<Shared>, Extension(caller
         let who = app.user(&caller)?;
         let a = app.driven(&who, &agent)?;
         app.close_hosted(&a).map(Json)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+pub(in crate::server) struct Ending {
+    #[serde(default)]
+    pid: Option<u32>,
+    #[serde(default)]
+    all: bool,
+}
+
+/// The processes of the hosted agents: each running one's, and those left over (the user's:
+/// it shows what runs as the user's account).
+pub(in crate::server) async fn processes(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<Value>, ApiError> {
+    blocking(move || {
+        app.user(&caller)?;
+        leftovers::list_shown(&app).map(Json)
+    })
+    .await
+}
+
+/// The user ends one leftover process, or all of them; nothing else ends one.
+pub(in crate::server) async fn processes_close(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(e): Json<Ending>) -> Result<Json<Value>, ApiError> {
+    blocking(move || {
+        app.user(&caller)?;
+        if e.pid.is_none() && !e.all {
+            return Err(bad("name a leftover process (`pid`) or all of them (`all`)".into()));
+        }
+        app.end_leftovers(e.pid).map(Json)
     })
     .await
 }

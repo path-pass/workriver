@@ -61,6 +61,23 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             }
             print_agent(&until_not(d, &agent, "closing", Duration::from_secs(45))?);
         }
+        AgentCmd::Processes { close, all } => {
+            if close.is_some() || all {
+                let r = d.call("/api/hosted/processes/close", Some(json!({"pid": close, "all": all})))?;
+                for p in r["processes"].as_array().into_iter().flatten() {
+                    println!("{:<7} {:<5} {}", p["pid"], text(&p["agent"]), text(&p["outcome"]));
+                }
+                return Ok(None);
+            }
+            let r = d.get("/api/hosted/processes")?;
+            for (title, key) in [("running", "running"), ("left over (`--close PID` or `--all` ends them)", "leftover")] {
+                let list = r[key].as_array().cloned().unwrap_or_default();
+                println!("{title}: {}", if list.is_empty() { "none" } else { "" });
+                for p in list {
+                    println!("  {:<7} {:<5} gen {} {:<16} started {} {}", p["pid"], text(&p["agent"]), p["generation"], text(&p["command"]), text(&p["started"]), text(&p["why"]));
+                }
+            }
+        }
         AgentCmd::Hosted { on } => {
             let r = match on {
                 Some(on) => d.call("/api/settings/hosted", Some(json!({"on": on == "on"})))?,
@@ -178,6 +195,18 @@ pub(crate) enum AgentCmd {
         agent: String,
         #[arg(long)]
         wait: bool,
+    },
+    /// The processes of the hosted agents (the user's): each running agent's, and those left
+    /// over (its agent closed or gone, an older launch). Only `--close` or `--all` ends one:
+    /// nothing ends them by itself. A process that cleared its environment, or one macOS
+    /// keeps its environment from (its own binaries: sh, sleep), is not found.
+    Processes {
+        /// End this leftover process.
+        #[arg(long, value_name = "PID", conflicts_with = "all")]
+        close: Option<u32>,
+        /// End every leftover process.
+        #[arg(long)]
+        all: bool,
     },
     /// Whether the hosted runtime (an experiment) is on; the user turns it on or off. Off
     /// refuses new starts only: running hosted agents are still read, answered and closed.

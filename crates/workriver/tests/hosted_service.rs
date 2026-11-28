@@ -259,3 +259,45 @@ fn the_user_starts_drives_and_closes_a_hosted_worker_across_a_restart() {
     let (ok, out) = user.run(&start);
     assert!(!ok && out.contains("the hosted runtime is off"), "{out}");
 }
+
+/// A process of the agent's that left its group is listed as its: running while its launch
+/// runs, left over once its host is gone. Nothing ends it by itself; the user ends it.
+#[test]
+fn a_leftover_process_is_listed_and_ended_only_by_the_user() {
+    let (w, mut user) = world();
+    let cwd = w.root.join("cwd");
+    let repo = w.root.join("repo");
+    assert!(Command::new("git").arg("-C").arg(&repo).args(["init", "-q", "-b", "main"]).status().unwrap().success());
+    user.ok(&format!("\"$W\" project add '{}' --title Repo", repo.display()));
+    user.ok(&format!("\"$W\" workspace add '{}' --name chat", repo.display()));
+    user.ok("\"$W\" agent hosted on");
+    options(&w, json!({"escape": true}));
+    user.ok(&format!("\"$W\" agent start --workspace ws1 --name w --cwd '{}' --model requested-model --auth chatgpt --wait", cwd.display()));
+    let mut escaped = String::new();
+    eventually("the escaped process starts", || {
+        escaped = std::fs::read_to_string(cwd.join("escaped-pid")).unwrap_or_default().trim().to_string();
+        !escaped.is_empty()
+    });
+    let system: String = std::fs::read_to_string(cwd.join("escaped-system-pid")).unwrap_or_default().trim().into();
+    let listed = |user: &mut Shell| user.ok("\"$W\" agent processes");
+    let running_part = |out: &str| out.split("left over").next().unwrap_or_default().to_string();
+    let out = listed(&mut user);
+    assert!(running_part(&out).contains(&format!("  {escaped} ")) && out.contains("left over (`--close PID` or `--all` ends them): none"), "{out}");
+    // The host dies: its agent is stopped, and what it left is listed, never ended by itself.
+    let host = w.kinds("agent.started")[0]["body"]["host"]["pid"].as_u64().unwrap();
+    assert!(Command::new("kill").args(["-KILL", &host.to_string()]).status().unwrap().success());
+    eventually("the agent is stopped", || show(&mut user, "w").contains(": stopped"));
+    let out = listed(&mut user);
+    assert!(out.contains(&format!("  {escaped} ")) && out.contains("its agent's host is gone") && out.contains("running: none"), "{out}");
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(Command::new("kill").args(["-0", &escaped]).status().unwrap().success(), "a leftover was ended by itself");
+    let (ok, out) = user.run("\"$W\" agent processes --close 1");
+    assert!(!ok && out.contains("is not a leftover"), "{out}");
+    let out = user.ok(&format!("\"$W\" agent processes --close {escaped}"));
+    assert!(out.contains(&escaped) && out.contains("exited"), "{out}");
+    eventually("the leftover is gone", || !Command::new("kill").args(["-0", &escaped]).status().unwrap().success());
+    // The system binary's environment is withheld (macOS): it was never listed.
+    if !system.is_empty() {
+        let _ = Command::new("kill").args(["-KILL", &system]).status();
+    }
+}

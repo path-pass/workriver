@@ -40,9 +40,9 @@ fn host_records_stuck_after_the_deadline_if_members_remain_or_listing_fails() {
         // Once expired, each poll advances one phase against the same deadline.
         let deadline = host.closing.as_ref().unwrap().deadline;
         for _ in 0..4 {
-            assert!(!host.progress_close(deadline, listing).unwrap());
+            assert!(!host.progress_close(deadline, listing, || Some(vec![])).unwrap());
         }
-        assert!(host.progress_close(deadline, listing).unwrap());
+        assert!(host.progress_close(deadline, listing, || Some(vec![])).unwrap());
         let mut bytes = Vec::new();
         host.journal.read(0, 10, &mut bytes).unwrap();
         let page: Value = serde_json::from_slice(&bytes).unwrap();

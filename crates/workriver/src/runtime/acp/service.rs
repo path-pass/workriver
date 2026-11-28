@@ -205,6 +205,13 @@ impl Hosts {
         Ok(conn)
     }
 
+    /// The tag an instance's processes carry in their marker (`a7/1/<tag>`), from its key and
+    /// its directory as the host was given it; none when its key cannot be read.
+    pub fn tag(&self, id: &str) -> Option<String> {
+        let key = fs::read(self.dir(id).join("host.key")).ok()?;
+        Some(super::host::marker_tag(&key, &self.dir(id)))
+    }
+
     /// Where an instance's journal is.
     pub fn journal(&self, id: &str) -> PathBuf {
         self.dir(id).join("journal.jsonl")

@@ -45,6 +45,8 @@ local POST /api/run/r9/review  anonymous 401  agent 404  user 404
 local POST /api/here  anonymous 401  agent 200  user 200
 local GET /api/hosted  anonymous 401  agent 200  user 200
 local POST /api/hosted/start  anonymous 401  agent 403  user 422
+local GET /api/hosted/processes  anonymous 401  agent 403  user 200
+local POST /api/hosted/processes/close  anonymous 401  agent 403  user 422
 local GET /api/hosted/a9  anonymous 401  agent 403  user 403
 local POST /api/hosted/a9/prompt  anonymous 401  agent 403  user 403
 local GET /api/hosted/a9/read?after=0  anonymous 401  agent 403  user 403
@@ -83,6 +85,7 @@ local HEAD /api/agent/screen?agent=s-boss  anonymous 401  agent 403  user 200
 local HEAD /api/agent/view?agent=nobody-here  anonymous 401  agent 403  user 404
 local HEAD /api/run/r9  anonymous 401  agent 403  user 404
 local HEAD /api/hosted  anonymous 401  agent 200  user 200
+local HEAD /api/hosted/processes  anonymous 401  agent 403  user 200
 local HEAD /api/hosted/a9  anonymous 401  agent 403  user 403
 local HEAD /api/hosted/a9/read?after=0  anonymous 401  agent 403  user 403
 local HEAD /api/hosted/a9/status  anonymous 401  agent 403  user 403

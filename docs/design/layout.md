@@ -327,6 +327,8 @@ crates/workriver/
 │   │   │   ├── mod.rs                # Routes: start, answer, close and the switch App::user; list,
 │   │   │   │                         # show, prompt, read, status, cancel for whoever drives it
 │   │   │   │                         # (`State::drives`, read anew per request).
+│   │   │   ├── leftovers.rs          # The hosted agents' processes by their marker: running and
+│   │   │   │                         # left over; the user's end of one or all.
 │   │   │   └── lifecycle.rs          # Start (reserve, spawn, wait, record, publish), close,
 │   │   │                             # the reconciliation each tick (lost receipts, re-attach
 │   │   │                             # with the protocol check, stopped, unreserved hosts).
@@ -431,7 +433,8 @@ crates/workriver/
 │   │   │   │                         # prompts with delivery keys.
 │   │   │   ├── host/                 # Socket protocol, pending approvals and lifecycle.
 │   │   │   │   ├── mod.rs            # The host's polling loop and effects.
-│   │   │   │   ├── close.rs          # Group ownership, signals, waits and close outcomes.
+│   │   │   │   ├── close.rs          # Group ownership, signals, waits and close outcomes; the
+│   │   │   │   │                     # sweep of the launch's marked processes.
 │   │   │   │   ├── instance.rs       # Instance files, lock and socket.
 │   │   │   │   ├── peer.rs           # Kernel peer identity and host ancestry checks.
 │   │   │   │   └── tests.rs          # Close deadline, approval durability and truncation.

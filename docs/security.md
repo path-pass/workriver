@@ -322,6 +322,14 @@ harness (Codex) with no terminal, and keeps its conversation in a journal beside
   its socket is not there and no process of its own holds a listener bound at that path;
   one that does not answer makes every identity read fail, so a command in no terminal is
   then refused, not taken for you.
+- **Processes it leaves.** Every process a hosted agent starts carries a marker in its
+  environment (its agent, launch and instance). A close ends its own launch's marked
+  processes too, each read again before every signal, and says how each ended. Those left
+  over (its agent closed, its host gone) are listed for you (`workriver agent processes`)
+  and ended only when you ask, one or all; nothing ends one by itself. A process that clears
+  its environment escapes this, and so, on macOS, does one of the system's own binaries
+  (`sh`, `sleep`) once it leaves the agent's process group: macOS shows their environment
+  to nobody else.
 - **What reaches the agent.** A manager's prompt arrives as `From "<name>" (your manager):
   <text>`, one line; yours arrives as you wrote it. The records hold no text of the agent's:
   an answer is its request's key and allow or reject.

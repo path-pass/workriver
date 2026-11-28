@@ -24,6 +24,7 @@ workriver agent help close
 workriver agent help help
 workriver agent help hosted
 workriver agent help list
+workriver agent help processes
 workriver agent help prompt
 workriver agent help read
 workriver agent help show
@@ -34,6 +35,10 @@ workriver agent hosted  arg help --help -h num=0 action=Help
 workriver agent hosted  arg on index=1 value=["ON"] num=1 one-of=["on", "off"] action=Set
 workriver agent list
 workriver agent list  arg help --help -h num=0 action=Help
+workriver agent processes
+workriver agent processes  arg all --all value=["ALL"] num=0 default=["false"] action=SetTrue
+workriver agent processes  arg close --close value=["PID"] num=1 action=Set conflicts=all
+workriver agent processes  arg help --help -h num=0 action=Help
 workriver agent prompt
 workriver agent prompt  arg agent index=1 value=["AGENT"] num=1 action=Set required
 workriver agent prompt  arg help --help -h num=0 action=Help
@@ -216,6 +221,7 @@ workriver help agent cancel
 workriver help agent close
 workriver help agent hosted
 workriver help agent list
+workriver help agent processes
 workriver help agent prompt
 workriver help agent read
 workriver help agent show

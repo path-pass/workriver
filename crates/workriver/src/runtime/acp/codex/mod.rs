@@ -64,7 +64,7 @@ struct Turn {
     early_completion: Option<(String, Value)>,
 }
 
-pub(super) fn launch(cwd: &Path, model: Option<&str>, auth: &str, place: &str) -> Result<(Adapter, Child)> {
+pub(super) fn launch(cwd: &Path, model: Option<&str>, auth: &str, place: &str, marker: &str) -> Result<(Adapter, Child)> {
     let command = || {
         let names = ["HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "TMPDIR", "TERM", "CODEX_HOME", "WORKRIVER_HOME", "WORKRIVER_PORT"];
         let mut command = Command::new("codex");
@@ -75,6 +75,8 @@ pub(super) fn launch(cwd: &Path, model: Option<&str>, auth: &str, place: &str) -
             command.env("OPENAI_API_KEY", key);
         }
         command.env("WORKRIVER_PLACE", place);
+        // What a close and the leftover list find its processes by, wherever they go.
+        command.env(crate::common::process::MARKER, marker);
         command
     };
     let version = crate::common::process::output_within({
@@ -84,7 +86,8 @@ pub(super) fn launch(cwd: &Path, model: Option<&str>, auth: &str, place: &str) -
     }, Duration::from_secs(5))?;
     ensure!(version.status.success(), "cannot read the Codex version");
     let version = String::from_utf8(version.stdout)?;
-    let adapter = Adapter::new(cwd, model, auth, version.trim())?;
+    let mut adapter = Adapter::new(cwd, model, auth, version.trim())?;
+    adapter.marker = Some(marker.into());
     let child = command().args(["app-server", "--listen", "stdio://"])
         .process_group(0).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
     Ok((adapter, child))
@@ -105,6 +108,9 @@ pub struct Adapter {
     diffs: HashMap<(String, String), Value>,
     files: HashMap<(String, String, String), Value>,
     sources: HashMap<String, Value>,
+    /// The launch's marker, which Codex's tools' processes carry whatever the user's shell
+    /// environment policy: the one setting the adapter gives the thread.
+    marker: Option<String>,
 }
 
 impl Adapter {
@@ -130,6 +136,7 @@ impl Adapter {
             diffs: HashMap::new(),
             files: HashMap::new(),
             sources: HashMap::new(),
+            marker: None,
         })
     }
 
@@ -292,6 +299,10 @@ impl Adapter {
                 let mut params = json!({"cwd": self.cwd});
                 if let Some(model) = &self.model {
                     params["model"] = json!(model);
+                }
+                // Only this variable is set; the policy, approvals and sandbox stay the user's.
+                if let Some(marker) = &self.marker {
+                    params["config"] = json!({format!("shell_environment_policy.set.{}", crate::common::process::MARKER): marker});
                 }
                 events.push(Event::SessionNew(self.request(Call::Thread, params)));
             }

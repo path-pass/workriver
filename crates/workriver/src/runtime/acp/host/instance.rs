@@ -24,6 +24,19 @@ pub(super) struct Directory {
     pub path: PathBuf,
     _lock: File,
     pub proof: [u8; 64],
+    /// What tells this instance's processes from any other's in their marker (`marker_tag`).
+    pub tag: String,
+}
+
+/// An instance's part of its processes' marker: the start of the SHA-256 of its key and its
+/// directory, so that no two instances (of two data directories, or two tests) share a
+/// marker, and nothing of the key itself is shown.
+pub(crate) fn marker_tag(key: &[u8], dir: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(key);
+    h.update(dir.as_os_str().as_encoded_bytes());
+    h.finalize().iter().take(6).map(|b| format!("{b:02x}")).collect()
 }
 
 impl Directory {
@@ -51,7 +64,7 @@ impl Directory {
         let instance: Instance = serde_json::from_slice(&fs::read(path.join("instance.json"))?).context("cannot read the instance")?;
         ensure!(instance.harness == "codex" && instance.state == "starting" && instance.cwd.is_absolute() && instance.generation > 0, "instance must be a reserved Codex start");
         ensure!(instance.id.strip_prefix('a').is_some_and(|n| n.parse::<u64>().is_ok_and(|id| id > 0)), "invalid agent id");
-        Ok((Self { path: path.to_path_buf(), _lock: lock, proof }, instance))
+        Ok((Self { path: path.to_path_buf(), _lock: lock, proof, tag: marker_tag(&bytes, path) }, instance))
     }
 
     pub fn bind(&self) -> anyhow::Result<Socket> {

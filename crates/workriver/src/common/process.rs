@@ -65,6 +65,145 @@ pub(crate) fn one(_: u32) -> Option<Proc> {
     None
 }
 
+/// The variable that marks every process a hosted agent starts (its agent's id, the launch's
+/// generation and its instance's tag, `a7/2/3f09c1d2aa04`): set by its host, inherited by
+/// whatever does not clear its environment.
+pub const MARKER: &str = "WORKRIVER_AGENT";
+
+/// A process of this account as a sweep reads it: when it started, and whether it has
+/// already exited (a zombie, waiting to be reaped).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Owned {
+    pub start: u64,
+    pub zombie: bool,
+}
+
+/// Process `pid`, if it runs and is this account's.
+#[cfg(target_os = "macos")]
+pub fn owned(pid: u32) -> Option<Owned> {
+    let k = libproc::libproc::proc_pid::kproc_info_raw(pid as i32).ok()?;
+    // SAFETY: getuid has no arguments or failure mode.
+    if k.kp_proc.p_pid as u32 != pid || k.kp_eproc.e_ucred.cr_uid != unsafe { libc::getuid() } {
+        return None;
+    }
+    let start = (k.kp_proc.p_un.tv_sec.max(0) as u64) * 1_000_000 + k.kp_proc.p_un.tv_usec.max(0) as u64;
+    Some(Owned { start, zombie: k.kp_proc.p_stat as i32 == 5 })
+}
+
+#[cfg(target_os = "linux")]
+pub fn owned(pid: u32) -> Option<Owned> {
+    let p = procfs::process::Process::new(pid as i32).ok()?;
+    // SAFETY: getuid has no arguments or failure mode.
+    if p.uid().ok()? != unsafe { libc::getuid() } {
+        return None;
+    }
+    let s = p.stat().ok()?;
+    Some(Owned { start: s.starttime * 1_000_000 / procfs::ticks_per_second(), zombie: s.state == 'Z' })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn owned(_: u32) -> Option<Owned> {
+    None
+}
+
+/// Every process id on this machine; none: they cannot be listed.
+#[cfg(target_os = "macos")]
+pub fn all() -> Option<Vec<u32>> {
+    libproc::processes::pids_by_type(libproc::processes::ProcFilter::All).ok()
+}
+
+#[cfg(target_os = "linux")]
+pub fn all() -> Option<Vec<u32>> {
+    Some(procfs::process::all_processes().ok()?.filter_map(|p| p.ok()).map(|p| p.pid as u32).collect())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn all() -> Option<Vec<u32>> {
+    None
+}
+
+/// The value of the hosted agent's marker in a process's environment, and nothing else of
+/// it (the rest of an environment is never kept, logged or shown). `Ok(None)`: it has none;
+/// `Err`: its environment cannot be read (gone, another account's, or one the system keeps
+/// to itself: macOS shows no environment at all of its own platform binaries, `/bin/sh`
+/// and `/bin/sleep` among them, to `ps -E` neither).
+pub fn marker(pid: u32) -> Result<Option<String>, ()> {
+    let want = format!("{MARKER}=");
+    let found = environment(pid, &mut |var| var.strip_prefix(want.as_bytes()).map(|v| String::from_utf8_lossy(v).into_owned()))?;
+    Ok(found)
+}
+
+/// Each variable of `pid`'s environment, as `NAME=value` bytes, until `pick` takes one.
+#[cfg(target_os = "macos")]
+fn environment(pid: u32, pick: &mut dyn FnMut(&[u8]) -> Option<String>) -> Result<Option<String>, ()> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    let mut len = 0;
+    // SAFETY: the first call sizes the buffer and the second fills at most `len` bytes of it.
+    let bytes = unsafe {
+        if libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut len, std::ptr::null_mut(), 0) != 0 {
+            return Err(());
+        }
+        let mut bytes = vec![0u8; len];
+        if libc::sysctl(mib.as_mut_ptr(), 3, bytes.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0) != 0 {
+            return Err(());
+        }
+        bytes.truncate(len);
+        bytes
+    };
+    // argc, the executable's path, padding, argv, then the environment, each NUL-ended.
+    let (argc, rest) = bytes.split_first_chunk::<4>().ok_or(())?;
+    let argc = i32::from_ne_bytes(*argc).max(0) as usize;
+    let mut strings = rest.split(|&b| b == 0);
+    strings.next().ok_or(())?;
+    let mut vars = strings.skip_while(|s| s.is_empty()).skip(argc).take_while(|s| !s.is_empty()).peekable();
+    // No variable at all is an environment withheld, not an empty one.
+    if vars.peek().is_none() {
+        return Err(());
+    }
+    Ok(vars.find_map(|s| pick(s)))
+}
+
+#[cfg(target_os = "linux")]
+fn environment(pid: u32, pick: &mut dyn FnMut(&[u8]) -> Option<String>) -> Result<Option<String>, ()> {
+    let bytes = std::fs::read(format!("/proc/{pid}/environ")).map_err(|_| ())?;
+    Ok(bytes.split(|&b| b == 0).find_map(|s| pick(s)))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn environment(_: u32, _: &mut dyn FnMut(&[u8]) -> Option<String>) -> Result<Option<String>, ()> {
+    Err(())
+}
+
+/// When a process started, from its `Owned::start`, as the time it was on the clock.
+#[cfg(target_os = "macos")]
+pub fn started_at(start: u64) -> Option<String> {
+    Some(humantime::format_rfc3339_seconds(std::time::UNIX_EPOCH + std::time::Duration::from_micros(start)).to_string())
+}
+
+#[cfg(target_os = "linux")]
+pub fn started_at(start: u64) -> Option<String> {
+    let stat = std::fs::read_to_string("/proc/stat").ok()?;
+    let boot: u64 = stat.lines().find_map(|l| l.strip_prefix("btime "))?.trim().parse().ok()?;
+    Some(humantime::format_rfc3339_seconds(std::time::UNIX_EPOCH + std::time::Duration::from_secs(boot) + std::time::Duration::from_micros(start)).to_string())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn started_at(_: u64) -> Option<String> {
+    None
+}
+
+/// Every process of this account whose environment carries the marker, with what it says:
+/// `None` when the processes cannot be listed (a failed scan, never an empty one).
+/// A process whose environment cannot be read is not in it.
+pub fn marked() -> Option<Vec<(u32, Owned, String)>> {
+    let mine = std::process::id();
+    Some(all()?.into_iter().filter(|&pid| pid != mine).filter_map(|pid| {
+        let o = owned(pid).filter(|o| !o.zombie)?;
+        let m = marker(pid).ok()??;
+        Some((pid, o, m))
+    }).collect())
+}
+
 /// Whether a process named `name` holds a Unix socket bound at `path`, even one whose file
 /// is gone: the kernel keeps the address a listener was bound with. None: it cannot be told
 /// (the processes, or the sockets of one of them, cannot be read).
@@ -284,6 +423,45 @@ mod tests {
         assert_eq!(ids(&ours), ids(&theirs));
         assert_eq!(theirs[0].name, "sleep");
         assert!(gone.unwrap().is_empty() && chain(0x3fff_fff0).is_empty(), "a process that is gone");
+    }
+
+    /// A child given the marker carries it, and this process's own environment is read
+    /// back with no other variable kept.
+    #[test]
+    fn a_marked_child_is_found_by_its_marker() {
+        // This test binary, not a system one: macOS withholds a platform binary's environment.
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "common::process::tests::a_marked_sleeper", "--ignored", "--nocapture"]).env(MARKER, "a9/3").env("MARKED_SLEEP", "1")
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        let pid = child.id();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while marker(pid) != Ok(Some("a9/3".into())) {
+            assert!(std::time::Instant::now() < until, "{:?}", marker(pid));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(marked().unwrap().iter().any(|(p, o, m)| *p == pid && m == "a9/3" && !o.zombie));
+        assert_eq!(marker(std::process::id()).map(|m| m.is_some()), Ok(std::env::var_os(MARKER).is_some()));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(owned(pid).is_none() || marker(pid).is_err() || marker(pid) == Ok(None));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_withheld_environment_is_unreadable_not_empty() {
+        let mut child = std::process::Command::new("/bin/sleep").arg("5").env(MARKER, "a9/3").spawn().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(marker(child.id()), Err(()));
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    #[ignore = "a marked child of a_marked_child_is_found_by_its_marker"]
+    fn a_marked_sleeper() {
+        if std::env::var_os("MARKED_SLEEP").is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
     }
 
     /// A listener whose file was removed is still found at its path; a path nobody is bound

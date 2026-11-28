@@ -14,6 +14,8 @@
 /api/gate
 /api/here
 /api/hosted
+/api/hosted/processes
+/api/hosted/processes/close
 /api/hosted/start
 /api/hosted/{id}
 /api/hosted/{id}/answer

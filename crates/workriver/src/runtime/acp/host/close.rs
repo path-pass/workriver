@@ -1,7 +1,14 @@
+use std::collections::BTreeMap;
 use std::io;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+
+use crate::common::process::{self, Owned};
+
+/// What a scan of this account's processes gives: each marked one, its start and its marker;
+/// none when the processes cannot be listed.
+pub(super) type Scan = Option<Vec<(u32, Owned, String)>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Step {
@@ -18,6 +25,67 @@ pub(super) struct Closing {
     next: Step,
     pub requested: bool,
     pub cancelled: bool,
+    /// The processes that carry this launch's marker outside the agent's group, too.
+    pub sweep: Sweep,
+}
+
+/// The processes a close found carrying this launch's marker (`a7/2`), each by its id and
+/// start: one that left the agent's group (its own session, a double fork) is still ended.
+/// Before every signal each is read again (the same start, this account's, the marker still
+/// there); one whose environment can no longer be read is left alone as unverifiable.
+#[derive(Default)]
+pub(super) struct Sweep {
+    seen: BTreeMap<u32, u64>,
+    /// A scan could not list the processes: kept apart from a scan that found none.
+    pub failed: bool,
+}
+
+impl Sweep {
+    /// Adds what a scan found with `marker`, but the agent's leader (the group's own).
+    pub fn take(&mut self, scan: Scan, marker: &str, leader: u32) {
+        match scan {
+            None => self.failed = true,
+            Some(found) => {
+                for (pid, owned, _) in found.into_iter().filter(|(pid, _, m)| m == marker && *pid != leader) {
+                    self.seen.entry(pid).or_insert(owned.start);
+                }
+            }
+        }
+    }
+
+    /// One process's state now: `exited` (gone, a zombie, or another process with its id),
+    /// `alive` (still this account's, its start and marker as seen), `unverifiable`.
+    fn state(marker: &str, pid: u32, start: u64) -> &'static str {
+        match process::owned(pid) {
+            Some(o) if o.start == start && !o.zombie => match process::marker(pid) {
+                Ok(Some(m)) if m == marker => "alive",
+                Ok(_) => "exited",
+                Err(()) => "unverifiable",
+            },
+            _ => "exited",
+        }
+    }
+
+    /// Those not known to have exited: alive, or unreadable now (one dying shows no
+    /// environment for a moment). The close waits for them within its deadline.
+    pub fn alive(&self, marker: &str) -> Vec<u32> {
+        self.seen.iter().filter(|&(&pid, &start)| Self::state(marker, pid, start) != "exited").map(|(&pid, _)| pid).collect()
+    }
+
+    /// Signals each one still alive, each read again just before.
+    pub fn signal(&self, marker: &str, sig: libc::c_int) {
+        for pid in self.seen.iter().filter(|&(&pid, &start)| Self::state(marker, pid, start) == "alive").map(|(&pid, _)| pid) {
+            // SAFETY: a positive pid addresses one process, read again just above.
+            if unsafe { libc::kill(pid as libc::pid_t, sig) } != 0 {
+                eprintln!("host: signalling marked process {pid} ({sig}): {}", io::Error::last_os_error());
+            }
+        }
+    }
+
+    /// Each process found, with how it ended: `exited`, `alive` or `unverifiable`.
+    pub fn report(&self, marker: &str) -> Value {
+        json!(self.seen.iter().map(|(&pid, &start)| json!({"pid": pid, "outcome": Self::state(marker, pid, start)})).collect::<Vec<_>>())
+    }
 }
 
 impl Closing {
@@ -28,6 +96,7 @@ impl Closing {
             next: Step::Unsubscribe,
             requested,
             cancelled: false,
+            sweep: Sweep::default(),
         }
     }
 

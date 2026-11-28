@@ -54,6 +54,8 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/here", &["POST"]),
     ("/api/hosted", &["GET"]),
     ("/api/hosted/start", &["POST"]),
+    ("/api/hosted/processes", &["GET"]),
+    ("/api/hosted/processes/close", &["POST"]),
     ("/api/hosted/{id}", &["GET"]),
     ("/api/hosted/{id}/prompt", &["POST"]),
     ("/api/hosted/{id}/read", &["GET"]),
@@ -259,6 +261,8 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("GET", "/api/hosted", ""),
     // The guard's service has the hosted runtime off: the user is answered that it is off.
     ("POST", "/api/hosted/start", r#"{"workspace":"ws9","name":"probe","cwd":"/","auth":"chatgpt"}"#),
+    ("GET", "/api/hosted/processes", ""),
+    ("POST", "/api/hosted/processes/close", r#"{"pid":1}"#),
     ("GET", "/api/hosted/a9", ""),
     ("POST", "/api/hosted/a9/prompt", r#"{"text":"probe"}"#),
     ("GET", "/api/hosted/a9/read?after=0", ""),

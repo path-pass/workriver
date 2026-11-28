@@ -1,5 +1,7 @@
 mod close;
 mod instance;
+
+pub(super) use instance::marker_tag;
 mod peer;
 
 #[cfg(test)]
@@ -43,7 +45,8 @@ pub(crate) fn run(path: &Path) -> anyhow::Result<()> {
     let socket = directory.bind()?;
     directory.save(&record)?;
     let place = format!("acp:{}/{}", instance.id, instance.generation);
-    let (mut adapter, mut child) = codex::launch(&instance.cwd, instance.model.as_deref(), &instance.auth, &place)?;
+    let marker = format!("{}/{}/{}", instance.id, instance.generation, directory.tag);
+    let (mut adapter, mut child) = codex::launch(&instance.cwd, instance.model.as_deref(), &instance.auth, &place, &marker)?;
     let initialize = adapter.start();
     let input = child.stdin.take().expect("piped stdin");
     let output = child.stdout.take().expect("piped stdout");
@@ -119,7 +122,7 @@ impl Host {
             activity |= self.authenticate();
             activity |= self.agent_message()?;
             self.finish_cancel(None);
-            if self.progress_close(Instant::now(), close::members)? {
+            if self.progress_close(Instant::now(), close::members, crate::common::process::marked)? {
                 return Ok(());
             }
             activity |= self.command()?;
@@ -573,7 +576,8 @@ impl Host {
         wire::poll(&mut fds, Some(until.saturating_duration_since(now)))
     }
 
-    fn progress_close(&mut self, now: Instant, list_members: impl FnOnce(u32) -> io::Result<Vec<u32>>) -> anyhow::Result<bool> {
+    fn progress_close(&mut self, now: Instant, list_members: impl FnOnce(u32) -> io::Result<Vec<u32>>, scan: impl FnOnce() -> close::Scan) -> anyhow::Result<bool> {
+        let marker = self.marker();
         let leader = self.child.id();
         let exited = close::exited(leader).context("cannot observe app-server exit")?;
         if self.closing.is_none() {
@@ -588,7 +592,9 @@ impl Host {
         let close = self.closing.as_mut().unwrap();
         let members = if close.checks_group() { list_members(leader) } else { Ok(Vec::new()) };
         let (pids, listing_error) = close::remaining(leader, exited, members);
-        let group_empty = listing_error.is_none() && pids.is_empty();
+        // The processes that carry this launch's marker count with the group.
+        let marked = if close.checks_group() { close.sweep.alive(&marker) } else { vec![] };
+        let group_empty = listing_error.is_none() && pids.is_empty() && marked.is_empty();
         let Some(step) = close.advance(now, !self.working, exited, group_empty) else {
             return Ok(false);
         };
@@ -608,6 +614,11 @@ impl Host {
             Step::Eof => { self.input.take(); }
             Step::Terminate | Step::Kill => {
                 let sig = if step == Step::Terminate { libc::SIGTERM } else { libc::SIGKILL };
+                // Found once, before the first signal; each is read again before every one.
+                if step == Step::Terminate {
+                    close.sweep.take(scan(), &marker, leader);
+                }
+                close.sweep.signal(&marker, sig);
                 if !group_empty && let Err(error) = close::signal(leader, sig) {
                     eprintln!("host: signalling the app-server group ({sig}): {error}");
                 }
@@ -626,7 +637,14 @@ impl Host {
                 } else {
                     None
                 };
-                let mut result = outcome(listing_error.is_none() && exited, &pids);
+                let marked = close.sweep.alive(&marker);
+                let mut stuck = pids.clone();
+                stuck.extend(marked.iter().filter(|p| !pids.contains(p)));
+                let mut result = outcome(listing_error.is_none() && exited, &stuck);
+                result["processes"] = close.sweep.report(&marker);
+                if close.sweep.failed {
+                    result["markedError"] = json!("this account's processes could not be listed");
+                }
                 if let Some(e) = listing_error {
                     result["listingError"] = json!(e.to_string());
                 }
@@ -645,6 +663,11 @@ impl Host {
             }
         }
         Ok(false)
+    }
+
+    /// The marker of this launch, as its agent's environment carries it: `a7/2/<tag>`.
+    fn marker(&self) -> String {
+        format!("{}/{}/{}", self.record["id"].as_str().unwrap_or_default(), self.generation, self.directory.tag)
     }
 
     fn stop_after_failure(&mut self, failure: &anyhow::Error) {
